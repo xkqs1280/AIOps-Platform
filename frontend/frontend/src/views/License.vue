@@ -2,18 +2,18 @@
   <div class="p-6 max-w-3xl mx-auto animate-in">
     <div class="flex items-center justify-between mb-6">
       <div>
-        <h2 class="text-xl font-bold text-slate-100">授权管理</h2>
-        <p class="text-sm text-slate-500 mt-1">平台版本授权与激活（离线激活码，绑定本机）</p>
+        <h2 class="text-xl font-bold text-ink-strong">授权管理</h2>
+        <p class="text-sm text-ink-faint mt-1">平台版本授权与激活（离线激活码，绑定本机）</p>
       </div>
     </div>
 
     <!-- 状态卡片 -->
-    <div class="bg-slate-900 border border-slate-800 rounded-xl p-6 mb-6">
+    <div class="bg-surface border border-line rounded-xl p-6 mb-6">
       <div class="flex items-center gap-3 mb-5">
         <span class="text-3xl">🔑</span>
         <div>
           <div class="flex items-center gap-2">
-            <h3 class="font-semibold text-slate-100">当前授权状态</h3>
+            <h3 class="font-semibold text-ink-strong">当前授权状态</h3>
             <span
               class="px-2 py-0.5 rounded text-xs font-medium"
               :class="statusBadge"
@@ -23,39 +23,39 @@
       </div>
 
       <div class="grid grid-cols-2 gap-4 text-sm">
-        <div class="bg-slate-800/60 rounded-lg p-3">
-          <div class="text-slate-500 text-xs mb-1">授权版本</div>
-          <div class="text-slate-100 font-medium">{{ versionText }}</div>
+        <div class="bg-surface-2/60 rounded-lg p-3">
+          <div class="text-ink-faint text-xs mb-1">授权版本</div>
+          <div class="text-ink-strong font-medium">{{ versionText }}</div>
         </div>
-        <div class="bg-slate-800/60 rounded-lg p-3">
-          <div class="text-slate-500 text-xs mb-1">到期时间</div>
-          <div class="text-slate-100 font-medium">{{ expireText }}</div>
+        <div class="bg-surface-2/60 rounded-lg p-3">
+          <div class="text-ink-faint text-xs mb-1">到期时间</div>
+          <div class="text-ink-strong font-medium">{{ expireText }}</div>
         </div>
-        <div class="bg-slate-800/60 rounded-lg p-3">
-          <div class="text-slate-500 text-xs mb-1">剩余天数</div>
-          <div class="text-slate-100 font-medium" :class="daysLeft !== null && daysLeft <= 30 ? 'text-orange-400' : ''">
+        <div class="bg-surface-2/60 rounded-lg p-3">
+          <div class="text-ink-faint text-xs mb-1">剩余天数</div>
+          <div class="text-ink-strong font-medium" :class="daysLeft !== null && daysLeft <= 30 ? 'text-orange-400' : ''">
             {{ daysLeft === null ? '—' : daysLeft + ' 天' }}
           </div>
         </div>
-        <div class="bg-slate-800/60 rounded-lg p-3">
-          <div class="text-slate-500 text-xs mb-1">授权说明</div>
-          <div class="text-slate-100 font-medium">{{ reason }}</div>
+        <div class="bg-surface-2/60 rounded-lg p-3">
+          <div class="text-ink-faint text-xs mb-1">授权说明</div>
+          <div class="text-ink-strong font-medium">{{ reason }}</div>
         </div>
       </div>
 
       <!-- 机器指纹 -->
       <div class="mt-5">
-        <div class="text-slate-500 text-xs mb-1.5">本机机器码（发给厂商生成激活码）</div>
+        <div class="text-ink-faint text-xs mb-1.5">本机机器码（发给厂商生成激活码）</div>
         <div class="flex items-center gap-2">
-          <code class="flex-1 bg-black/40 border border-slate-700 rounded-lg px-3 py-2 text-sm text-cyan-300 select-all">
+          <code class="flex-1 bg-black/40 border border-line rounded-lg px-3 py-2 text-sm text-[#67e8f9] select-all">
             {{ fingerprint }}
           </code>
           <button
             @click="copyFingerprint"
-            class="px-3 py-2 text-xs rounded-lg bg-slate-800 border border-slate-700 text-slate-300 hover:bg-slate-700 transition-colors"
+            class="px-3 py-2 text-xs rounded-lg bg-surface-2 border border-line text-ink-muted hover:bg-hover transition-colors"
           >复制</button>
         </div>
-        <p class="text-[11px] text-slate-500 mt-1.5">
+        <p class="text-[11px] text-ink-faint mt-1.5">
           激活码与机器码绑定，更换服务器后需重新申请激活码。<br />
           授权联系邮箱：<a href="mailto:x1280455974@163.com" class="text-cyan-400 hover:underline">x1280455974@163.com</a>
         </p>
@@ -63,15 +63,15 @@
     </div>
 
     <!-- 激活表单 -->
-    <div class="bg-slate-900 border border-slate-800 rounded-xl p-6">
-      <h3 class="font-semibold text-slate-100 mb-1.5">激活 / 续期授权</h3>
-      <p class="text-xs text-slate-500 mb-4">
+    <div class="bg-surface border border-line rounded-xl p-6">
+      <h3 class="font-semibold text-ink-strong mb-1.5">激活 / 续期授权</h3>
+      <p class="text-xs text-ink-faint mb-4">
         激活码请通过授权联系邮箱获取：<a href="mailto:x1280455974@163.com" class="text-cyan-400 hover:underline">x1280455974@163.com</a>，将上方机器码发给厂商即可生成。
       </p>
       <textarea
         v-model="licenseCode"
         rows="4"
-        class="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm text-slate-200 focus:border-cyan-500 focus:outline-none font-mono"
+        class="w-full bg-surface-2 border border-line rounded-lg px-3 py-2 text-sm text-ink focus:border-cyan-500 focus:outline-none font-mono"
         placeholder="粘贴激活码…"
       ></textarea>
       <div class="flex items-center gap-3 mt-4">
@@ -82,7 +82,7 @@
         >{{ activating ? '激活中…' : '立即激活' }}</button>
         <span v-if="message" class="text-sm" :class="messageOk ? 'text-green-400' : 'text-red-400'">{{ message }}</span>
       </div>
-      <p class="text-[11px] text-slate-500 mt-4">
+      <p class="text-[11px] text-ink-faint mt-4">
         授权规则：测试版功能全开，有效期 3 个月，到期后平台锁定（仅授权页可用）；全功能版永久授权，不限制。
       </p>
     </div>
@@ -110,7 +110,7 @@ const statusText = computed(() => {
 
 const statusBadge = computed(() => {
   const s = status.value
-  if (!s.enabled) return 'bg-slate-800 text-slate-400'
+  if (!s.enabled) return 'bg-surface-2 text-ink-muted'
   if (!s.activated) return 'bg-red-500/15 text-red-400'
   if (s.locked) return 'bg-red-500/15 text-red-400'
   return s.permanent ? 'bg-green-500/15 text-green-400' : 'bg-cyan-500/15 text-cyan-400'

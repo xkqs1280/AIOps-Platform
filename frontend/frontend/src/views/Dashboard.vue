@@ -1,5 +1,5 @@
 <template>
-  <div class="min-h-screen bg-slate-950 text-slate-100 p-4 flex flex-col gap-4 animate-in">
+  <div class="min-h-screen bg-app text-ink-strong p-4 flex flex-col gap-4 animate-in">
     <!-- 授权到期预警横幅 -->
     <div
       v-if="licenseWarning"
@@ -16,13 +16,13 @@
         <div class="w-2 h-8 grad-brand rounded-full"></div>
         <h1 class="text-2xl font-bold tracking-wide grad-text">AIOps 网络监控平台</h1>
       </div>
-      <div class="flex items-center gap-4 text-sm text-slate-400">
+      <div class="flex items-center gap-4 text-sm text-ink-muted">
         <span class="flex items-center gap-2">
           <span class="w-2 h-2 bg-green-400 rounded-full animate-pulse"></span>
           实时监控中
         </span>
         <span>{{ currentTime }}</span>
-        <span class="text-slate-600">|</span>
+        <span class="text-ink-faint">|</span>
         <span>刷新间隔: 10s</span>
       </div>
     </div>
@@ -33,9 +33,9 @@
       <div class="col-span-2 card card-lift p-4 flex flex-col">
         <PanelTitle title="设备健康概览" accent="cyan" />
         <div class="grid grid-cols-2 gap-2 flex-1 mt-3">
-          <div class="bg-slate-800/50 rounded-lg p-2 flex flex-col items-center justify-center transition-all duration-150 hover:bg-slate-700/50 hover:-translate-y-0.5">
-            <span class="text-2xl font-bold text-slate-100">{{ overview.total_devices || 0 }}</span>
-            <span class="text-xs text-slate-400 mt-1">设备总数</span>
+          <div class="bg-surface-2/50 rounded-lg p-2 flex flex-col items-center justify-center transition-all duration-150 hover:bg-hover/50 hover:-translate-y-0.5">
+            <span class="text-2xl font-bold text-ink-strong">{{ overview.total_devices || 0 }}</span>
+            <span class="text-xs text-ink-muted mt-1">设备总数</span>
           </div>
           <div class="bg-green-900/20 rounded-lg p-2 flex flex-col items-center justify-center border border-green-800/30 transition-all duration-150 hover:bg-green-800/25 hover:-translate-y-0.5">
             <span class="text-2xl font-bold text-green-400">{{ overview.online || 0 }}</span>
@@ -72,7 +72,7 @@
             <div
               v-for="(alert, index) in displayAlerts"
               :key="index"
-              class="flex items-center gap-3 py-1.5 px-2 rounded-lg hover:bg-slate-800/50 transition-colors"
+              class="flex items-center gap-3 py-1.5 px-2 rounded-lg hover:bg-hover/50 transition-colors"
             >
               <span
                 class="w-1.5 h-6 rounded-full flex-shrink-0"
@@ -82,8 +82,8 @@
                 class="text-xs px-1.5 py-0.5 rounded font-medium flex-shrink-0"
                 :class="severityBadgeClass(alert.severity)"
               >{{ severityLabel(alert.severity) }}</span>
-              <span class="text-sm text-slate-300 truncate flex-1">{{ alert.device_name }} - {{ alert.message }}</span>
-              <span class="text-xs text-slate-500 flex-shrink-0">{{ formatTime(alert.triggered_at) }}</span>
+              <span class="text-sm text-ink-muted truncate flex-1">{{ alert.device_name }} - {{ alert.message }}</span>
+              <span class="text-xs text-ink-faint flex-shrink-0">{{ formatTime(alert.triggered_at) }}</span>
             </div>
           </div>
         </div>
@@ -126,14 +126,14 @@
           <div
             v-for="(item, index) in lifecycleReminders"
             :key="index"
-            class="flex items-center gap-2 py-1.5 px-2 rounded-lg hover:bg-slate-800/50"
+            class="flex items-center gap-2 py-1.5 px-2 rounded-lg hover:bg-hover/50"
           >
             <span class="w-2 h-2 rounded-full flex-shrink-0" :class="lifecycleDotClass(item.severity)"></span>
-            <span class="text-sm text-slate-300 truncate flex-1">{{ item.device_name }}</span>
+            <span class="text-sm text-ink-muted truncate flex-1">{{ item.device_name }}</span>
             <span class="text-xs px-1.5 py-0.5 rounded" :class="lifecycleBadgeClass(item.type)">{{ item.type }}</span>
-            <span class="text-xs text-slate-500 flex-shrink-0">{{ item.date }}</span>
+            <span class="text-xs text-ink-faint flex-shrink-0">{{ item.date }}</span>
           </div>
-          <div v-if="lifecycleReminders.length === 0" class="text-center text-slate-500 text-sm py-8">暂无提醒</div>
+          <div v-if="lifecycleReminders.length === 0" class="text-center text-ink-faint text-sm py-8">暂无提醒</div>
         </div>
       </div>
 
@@ -144,37 +144,37 @@
           <div class="flex items-center justify-between bg-red-900/20 rounded-lg px-4 py-2 border border-red-800/30">
             <div class="flex items-center gap-3">
               <div class="w-3 h-3 bg-red-500 rounded-full animate-pulse"></div>
-              <span class="text-sm text-slate-300">严重</span>
+              <span class="text-sm text-ink-muted">严重</span>
             </div>
             <span class="text-2xl font-bold text-red-400">{{ alertSummary.critical || 0 }}</span>
           </div>
           <div class="flex items-center justify-between bg-orange-900/20 rounded-lg px-4 py-2 border border-orange-800/30">
             <div class="flex items-center gap-3">
               <div class="w-3 h-3 bg-orange-500 rounded-full"></div>
-              <span class="text-sm text-slate-300">主要</span>
+              <span class="text-sm text-ink-muted">主要</span>
             </div>
             <span class="text-2xl font-bold text-orange-400">{{ alertSummary.major || 0 }}</span>
           </div>
           <div class="flex items-center justify-between bg-yellow-900/20 rounded-lg px-4 py-2 border border-yellow-800/30">
             <div class="flex items-center gap-3">
               <div class="w-3 h-3 bg-yellow-500 rounded-full"></div>
-              <span class="text-sm text-slate-300">次要</span>
+              <span class="text-sm text-ink-muted">次要</span>
             </div>
             <span class="text-2xl font-bold text-yellow-400">{{ alertSummary.minor || 0 }}</span>
           </div>
           <div class="flex items-center justify-between bg-blue-900/20 rounded-lg px-4 py-2 border border-blue-800/30">
             <div class="flex items-center gap-3">
               <div class="w-3 h-3 bg-blue-500 rounded-full"></div>
-              <span class="text-sm text-slate-300">警告</span>
+              <span class="text-sm text-ink-muted">警告</span>
             </div>
             <span class="text-2xl font-bold text-blue-400">{{ alertSummary.warning || 0 }}</span>
           </div>
-          <div class="flex items-center justify-between bg-slate-800/50 rounded-lg px-4 py-2 border border-slate-700/50">
+          <div class="flex items-center justify-between bg-surface-2/50 rounded-lg px-4 py-2 border border-line/50">
             <div class="flex items-center gap-3">
-              <div class="w-3 h-3 bg-slate-400 rounded-full"></div>
-              <span class="text-sm text-slate-300">活跃告警总数</span>
+              <div class="w-3 h-3 bg-line-strong rounded-full"></div>
+              <span class="text-sm text-ink-muted">活跃告警总数</span>
             </div>
-            <span class="text-2xl font-bold text-slate-100">{{ alertSummary.total || 0 }}</span>
+            <span class="text-2xl font-bold text-ink-strong">{{ alertSummary.total || 0 }}</span>
           </div>
         </div>
       </div>
@@ -183,6 +183,8 @@
 </template>
 
 <script setup>
+import { chartTheme } from '../utils/chartTheme'
+const cc = chartTheme()
 import { ref, onMounted, onUnmounted, nextTick } from 'vue'
 import * as echarts from 'echarts'
 import {
@@ -246,7 +248,7 @@ const PanelTitle = {
     return () => h('div', {
       class: 'flex items-center gap-2 border-l-[3px] border-brand-400 pl-2 mb-2'
     }, [
-      h('span', { class: 'text-[13px] font-semibold text-slate-200 tracking-wide' }, props.title)
+      h('span', { class: 'text-[13px] font-semibold text-ink tracking-wide' }, props.title)
     ])
   }
 }
@@ -259,7 +261,7 @@ function severityBarClass(severity) {
     minor: 'bg-yellow-500',
     warning: 'bg-blue-500'
   }
-  return map[severity] || 'bg-slate-500'
+  return map[severity] || 'bg-ink-faint'
 }
 
 function severityBadgeClass(severity) {
@@ -269,7 +271,7 @@ function severityBadgeClass(severity) {
     minor: 'bg-yellow-500/20 text-yellow-400 border border-yellow-500/30',
     warning: 'bg-blue-500/20 text-blue-400 border border-blue-500/30'
   }
-  return map[severity] || 'bg-slate-500/20 text-slate-400 border border-slate-500/30'
+  return map[severity] || 'bg-ink-faint/20 text-ink-muted border border-line-strong/30'
 }
 
 function severityLabel(severity) {
@@ -289,7 +291,7 @@ function lifecycleDotClass(severity) {
     minor: 'bg-yellow-500',
     warning: 'bg-blue-500'
   }
-  return map[severity] || 'bg-slate-500'
+  return map[severity] || 'bg-ink-faint'
 }
 
 function lifecycleBadgeClass(type) {
@@ -299,7 +301,7 @@ function lifecycleBadgeClass(type) {
     '寿命到期': 'bg-yellow-500/20 text-yellow-400 border border-yellow-500/30',
     '保修': 'bg-blue-500/20 text-blue-400 border border-blue-500/30'
   }
-  return map[type] || 'bg-slate-500/20 text-slate-400 border border-slate-500/30'
+  return map[type] || 'bg-ink-faint/20 text-ink-muted border border-line-strong/30'
 }
 
 function formatTime(timeStr) {
@@ -370,15 +372,15 @@ function renderTypeChart() {
     ? Object.entries(raw).map(([name, value]) => ({ name, value }))
     : (Array.isArray(raw) ? raw : [])
   typeChart.setOption({
-    tooltip: { trigger: 'item', backgroundColor: 'rgba(17,24,39,0.9)', borderColor: '#374151', textStyle: { color: '#e5e7eb' } },
-    legend: { type: 'scroll', bottom: 0, textStyle: { color: '#9ca3af', fontSize: 10 }, itemWidth: 8, itemHeight: 8 },
+    tooltip: { trigger: 'item', backgroundColor: cc.tooltipBg, borderColor: cc.tooltipBorder, textStyle: { color: cc.text } },
+    legend: { type: 'scroll', bottom: 0, textStyle: { color: cc.sub, fontSize: 10 }, itemWidth: 8, itemHeight: 8 },
     series: [{
       type: 'pie',
       radius: ['35%', '65%'],
       center: ['50%', '45%'],
-      label: { color: '#9ca3af', fontSize: 10 },
-      labelLine: { lineStyle: { color: '#4b5563' } },
-      itemStyle: { borderColor: '#111827', borderWidth: 2 },
+      label: { color: cc.sub, fontSize: 10 },
+      labelLine: { lineStyle: { color: cc.axisLine } },
+      itemStyle: { borderColor: cc.pieBorder, borderWidth: 2 },
       data: data
     }],
     color: ['#06b6d4', '#3b82f6', '#8b5cf6', '#ec4899', '#f59e0b', '#10b981', '#ef4444', '#6366f1']
@@ -395,15 +397,15 @@ function renderVendorChart() {
     ? Object.entries(raw).map(([name, value]) => ({ name, value }))
     : (Array.isArray(raw) ? raw : [])
   vendorChart.setOption({
-    tooltip: { trigger: 'item', backgroundColor: 'rgba(17,24,39,0.9)', borderColor: '#374151', textStyle: { color: '#e5e7eb' } },
-    legend: { type: 'scroll', bottom: 0, textStyle: { color: '#9ca3af', fontSize: 10 }, itemWidth: 8, itemHeight: 8 },
+    tooltip: { trigger: 'item', backgroundColor: cc.tooltipBg, borderColor: cc.tooltipBorder, textStyle: { color: cc.text } },
+    legend: { type: 'scroll', bottom: 0, textStyle: { color: cc.sub, fontSize: 10 }, itemWidth: 8, itemHeight: 8 },
     series: [{
       type: 'pie',
       radius: ['35%', '65%'],
       center: ['50%', '45%'],
-      label: { color: '#9ca3af', fontSize: 10 },
-      labelLine: { lineStyle: { color: '#4b5563' } },
-      itemStyle: { borderColor: '#111827', borderWidth: 2 },
+      label: { color: cc.sub, fontSize: 10 },
+      labelLine: { lineStyle: { color: cc.axisLine } },
+      itemStyle: { borderColor: cc.pieBorder, borderWidth: 2 },
       data: data
     }],
     color: ['#8b5cf6', '#06b6d4', '#f59e0b', '#10b981', '#ef4444', '#3b82f6', '#ec4899', '#6366f1']
@@ -420,22 +422,22 @@ function renderCpuChart() {
     tooltip: {
       trigger: 'axis',
       axisPointer: { type: 'shadow' },
-      backgroundColor: 'rgba(17,24,39,0.9)',
-      borderColor: '#374151',
-      textStyle: { color: '#e5e7eb' }
+      backgroundColor: cc.tooltipBg,
+      borderColor: cc.tooltipBorder,
+      textStyle: { color: cc.text }
     },
     grid: { left: '3%', right: '15%', top: '5%', bottom: '3%', containLabel: true },
     xAxis: {
       type: 'value',
       max: 100,
-      axisLabel: { color: '#6b7280', fontSize: 9, formatter: '{value}%' },
-      splitLine: { lineStyle: { color: '#1f2937' } }
+      axisLabel: { color: cc.sub, fontSize: 9, formatter: '{value}%' },
+      splitLine: { lineStyle: { color: cc.split } }
     },
     yAxis: {
       type: 'category',
       data: data.map(d => d.name).reverse(),
-      axisLabel: { color: '#9ca3af', fontSize: 10, width: 60, overflow: 'truncate' },
-      axisLine: { lineStyle: { color: '#374151' } }
+      axisLabel: { color: cc.sub, fontSize: 10, width: 60, overflow: 'truncate' },
+      axisLine: { lineStyle: { color: cc.tooltipBorder } }
     },
     series: [{
       type: 'bar',
@@ -454,7 +456,7 @@ function renderCpuChart() {
       label: {
         show: true,
         position: 'right',
-        color: '#9ca3af',
+        color: cc.sub,
         fontSize: 10,
         formatter: '{c}%'
       }
@@ -472,17 +474,17 @@ function renderMemoryChart() {
     tooltip: {
       trigger: 'axis',
       axisPointer: { type: 'shadow' },
-      backgroundColor: 'rgba(17,24,39,0.9)',
-      borderColor: '#374151',
-      textStyle: { color: '#e5e7eb' }
+      backgroundColor: cc.tooltipBg,
+      borderColor: cc.tooltipBorder,
+      textStyle: { color: cc.text }
     },
     grid: { left: '3%', right: '25%', top: '5%', bottom: '3%', containLabel: false },
     xAxis: { type: 'value', max: 100, show: false },
     yAxis: {
       type: 'category',
       data: data.map(d => d.name).reverse(),
-      axisLabel: { color: '#9ca3af', fontSize: 8, width: 50, overflow: 'truncate' },
-      axisLine: { lineStyle: { color: '#374151' } },
+      axisLabel: { color: cc.sub, fontSize: 8, width: 50, overflow: 'truncate' },
+      axisLine: { lineStyle: { color: cc.tooltipBorder } },
       axisTick: { show: false }
     },
     series: [{
@@ -502,7 +504,7 @@ function renderMemoryChart() {
       label: {
         show: true,
         position: 'right',
-        color: '#9ca3af',
+        color: cc.sub,
         fontSize: 8,
         formatter: '{c}%'
       }
@@ -527,9 +529,9 @@ function renderBandwidthChart() {
     tooltip: {
       trigger: 'axis',
       axisPointer: { type: 'shadow' },
-      backgroundColor: 'rgba(17,24,39,0.9)',
-      borderColor: '#374151',
-      textStyle: { color: '#e5e7eb' },
+      backgroundColor: cc.tooltipBg,
+      borderColor: cc.tooltipBorder,
+      textStyle: { color: cc.text },
       formatter: function (params) {
         const p = params[0]
         const item = data[data.length - 1 - p.dataIndex] || {}
@@ -545,14 +547,14 @@ function renderBandwidthChart() {
     xAxis: {
       type: 'value',
       max: 100,
-      axisLabel: { color: '#6b7280', fontSize: 10, formatter: '{value}%' },
-      splitLine: { lineStyle: { color: '#1f2937' } }
+      axisLabel: { color: cc.sub, fontSize: 10, formatter: '{value}%' },
+      splitLine: { lineStyle: { color: cc.split } }
     },
     yAxis: {
       type: 'category',
       data: data.map(d => d.name).reverse(),
-      axisLabel: { color: '#9ca3af', fontSize: 10, width: 120, overflow: 'truncate' },
-      axisLine: { lineStyle: { color: '#374151' } }
+      axisLabel: { color: cc.sub, fontSize: 10, width: 120, overflow: 'truncate' },
+      axisLine: { lineStyle: { color: cc.tooltipBorder } }
     },
     series: [{
       type: 'bar',
@@ -571,7 +573,7 @@ function renderBandwidthChart() {
       label: {
         show: true,
         position: 'right',
-        color: '#9ca3af',
+        color: cc.sub,
         fontSize: 10,
         formatter: '{c}%'
       }
@@ -595,9 +597,9 @@ function renderTopologyChart() {
 
   topologyChart.setOption({
     tooltip: {
-      backgroundColor: 'rgba(17,24,39,0.9)',
-      borderColor: '#374151',
-      textStyle: { color: '#e5e7eb' },
+      backgroundColor: cc.tooltipBg,
+      borderColor: cc.tooltipBorder,
+      textStyle: { color: cc.text },
       formatter: function (params) {
         if (params.dataType === 'node' && params.data._rawData) {
           const d = params.data._rawData
@@ -614,7 +616,7 @@ function renderTopologyChart() {
     },
     legend: {
       data: ['在线', '告警', '离线'],
-      textStyle: { color: '#9ca3af', fontSize: 11 },
+      textStyle: { color: cc.sub, fontSize: 11 },
       top: 0,
       right: 10
     },
@@ -629,7 +631,7 @@ function renderTopologyChart() {
         gravity: 0.08
       },
       label: { show: true },
-      lineStyle: { color: '#374151', curveness: 0.1 },
+      lineStyle: { color: cc.tooltipBorder, curveness: 0.1 },
       emphasis: {
         focus: 'adjacency',
         lineStyle: { width: 3, color: '#06b6d4' },
@@ -757,11 +759,11 @@ onUnmounted(() => {
   width: 4px;
 }
 .custom-scrollbar::-webkit-scrollbar-track {
-  background: #1f2937;
+  background: var(--line-strong);
   border-radius: 2px;
 }
 .custom-scrollbar::-webkit-scrollbar-thumb {
-  background: #4b5563;
+  background: var(--ink-faint);
   border-radius: 2px;
 }
 .custom-scrollbar::-webkit-scrollbar-thumb:hover {

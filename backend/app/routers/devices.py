@@ -416,6 +416,66 @@ async def _cleanup_device_relations(db: AsyncSession, device_ids: list[int]) -> 
         await db.rollback()
 
 
+@router.post("/sync-all")
+async def sync_all_devices(
+    user: dict = Depends(current_user),
+):
+    """一键同步所有设备信息（并发 SNMP 重新发现，覆盖厂商/型号/类型/序列号/名称）。
+
+    每台设备使用独立 DB 会话并发执行（受限并发，避免打爆设备/网络），
+    单台失败不中断整批，返回逐台结果。
+    """
+    from app.database import async_session
+    async with async_session() as db:
+        devices = (await db.execute(select(Device).order_by(Device.id))).scalars().all()
+
+    sem = asyncio.Semaphore(5)  # 并发上限（SNMP 引擎全局信号量 20 兜底）
+
+    async def _sync_one(device_id: int, name: str, ip: str) -> dict:
+        async with sem:
+            async with async_session() as db:
+                try:
+                    changed, detail = await _sync_device_core(db, device_id)
+                    return {
+                        "device_id": device_id, "name": name, "ip": ip,
+                        "success": True, "changed": changed, "detail": detail,
+                    }
+                except HTTPException as e:
+                    try:
+                        await db.rollback()
+                    except Exception:
+                        pass
+                    return {
+                        "device_id": device_id, "name": name, "ip": ip,
+                        "success": False, "changed": [], "detail": e.detail,
+                    }
+                except Exception as e:
+                    try:
+                        await db.rollback()
+                    except Exception:
+                        pass
+                    logger.warning(f"sync-all device {device_id} failed: {e}")
+                    return {
+                        "device_id": device_id, "name": name, "ip": ip,
+                        "success": False, "changed": [], "detail": f"同步异常: {e}",
+                    }
+
+    results = await asyncio.gather(*[_sync_one(d.id, d.name, d.ip) for d in devices])
+    ok = sum(1 for r in results if r["success"])
+    # 汇总审计（独立会话）
+    async with async_session() as db:
+        await record_audit(
+            db, {"sub": "system", "role": "system"}, "device", "sync_all",
+            f"一键同步 {len(devices)} 台设备：成功 {ok} 台，失败 {len(results) - ok} 台",
+        )
+    return {
+        "total": len(devices),
+        "success": ok,
+        "failed": len(results) - ok,
+        "results": results,
+    }
+
+
 @router.post("/{device_id}/sync", response_model=DeviceResponse)
 async def sync_device(device_id: int, db: AsyncSession = Depends(get_db)):
     """重新通过 SNMP 发现并同步设备信息（厂商/型号/类型/序列号/名称）。
@@ -423,6 +483,18 @@ async def sync_device(device_id: int, db: AsyncSession = Depends(get_db)):
     与创建时的「仅补全留空字段」不同，本接口会**用设备当前 SNMP 返回值覆盖**
     vendor / model / device_type / serial_number / name，解决「在设备上改名后平台
     不更新」的问题。设备不可达时返回 409 并保留原有信息。
+    """
+    await _sync_device_core(db, device_id)
+    result = await db.execute(select(Device).where(Device.id == device_id))
+    device = result.scalar_one_or_none()
+    return DeviceResponse.model_validate(device)
+
+
+async def _sync_device_core(db: AsyncSession, device_id: int) -> tuple[list[str], str]:
+    """单台设备同步核心逻辑（厂商/型号/类型/序列号/名称覆盖 + 组件明细重建）。
+
+    在传入的 db 会话内查询设备并执行同步，返回 (变更字段列表, 摘要)。
+    设备不存在抛 404，设备不可达抛 409。
     """
     result = await db.execute(select(Device).where(Device.id == device_id))
     device = result.scalar_one_or_none()
@@ -491,7 +563,7 @@ async def sync_device(device_id: int, db: AsyncSession = Depends(get_db)):
     if changed:
         detail += f"：{'、'.join(changed)}"
     await record_audit(db, {"sub": "system", "role": "system"}, "device", "sync", detail)
-    return DeviceResponse.model_validate(device)
+    return changed, detail
 
 
 @router.get("/{device_id}/components")

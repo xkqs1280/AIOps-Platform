@@ -1,14 +1,14 @@
 <template>
   <div class="p-4">
     <header class="mb-4 flex items-center justify-between">
-      <h1 class="text-lg font-bold text-slate-100">更多功能</h1>
+      <h1 class="text-lg font-bold text-ink-strong">更多功能</h1>
     </header>
 
     <!-- 当前服务器 -->
-    <div class="mb-4 rounded-2xl border border-slate-800 bg-slate-900 p-4">
-      <p class="mb-1 text-xs text-slate-500">当前服务器</p>
+    <div class="mb-4 rounded-2xl border border-line bg-surface p-4">
+      <p class="mb-1 text-xs text-ink-faint">当前服务器</p>
       <p class="text-sm font-medium text-cyan-400">{{ serverText }}</p>
-      <button @click="goSwitchServer" class="mt-2 rounded-lg border border-slate-700 px-3 py-1.5 text-xs text-slate-300">切换服务器</button>
+      <button @click="goSwitchServer" class="mt-2 rounded-lg border border-line px-3 py-1.5 text-xs text-ink-muted">切换服务器</button>
     </div>
 
     <!-- 功能入口 -->
@@ -17,20 +17,20 @@
         v-for="item in menu"
         :key="item.path"
         :to="item.path"
-        class="flex items-center gap-3 rounded-2xl border border-slate-800 bg-slate-900 p-3.5 active:bg-slate-800"
+        class="flex items-center gap-3 rounded-2xl border border-line bg-surface p-3.5 active:bg-surface-2"
       >
         <span class="text-xl">{{ item.icon }}</span>
         <div>
-          <p class="text-sm font-medium text-slate-100">{{ item.label }}</p>
-          <p class="text-[10px] text-slate-600">{{ item.desc }}</p>
+          <p class="text-sm font-medium text-ink-strong">{{ item.label }}</p>
+          <p class="text-[10px] text-ink-faint">{{ item.desc }}</p>
         </div>
       </router-link>
     </div>
 
     <!-- 关于 -->
-    <div class="rounded-2xl border border-slate-800 bg-slate-900 p-4 text-center">
-      <p class="text-sm font-semibold text-slate-200">AIOps 智能运维托管平台</p>
-      <p class="mt-1 text-xs text-slate-500">v{{ versionText }} · 移动端</p>
+    <div class="rounded-2xl border border-line bg-surface p-4 text-center">
+      <p class="text-sm font-semibold text-ink">AIOps 智能运维托管平台</p>
+      <p class="mt-1 text-xs text-ink-faint">v{{ versionText }} · 移动端</p>
     </div>
 
     <!-- 退出 -->

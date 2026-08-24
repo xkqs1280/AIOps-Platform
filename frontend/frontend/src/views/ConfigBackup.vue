@@ -1,18 +1,18 @@
 <template>
-  <div class="min-h-screen bg-slate-950 text-slate-100 p-6 animate-in">
+  <div class="min-h-screen bg-app text-ink-strong p-6 animate-in">
     <!-- Header -->
     <div class="flex items-center justify-between mb-6">
       <h2 class="text-xl font-bold">配置备份</h2>
       <div class="flex gap-3">
         <button
-          class="px-4 py-2 bg-slate-800 hover:bg-slate-700 rounded-lg text-sm font-medium transition-colors border border-slate-700"
+          class="px-4 py-2 bg-surface-2 hover:bg-hover rounded-lg text-sm font-medium transition-colors border border-line"
           @click="activeTab = 'backups'"
           :class="{ 'bg-cyan-600/20 text-cyan-400 border-cyan-600/50': activeTab === 'backups' }"
         >
           备份记录
         </button>
         <button
-          class="px-4 py-2 bg-slate-800 hover:bg-slate-700 rounded-lg text-sm font-medium transition-colors border border-slate-700"
+          class="px-4 py-2 bg-surface-2 hover:bg-hover rounded-lg text-sm font-medium transition-colors border border-line"
           @click="activeTab = 'schedules'"
           :class="{ 'bg-cyan-600/20 text-cyan-400 border-cyan-600/50': activeTab === 'schedules' }"
         >
@@ -26,15 +26,15 @@
       <!-- Filter bar -->
       <div class="flex flex-wrap items-end gap-4 mb-6">
         <div class="w-48">
-          <label class="block text-sm text-slate-400 mb-1">设备筛选</label>
-          <select v-model="filterDeviceId" class="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded-lg text-slate-100 focus:outline-none focus:border-cyan-500" @change="loadBackups">
+          <label class="block text-sm text-ink-muted mb-1">设备筛选</label>
+          <select v-model="filterDeviceId" class="w-full px-3 py-2 bg-surface-2 border border-line rounded-lg text-ink-strong focus:outline-none focus:border-cyan-500" @change="loadBackups">
             <option value="">全部设备</option>
             <option v-for="d in devices" :key="d.id" :value="d.id">{{ d.name }} ({{ d.ip }})</option>
           </select>
         </div>
         <div class="w-36">
-          <label class="block text-sm text-slate-400 mb-1">状态</label>
-          <select v-model="filterStatus" class="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded-lg text-slate-100 focus:outline-none focus:border-cyan-500" @change="loadBackups">
+          <label class="block text-sm text-ink-muted mb-1">状态</label>
+          <select v-model="filterStatus" class="w-full px-3 py-2 bg-surface-2 border border-line rounded-lg text-ink-strong focus:outline-none focus:border-cyan-500" @change="loadBackups">
             <option value="">全部</option>
             <option value="success">成功</option>
             <option value="failed">失败</option>
@@ -46,7 +46,7 @@
         <button class="px-4 py-2 bg-purple-600 hover:bg-purple-700 rounded-lg text-white font-medium text-sm transition-colors" @click="backupAll">
           备份全部设备
         </button>
-        <button class="px-4 py-2 bg-slate-700 hover:bg-slate-600 rounded-lg text-slate-200 font-medium text-sm transition-colors" @click="loadBackups">
+        <button class="px-4 py-2 bg-hover hover:bg-line-strong rounded-lg text-ink font-medium text-sm transition-colors" @click="loadBackups">
           刷新
         </button>
         <button
@@ -59,13 +59,13 @@
       </div>
 
       <!-- Backup table -->
-      <div class="bg-slate-900 rounded-xl border border-slate-800 overflow-hidden">
+      <div class="bg-surface rounded-xl border border-line overflow-hidden">
         <div class="overflow-x-auto">
           <table class="w-full">
             <thead>
-              <tr class="bg-slate-800/50 text-left text-sm text-slate-400">
+              <tr class="bg-surface-2/50 text-left text-sm text-ink-muted">
                 <th class="px-4 py-3 font-medium w-10">
-                  <input type="checkbox" class="rounded bg-slate-700 border-slate-600" :checked="selectedBackups.length === backups.length && backups.length > 0" @change="toggleSelectAll($event)">
+                  <input type="checkbox" class="rounded bg-hover border-line-strong" :checked="selectedBackups.length === backups.length && backups.length > 0" @change="toggleSelectAll($event)">
                 </th>
                 <th class="px-4 py-3 font-medium">设备</th>
                 <th class="px-4 py-3 font-medium">类型</th>
@@ -77,11 +77,11 @@
               </tr>
             </thead>
             <tbody>
-              <tr v-for="b in backups" :key="b.id" class="border-t border-slate-800 hover:bg-slate-800/30 text-sm">
+              <tr v-for="b in backups" :key="b.id" class="border-t border-line hover:bg-hover/30 text-sm">
                 <td class="px-4 py-3">
                   <input
                     type="checkbox"
-                    class="rounded bg-slate-700 border-slate-600"
+                    class="rounded bg-hover border-line-strong"
                     :value="b.id"
                     :checked="selectedBackups.includes(b.id)"
                     :disabled="selectedBackups.length >= 2 && !selectedBackups.includes(b.id)"
@@ -90,18 +90,18 @@
                 </td>
                 <td class="px-4 py-3">{{ getDeviceName(b.device_id) }}</td>
                 <td class="px-4 py-3">
-                  <span :class="b.backup_type === 'manual' ? 'text-blue-400' : 'text-green-400'" class="text-xs px-2 py-0.5 rounded-full bg-slate-800">
+                  <span :class="b.backup_type === 'manual' ? 'text-blue-400' : 'text-green-400'" class="text-xs px-2 py-0.5 rounded-full bg-surface-2">
                     {{ b.backup_type === 'manual' ? '手动' : '定时' }}
                   </span>
                 </td>
-                <td class="px-4 py-3 text-slate-400">{{ b.file_size > 0 ? (b.file_size / 1024).toFixed(1) + ' KB' : '-' }}</td>
-                <td class="px-4 py-3 text-slate-400">{{ b.line_count || '-' }}</td>
+                <td class="px-4 py-3 text-ink-muted">{{ b.file_size > 0 ? (b.file_size / 1024).toFixed(1) + ' KB' : '-' }}</td>
+                <td class="px-4 py-3 text-ink-muted">{{ b.line_count || '-' }}</td>
                 <td class="px-4 py-3">
                   <span :class="b.status === 'success' ? 'text-green-400' : 'text-red-400'" class="text-xs px-2 py-0.5 rounded-full" :style="b.status === 'success' ? 'background: rgba(34,197,94,0.15)' : 'background: rgba(239,68,68,0.15)'">
                     {{ b.status === 'success' ? '成功' : '失败' }}
                   </span>
                 </td>
-                <td class="px-4 py-3 text-slate-400">{{ formatTime(b.created_at) }}</td>
+                <td class="px-4 py-3 text-ink-muted">{{ formatTime(b.created_at) }}</td>
                 <td class="px-4 py-3">
                   <div class="flex gap-2">
                     <button v-if="b.status === 'success'" class="text-cyan-400 hover:text-cyan-300 text-xs" @click="viewConfig(b.id)">查看</button>
@@ -111,19 +111,19 @@
                 </td>
               </tr>
               <tr v-if="backups.length === 0">
-                <td colspan="8" class="px-4 py-12 text-center text-slate-500">暂无备份记录</td>
+                <td colspan="8" class="px-4 py-12 text-center text-ink-faint">暂无备份记录</td>
               </tr>
             </tbody>
           </table>
         </div>
 
         <!-- 分页 -->
-        <div v-if="backupTotal > 0" class="flex items-center justify-between px-4 py-3 border-t border-slate-800 text-sm text-slate-400">
+        <div v-if="backupTotal > 0" class="flex items-center justify-between px-4 py-3 border-t border-line text-sm text-ink-muted">
           <span>共 {{ backupTotal }} 条记录</span>
           <div class="flex items-center gap-3">
             <select
               v-model="backupPageSize"
-              class="px-2 py-1 bg-slate-800 border border-slate-700 rounded text-slate-300 focus:outline-none focus:border-cyan-500"
+              class="px-2 py-1 bg-surface-2 border border-line rounded text-ink-muted focus:outline-none focus:border-cyan-500"
               @change="backupPage = 1; loadBackups()"
             >
               <option :value="10">10 条/页</option>
@@ -131,13 +131,13 @@
               <option :value="50">50 条/页</option>
             </select>
             <button
-              class="px-3 py-1 bg-slate-800 border border-slate-700 rounded text-slate-300 hover:bg-slate-700 disabled:opacity-40"
+              class="px-3 py-1 bg-surface-2 border border-line rounded text-ink-muted hover:bg-hover disabled:opacity-40"
               :disabled="backupPage <= 1"
               @click="backupPage--; loadBackups()"
             >上一页</button>
             <span>第 {{ backupPage }} / {{ backupTotalPages }} 页</span>
             <button
-              class="px-3 py-1 bg-slate-800 border border-slate-700 rounded text-slate-300 hover:bg-slate-700 disabled:opacity-40"
+              class="px-3 py-1 bg-surface-2 border border-line rounded text-ink-muted hover:bg-hover disabled:opacity-40"
               :disabled="backupPage >= backupTotalPages"
               @click="backupPage++; loadBackups()"
             >下一页</button>
@@ -149,17 +149,17 @@
     <!-- Tab: 备份计划 -->
     <div v-if="activeTab === 'schedules'">
       <div class="flex items-center justify-between mb-4">
-        <p class="text-sm text-slate-400">为设备设置定时备份计划，支持每日/每周/每月自动备份运行配置</p>
+        <p class="text-sm text-ink-muted">为设备设置定时备份计划，支持每日/每周/每月自动备份运行配置</p>
         <button class="px-4 py-2 bg-cyan-600 hover:bg-cyan-700 rounded-lg text-white font-medium text-sm transition-colors" @click="showScheduleDialog = true">
           + 新建计划
         </button>
       </div>
 
-      <div class="bg-slate-900 rounded-xl border border-slate-800 overflow-hidden">
+      <div class="bg-surface rounded-xl border border-line overflow-hidden">
         <div class="overflow-x-auto">
           <table class="w-full">
             <thead>
-              <tr class="bg-slate-800/50 text-left text-sm text-slate-400">
+              <tr class="bg-surface-2/50 text-left text-sm text-ink-muted">
                 <th class="px-4 py-3 font-medium">设备</th>
                 <th class="px-4 py-3 font-medium">频率</th>
                 <th class="px-4 py-3 font-medium">执行时间</th>
@@ -170,21 +170,21 @@
               </tr>
             </thead>
             <tbody>
-              <tr v-for="s in schedules" :key="s.id" class="border-t border-slate-800 hover:bg-slate-800/30 text-sm">
+              <tr v-for="s in schedules" :key="s.id" class="border-t border-line hover:bg-hover/30 text-sm">
                 <td class="px-4 py-3">
                   <span v-if="s.is_all_devices" class="text-purple-400 font-medium">全部设备</span>
                   <span v-else>{{ getDeviceName(s.device_id) }}</span>
                 </td>
                 <td class="px-4 py-3">
-                  <span class="text-xs px-2 py-0.5 rounded-full bg-slate-800 text-cyan-400">
+                  <span class="text-xs px-2 py-0.5 rounded-full bg-surface-2 text-cyan-400">
                     {{ freqLabel(s.frequency) }}
                   </span>
                 </td>
-                <td class="px-4 py-3 text-slate-400">{{ scheduleTime(s) }}</td>
-                <td class="px-4 py-3 text-slate-400">{{ s.last_backup_at ? formatTime(s.last_backup_at) : '尚未执行' }}</td>
-                <td class="px-4 py-3 text-slate-400">{{ s.next_backup_at ? formatTime(s.next_backup_at) : '-' }}</td>
+                <td class="px-4 py-3 text-ink-muted">{{ scheduleTime(s) }}</td>
+                <td class="px-4 py-3 text-ink-muted">{{ s.last_backup_at ? formatTime(s.last_backup_at) : '尚未执行' }}</td>
+                <td class="px-4 py-3 text-ink-muted">{{ s.next_backup_at ? formatTime(s.next_backup_at) : '-' }}</td>
                 <td class="px-4 py-3">
-                  <span :class="s.enabled ? 'text-green-400' : 'text-slate-500'" class="text-xs">
+                  <span :class="s.enabled ? 'text-green-400' : 'text-ink-faint'" class="text-xs">
                     {{ s.enabled ? '启用' : '停用' }}
                   </span>
                 </td>
@@ -197,7 +197,7 @@
                 </td>
               </tr>
               <tr v-if="schedules.length === 0">
-                <td colspan="7" class="px-4 py-12 text-center text-slate-500">暂无备份计划</td>
+                <td colspan="7" class="px-4 py-12 text-center text-ink-faint">暂无备份计划</td>
               </tr>
             </tbody>
           </table>
@@ -207,16 +207,16 @@
 
     <!-- Manual Backup Dialog -->
     <div v-if="showBackupDialog" class="fixed inset-0 bg-black/50 flex items-center justify-center z-50" @click.self="showBackupDialog = false">
-      <div class="bg-slate-900 rounded-xl border border-slate-700 p-6 w-96">
+      <div class="bg-surface rounded-xl border border-line p-6 w-96">
         <h3 class="text-lg font-bold mb-4">手动备份</h3>
         <div class="mb-4">
-          <label class="block text-sm text-slate-400 mb-2">选择设备</label>
-          <select v-model="backupDeviceId" class="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded-lg text-slate-100 focus:outline-none focus:border-cyan-500">
+          <label class="block text-sm text-ink-muted mb-2">选择设备</label>
+          <select v-model="backupDeviceId" class="w-full px-3 py-2 bg-surface-2 border border-line rounded-lg text-ink-strong focus:outline-none focus:border-cyan-500">
             <option v-for="d in devices" :key="d.id" :value="d.id">{{ d.name }} ({{ d.ip }})</option>
           </select>
         </div>
         <div class="flex gap-3 justify-end">
-          <button class="px-4 py-2 text-slate-400 hover:text-slate-200 text-sm" @click="showBackupDialog = false">取消</button>
+          <button class="px-4 py-2 text-ink-muted hover:text-ink text-sm" @click="showBackupDialog = false">取消</button>
           <button class="px-4 py-2 bg-cyan-600 hover:bg-cyan-700 rounded-lg text-white text-sm font-medium transition-colors" :disabled="!backupDeviceId || backing" @click="doManualBackup">
             {{ backing ? '备份中...' : '开始备份' }}
           </button>
@@ -226,22 +226,22 @@
 
     <!-- Schedule Dialog -->
     <div v-if="showScheduleDialog" class="fixed inset-0 bg-black/50 flex items-center justify-center z-50" @click.self="showScheduleDialog = false">
-      <div class="bg-slate-900 rounded-xl border border-slate-700 p-6 w-[420px]">
+      <div class="bg-surface rounded-xl border border-line p-6 w-[420px]">
         <h3 class="text-lg font-bold mb-4">{{ editingSchedule ? '编辑备份计划' : '新建备份计划' }}</h3>
         <div class="space-y-4">
           <div>
-            <label class="block text-sm text-slate-400 mb-2">备份范围</label>
+            <label class="block text-sm text-ink-muted mb-2">备份范围</label>
             <div class="flex items-center gap-4 mb-2">
               <label class="flex items-center gap-2 cursor-pointer">
-                <input type="radio" v-model="scheduleForm.is_all_devices" :value="false" class="bg-slate-800 border-slate-600">
-                <span class="text-sm text-slate-300">指定设备</span>
+                <input type="radio" v-model="scheduleForm.is_all_devices" :value="false" class="bg-surface-2 border-line-strong">
+                <span class="text-sm text-ink-muted">指定设备</span>
               </label>
               <label class="flex items-center gap-2 cursor-pointer">
-                <input type="radio" v-model="scheduleForm.is_all_devices" :value="true" class="bg-slate-800 border-slate-600">
+                <input type="radio" v-model="scheduleForm.is_all_devices" :value="true" class="bg-surface-2 border-line-strong">
                 <span class="text-sm text-purple-400 font-medium">全部设备</span>
               </label>
             </div>
-            <select v-if="!scheduleForm.is_all_devices" v-model="scheduleForm.device_id" :disabled="!!editingSchedule" class="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded-lg text-slate-100 focus:outline-none focus:border-cyan-500">
+            <select v-if="!scheduleForm.is_all_devices" v-model="scheduleForm.device_id" :disabled="!!editingSchedule" class="w-full px-3 py-2 bg-surface-2 border border-line rounded-lg text-ink-strong focus:outline-none focus:border-cyan-500">
               <option v-for="d in devices" :key="d.id" :value="d.id">{{ d.name }} ({{ d.ip }})</option>
             </select>
             <p v-else class="text-xs text-purple-400/70 bg-purple-900/20 rounded-lg px-3 py-2 border border-purple-800/30">
@@ -249,16 +249,16 @@
             </p>
           </div>
           <div>
-            <label class="block text-sm text-slate-400 mb-2">备份频率</label>
-            <select v-model="scheduleForm.frequency" class="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded-lg text-slate-100 focus:outline-none focus:border-cyan-500">
+            <label class="block text-sm text-ink-muted mb-2">备份频率</label>
+            <select v-model="scheduleForm.frequency" class="w-full px-3 py-2 bg-surface-2 border border-line rounded-lg text-ink-strong focus:outline-none focus:border-cyan-500">
               <option value="daily">每天</option>
               <option value="weekly">每周</option>
               <option value="monthly">每月</option>
             </select>
           </div>
           <div v-if="scheduleForm.frequency === 'weekly'">
-            <label class="block text-sm text-slate-400 mb-2">星期</label>
-            <select v-model="scheduleForm.day_of_week" class="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded-lg text-slate-100 focus:outline-none focus:border-cyan-500">
+            <label class="block text-sm text-ink-muted mb-2">星期</label>
+            <select v-model="scheduleForm.day_of_week" class="w-full px-3 py-2 bg-surface-2 border border-line rounded-lg text-ink-strong focus:outline-none focus:border-cyan-500">
               <option :value="0">周一</option>
               <option :value="1">周二</option>
               <option :value="2">周三</option>
@@ -269,22 +269,22 @@
             </select>
           </div>
           <div v-if="scheduleForm.frequency === 'monthly'">
-            <label class="block text-sm text-slate-400 mb-2">日期 (1-28)</label>
-            <input type="number" v-model="scheduleForm.day_of_month" min="1" max="28" class="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded-lg text-slate-100 focus:outline-none focus:border-cyan-500">
+            <label class="block text-sm text-ink-muted mb-2">日期 (1-28)</label>
+            <input type="number" v-model="scheduleForm.day_of_month" min="1" max="28" class="w-full px-3 py-2 bg-surface-2 border border-line rounded-lg text-ink-strong focus:outline-none focus:border-cyan-500">
           </div>
           <div class="flex gap-4">
             <div class="flex-1">
-              <label class="block text-sm text-slate-400 mb-2">小时 (0-23)</label>
-              <input type="number" v-model="scheduleForm.hour" min="0" max="23" class="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded-lg text-slate-100 focus:outline-none focus:border-cyan-500">
+              <label class="block text-sm text-ink-muted mb-2">小时 (0-23)</label>
+              <input type="number" v-model="scheduleForm.hour" min="0" max="23" class="w-full px-3 py-2 bg-surface-2 border border-line rounded-lg text-ink-strong focus:outline-none focus:border-cyan-500">
             </div>
             <div class="flex-1">
-              <label class="block text-sm text-slate-400 mb-2">分钟 (0-59)</label>
-              <input type="number" v-model="scheduleForm.minute" min="0" max="59" class="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded-lg text-slate-100 focus:outline-none focus:border-cyan-500">
+              <label class="block text-sm text-ink-muted mb-2">分钟 (0-59)</label>
+              <input type="number" v-model="scheduleForm.minute" min="0" max="59" class="w-full px-3 py-2 bg-surface-2 border border-line rounded-lg text-ink-strong focus:outline-none focus:border-cyan-500">
             </div>
           </div>
         </div>
         <div class="flex gap-3 justify-end mt-6">
-          <button class="px-4 py-2 text-slate-400 hover:text-slate-200 text-sm" @click="showScheduleDialog = false">取消</button>
+          <button class="px-4 py-2 text-ink-muted hover:text-ink text-sm" @click="showScheduleDialog = false">取消</button>
           <button class="px-4 py-2 bg-cyan-600 hover:bg-cyan-700 rounded-lg text-white text-sm font-medium transition-colors" @click="saveSchedule">
             {{ editingSchedule ? '保存' : '创建' }}
           </button>
@@ -294,31 +294,31 @@
 
     <!-- Config Viewer Dialog -->
     <div v-if="showConfigDialog" class="fixed inset-0 bg-black/50 flex items-center justify-center z-50" @click.self="showConfigDialog = false">
-      <div class="bg-slate-900 rounded-xl border border-slate-700 w-[800px] max-h-[80vh] flex flex-col">
-        <div class="flex items-center justify-between px-6 py-4 border-b border-slate-800">
+      <div class="bg-surface rounded-xl border border-line w-[800px] max-h-[80vh] flex flex-col">
+        <div class="flex items-center justify-between px-6 py-4 border-b border-line">
           <h3 class="text-lg font-bold">配置内容 - {{ getDeviceName(configBackup?.device_id) }}</h3>
           <div class="flex gap-3">
-            <button class="px-3 py-1.5 text-xs bg-slate-800 hover:bg-slate-700 rounded-lg text-slate-300 transition-colors" @click="copyConfig">复制</button>
-            <button class="px-3 py-1.5 text-xs text-slate-400 hover:text-slate-200" @click="showConfigDialog = false">关闭</button>
+            <button class="px-3 py-1.5 text-xs bg-surface-2 hover:bg-hover rounded-lg text-ink-muted transition-colors" @click="copyConfig">复制</button>
+            <button class="px-3 py-1.5 text-xs text-ink-muted hover:text-ink" @click="showConfigDialog = false">关闭</button>
           </div>
         </div>
         <div class="flex-1 overflow-auto p-4">
-          <pre class="text-xs text-slate-300 font-mono whitespace-pre-wrap">{{ configContent }}</pre>
+          <pre class="text-xs text-ink-muted font-mono whitespace-pre-wrap">{{ configContent }}</pre>
         </div>
       </div>
     </div>
 
     <!-- Backup Result Dialog (备份全部设备结果明细) -->
     <div v-if="showBackupResult" class="fixed inset-0 bg-black/50 flex items-center justify-center z-50" @click.self="showBackupResult = false">
-      <div class="bg-slate-900 rounded-xl border border-slate-700 w-[760px] max-h-[85vh] flex flex-col shadow-2xl">
-        <div class="flex items-center justify-between px-6 py-4 border-b border-slate-800">
+      <div class="bg-surface rounded-xl border border-line w-[760px] max-h-[85vh] flex flex-col shadow-2xl">
+        <div class="flex items-center justify-between px-6 py-4 border-b border-line">
           <h3 class="text-lg font-bold">备份结果</h3>
-          <button class="px-3 py-1.5 text-xs text-slate-400 hover:text-slate-200" @click="showBackupResult = false">关闭</button>
+          <button class="px-3 py-1.5 text-xs text-ink-muted hover:text-ink" @click="showBackupResult = false">关闭</button>
         </div>
-        <div class="px-6 py-3 border-b border-slate-800 text-sm">
+        <div class="px-6 py-3 border-b border-line text-sm">
           <span class="text-green-400 font-medium">成功 {{ backupSuccess }} 台</span>
           <span class="ml-6 text-red-400 font-medium">失败 {{ backupFailed }} 台</span>
-          <span class="ml-6 text-slate-500">共 {{ backupResults.length }} 台</span>
+          <span class="ml-6 text-ink-faint">共 {{ backupResults.length }} 台</span>
         </div>
         <div class="flex-1 overflow-auto p-4">
           <!-- 失败设备明细 -->
@@ -328,8 +328,8 @@
               <div v-for="r in failedBackupResults" :key="r.device_id"
                    class="bg-red-950/30 border border-red-900/40 rounded-lg p-3">
                 <div class="flex items-center justify-between gap-3">
-                  <span class="text-slate-200 font-medium text-sm">{{ r.device_name }}</span>
-                  <span class="text-slate-500 text-xs font-mono">{{ r.ip }}</span>
+                  <span class="text-ink font-medium text-sm">{{ r.device_name }}</span>
+                  <span class="text-ink-faint text-xs font-mono">{{ r.ip }}</span>
                 </div>
                 <div class="mt-1 text-red-400 text-xs break-all">{{ r.error || '未知原因' }}</div>
               </div>
@@ -342,16 +342,16 @@
 
     <!-- Diff Viewer Dialog -->
     <div v-if="showDiffDialog" class="fixed inset-0 bg-black/50 flex items-center justify-center z-50" @click.self="showDiffDialog = false">
-      <div class="bg-slate-900 rounded-xl border border-slate-700 w-[800px] max-h-[80vh] flex flex-col">
-        <div class="flex items-center justify-between px-6 py-4 border-b border-slate-800">
+      <div class="bg-surface rounded-xl border border-line w-[800px] max-h-[80vh] flex flex-col">
+        <div class="flex items-center justify-between px-6 py-4 border-b border-line">
           <h3 class="text-lg font-bold">配置对比</h3>
-          <button class="px-3 py-1.5 text-xs text-slate-400 hover:text-slate-200" @click="showDiffDialog = false">关闭</button>
+          <button class="px-3 py-1.5 text-xs text-ink-muted hover:text-ink" @click="showDiffDialog = false">关闭</button>
         </div>
         <div class="flex-1 overflow-auto p-4">
           <div v-for="(line, i) in diffResult" :key="i" class="font-mono text-xs py-0.5 px-2" :class="diffLineClass(line)">
-            <span class="text-slate-600 select-none mr-2">{{ diffLinePrefix(line) }}</span>{{ line.content }}
+            <span class="text-ink-faint select-none mr-2">{{ diffLinePrefix(line) }}</span>{{ line.content }}
           </div>
-          <div v-if="diffResult.length === 0" class="text-center text-slate-500 py-8">配置内容完全一致</div>
+          <div v-if="diffResult.length === 0" class="text-center text-ink-faint py-8">配置内容完全一致</div>
         </div>
       </div>
     </div>
@@ -542,7 +542,7 @@ function diffLineClass(line) {
   if (line.type === 'added') return 'bg-green-900/30 text-green-300'
   if (line.type === 'removed') return 'bg-red-900/30 text-red-300'
   if (line.type === 'hunk') return 'text-cyan-500 font-bold'
-  return 'text-slate-400'
+  return 'text-ink-muted'
 }
 
 function diffLinePrefix(line) {

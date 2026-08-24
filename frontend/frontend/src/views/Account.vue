@@ -1,11 +1,11 @@
 <template>
-  <div class="min-h-screen bg-slate-950 text-slate-100 animate-in">
+  <div class="min-h-screen bg-app text-ink-strong animate-in">
     <!-- Header -->
-    <div class="border-b border-slate-800 bg-slate-900/50 px-6 py-4">
+    <div class="border-b border-line bg-surface/50 px-6 py-4">
       <div class="flex items-center justify-between">
         <div>
-          <h1 class="text-2xl font-bold text-slate-100">账号管理</h1>
-          <p class="mt-1 text-sm text-slate-400">修改密码、管理平台账号与权限</p>
+          <h1 class="text-2xl font-bold text-ink-strong">账号管理</h1>
+          <p class="mt-1 text-sm text-ink-muted">修改密码、管理平台账号与权限</p>
         </div>
         <button
           @click="handleLogout"
@@ -24,8 +24,8 @@
 
     <div class="px-6 py-6">
       <!-- 当前账号 -->
-      <div class="mb-6 rounded-xl border border-slate-800 bg-slate-900/50 p-5">
-        <h2 class="mb-4 text-sm font-semibold text-slate-300">当前账号</h2>
+      <div class="mb-6 rounded-xl border border-line bg-surface/50 p-5">
+        <h2 class="mb-4 text-sm font-semibold text-ink-muted">当前账号</h2>
         <div class="flex items-center gap-4">
           <div
             class="flex h-12 w-12 items-center justify-center rounded-full bg-gradient-to-br from-cyan-600 to-cyan-900 text-lg font-bold text-cyan-100"
@@ -33,7 +33,7 @@
             {{ me.username ? me.username.charAt(0).toUpperCase() : '?' }}
           </div>
           <div>
-            <div class="text-base font-semibold text-slate-100">{{ me.username }}</div>
+            <div class="text-base font-semibold text-ink-strong">{{ me.username }}</div>
             <span
               :class="me.role === 'admin' ? 'bg-red-600/15 text-red-400 border-red-600/30' : me.role === 'operator' ? 'bg-amber-600/15 text-amber-400 border-amber-600/30' : 'bg-cyan-600/15 text-cyan-400 border-cyan-600/30'"
               class="mt-1 inline-flex items-center rounded-md border px-2 py-0.5 text-xs font-medium"
@@ -46,11 +46,11 @@
 
       <div class="grid grid-cols-1 gap-6 lg:grid-cols-2">
         <!-- 修改我的密码 -->
-        <div class="rounded-xl border border-slate-800 bg-slate-900/50 p-5">
-          <h2 class="mb-4 text-sm font-semibold text-slate-300">修改我的密码</h2>
+        <div class="rounded-xl border border-line bg-surface/50 p-5">
+          <h2 class="mb-4 text-sm font-semibold text-ink-muted">修改我的密码</h2>
           <form @submit.prevent="submitChangePassword" class="space-y-4">
             <div>
-              <label class="mb-1 block text-sm font-medium text-slate-400">旧密码</label>
+              <label class="mb-1 block text-sm font-medium text-ink-muted">旧密码</label>
               <input
                 v-model="pwdForm.old_password"
                 type="password"
@@ -61,7 +61,7 @@
               />
             </div>
             <div>
-              <label class="mb-1 block text-sm font-medium text-slate-400">新密码</label>
+              <label class="mb-1 block text-sm font-medium text-ink-muted">新密码</label>
               <input
                 v-model="pwdForm.new_password"
                 type="password"
@@ -72,7 +72,7 @@
               />
             </div>
             <div>
-              <label class="mb-1 block text-sm font-medium text-slate-400">确认新密码</label>
+              <label class="mb-1 block text-sm font-medium text-ink-muted">确认新密码</label>
               <input
                 v-model="pwdForm.confirm"
                 type="password"
@@ -96,11 +96,11 @@
         </div>
 
         <!-- 新建账号（仅 admin） -->
-        <div v-if="isAdmin" class="rounded-xl border border-slate-800 bg-slate-900/50 p-5">
-          <h2 class="mb-4 text-sm font-semibold text-slate-300">新建账号</h2>
+        <div v-if="isAdmin" class="rounded-xl border border-line bg-surface/50 p-5">
+          <h2 class="mb-4 text-sm font-semibold text-ink-muted">新建账号</h2>
           <form @submit.prevent="submitCreateUser" class="space-y-4">
             <div>
-              <label class="mb-1 block text-sm font-medium text-slate-400">用户名</label>
+              <label class="mb-1 block text-sm font-medium text-ink-muted">用户名</label>
               <input
                 v-model="createForm.username"
                 type="text"
@@ -111,7 +111,7 @@
               />
             </div>
             <div>
-              <label class="mb-1 block text-sm font-medium text-slate-400">初始密码</label>
+              <label class="mb-1 block text-sm font-medium text-ink-muted">初始密码</label>
               <input
                 v-model="createForm.password"
                 type="password"
@@ -121,7 +121,7 @@
               />
             </div>
             <div>
-              <label class="mb-1 block text-sm font-medium text-slate-400">角色</label>
+              <label class="mb-1 block text-sm font-medium text-ink-muted">角色</label>
               <select
                 v-model="createForm.role"
                 class="select"
@@ -146,12 +146,12 @@
       </div>
 
       <!-- 账号列表（仅 admin） -->
-      <div v-if="isAdmin" class="mt-6 overflow-hidden rounded-xl border border-slate-800 bg-slate-900/50">
-        <div class="border-b border-slate-800 px-5 py-4">
-          <h2 class="text-sm font-semibold text-slate-300">账号列表</h2>
+      <div v-if="isAdmin" class="mt-6 overflow-hidden rounded-xl border border-line bg-surface/50">
+        <div class="border-b border-line px-5 py-4">
+          <h2 class="text-sm font-semibold text-ink-muted">账号列表</h2>
         </div>
         <table class="w-full text-left text-sm">
-          <thead class="border-b border-slate-800 bg-slate-900 text-slate-400">
+          <thead class="border-b border-line bg-surface text-ink-muted">
             <tr>
               <th class="px-4 py-3 font-medium">ID</th>
               <th class="px-4 py-3 font-medium">用户名</th>
@@ -161,10 +161,10 @@
               <th class="px-4 py-3 font-medium text-right">操作</th>
             </tr>
           </thead>
-          <tbody class="divide-y divide-slate-800">
-            <tr v-for="user in users" :key="user.id" class="transition-colors hover:bg-slate-800/30">
-              <td class="px-4 py-3 text-slate-400">{{ user.id }}</td>
-              <td class="px-4 py-3 font-medium text-slate-100">{{ user.username }}</td>
+          <tbody class="divide-y divide-line">
+            <tr v-for="user in users" :key="user.id" class="transition-colors hover:bg-hover/30">
+              <td class="px-4 py-3 text-ink-muted">{{ user.id }}</td>
+              <td class="px-4 py-3 font-medium text-ink-strong">{{ user.username }}</td>
               <td class="px-4 py-3">
                 <span
                   :class="user.role === 'admin' ? 'bg-red-600/15 text-red-400 border-red-600/30' : user.role === 'operator' ? 'bg-amber-600/15 text-amber-400 border-amber-600/30' : 'bg-cyan-600/15 text-cyan-400 border-cyan-600/30'"
@@ -175,13 +175,13 @@
               </td>
               <td class="px-4 py-3">
                 <span
-                  :class="user.is_active ? 'bg-green-600/15 text-green-400 border-green-600/30' : 'bg-slate-600/15 text-slate-400 border-slate-600/30'"
+                  :class="user.is_active ? 'bg-green-600/15 text-green-400 border-green-600/30' : 'bg-line-strong/15 text-ink-muted border-line-strong/30'"
                   class="inline-flex items-center rounded-md border px-2 py-0.5 text-xs font-medium"
                 >
                   {{ user.is_active ? '启用' : '停用' }}
                 </span>
               </td>
-              <td class="px-4 py-3 text-slate-400">{{ formatTime(user.created_at) }}</td>
+              <td class="px-4 py-3 text-ink-muted">{{ formatTime(user.created_at) }}</td>
               <td class="px-4 py-3">
                 <div class="flex items-center justify-end gap-2">
                   <button
@@ -192,7 +192,7 @@
                   </button>
                   <button
                     @click="toggleActive(user)"
-                    :class="user.is_active ? 'text-slate-400 hover:bg-slate-700/30 hover:text-slate-200' : 'text-green-400 hover:bg-green-600/20 hover:text-green-300'"
+                    :class="user.is_active ? 'text-ink-muted hover:bg-hover/30 hover:text-ink' : 'text-green-400 hover:bg-green-600/20 hover:text-green-300'"
                     class="rounded-md px-2 py-1 text-xs transition-colors"
                   >
                     {{ user.is_active ? '停用' : '启用' }}
@@ -201,7 +201,7 @@
               </td>
             </tr>
             <tr v-if="users.length === 0">
-              <td colspan="6" class="px-4 py-12 text-center text-slate-500">暂无账号</td>
+              <td colspan="6" class="px-4 py-12 text-center text-ink-faint">暂无账号</td>
             </tr>
           </tbody>
         </table>
@@ -214,13 +214,13 @@
       class="fixed inset-0 z-50 flex items-center justify-center bg-black/60"
       @click.self="closeResetModal"
     >
-      <div class="w-full max-w-sm rounded-xl border border-slate-800 bg-slate-900 shadow-2xl">
-        <div class="border-b border-slate-800 px-6 py-4">
-          <h2 class="text-lg font-semibold text-slate-100">重置密码</h2>
+      <div class="w-full max-w-sm rounded-xl border border-line bg-surface shadow-2xl">
+        <div class="border-b border-line px-6 py-4">
+          <h2 class="text-lg font-semibold text-ink-strong">重置密码</h2>
         </div>
         <div class="px-6 py-4">
-          <p class="mb-3 text-sm text-slate-400">
-            为账号 <span class="font-medium text-slate-200">{{ resetTarget?.username }}</span> 设置新密码
+          <p class="mb-3 text-sm text-ink-muted">
+            为账号 <span class="font-medium text-ink">{{ resetTarget?.username }}</span> 设置新密码
           </p>
           <input
             v-model="resetPwd"
@@ -232,7 +232,7 @@
             {{ resetMsg }}
           </p>
         </div>
-        <div class="flex justify-end gap-3 border-t border-slate-800 px-6 py-4">
+        <div class="flex justify-end gap-3 border-t border-line px-6 py-4">
           <button
             @click="closeResetModal"
             class="btn btn-outline"

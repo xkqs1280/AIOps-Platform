@@ -1,16 +1,16 @@
 <template>
-  <div class="flex h-screen flex-col bg-slate-950 text-slate-100 animate-in">
+  <div class="flex h-screen flex-col bg-app text-ink-strong animate-in">
     <!-- Header -->
-    <div class="border-b border-slate-800 bg-slate-900/50 px-6 py-4">
+    <div class="border-b border-line bg-surface/50 px-6 py-4">
       <div class="flex items-center justify-between">
         <div>
-          <h1 class="text-2xl font-bold text-slate-100">网络拓扑可视化</h1>
-          <p class="mt-1 text-sm text-slate-400">实时网络设备拓扑与链路状态</p>
+          <h1 class="text-2xl font-bold text-ink-strong">网络拓扑可视化</h1>
+          <p class="mt-1 text-sm text-ink-muted">实时网络设备拓扑与链路状态</p>
         </div>
         <button
           @click="refreshTopology"
           :disabled="loading"
-          class="rounded-lg border border-slate-700 bg-slate-800 px-4 py-2 text-sm font-medium text-slate-300 transition-colors hover:bg-slate-700 disabled:opacity-50"
+          class="rounded-lg border border-line bg-surface-2 px-4 py-2 text-sm font-medium text-ink-muted transition-colors hover:bg-hover disabled:opacity-50"
         >
           {{ loading ? '加载中...' : '刷新' }}
         </button>
@@ -29,9 +29,9 @@
         <!-- Loading Overlay -->
         <div
           v-if="loading"
-          class="absolute inset-0 flex items-center justify-center bg-slate-950/60"
+          class="absolute inset-0 flex items-center justify-center bg-app/60"
         >
-          <div class="text-sm text-slate-400">正在加载拓扑数据...</div>
+          <div class="text-sm text-ink-muted">正在加载拓扑数据...</div>
         </div>
 
         <!-- Empty State -->
@@ -40,51 +40,51 @@
           class="absolute inset-0 flex items-center justify-center"
         >
           <div class="text-center">
-            <div class="text-slate-500">暂无拓扑数据</div>
+            <div class="text-ink-faint">暂无拓扑数据</div>
           </div>
         </div>
       </div>
 
       <!-- Side Panel: Legend -->
-      <div class="w-72 border-l border-slate-800 bg-slate-900/50 p-4">
-        <h3 class="mb-3 text-sm font-semibold text-slate-300">图例</h3>
+      <div class="w-72 border-l border-line bg-surface/50 p-4">
+        <h3 class="mb-3 text-sm font-semibold text-ink-muted">图例</h3>
 
         <!-- Node Type Legend（设备类型图例已移除，类型已直接应用于节点图形） -->
 
         <!-- Status Legend -->
         <div class="mb-5">
-          <p class="mb-2 text-xs font-medium text-slate-500">设备状态</p>
+          <p class="mb-2 text-xs font-medium text-ink-faint">设备状态</p>
           <div class="space-y-2">
             <div class="flex items-center gap-3">
               <div class="h-3 w-3 rounded-full" style="background-color: #10b981"></div>
-              <span class="text-sm text-slate-300">在线 (Online)</span>
+              <span class="text-sm text-ink-muted">在线 (Online)</span>
             </div>
             <div class="flex items-center gap-3">
               <div class="h-3 w-3 rounded-full" style="background-color: #f59e0b"></div>
-              <span class="text-sm text-slate-300">告警 (Warning)</span>
+              <span class="text-sm text-ink-muted">告警 (Warning)</span>
             </div>
             <div class="flex items-center gap-3">
               <div class="h-3 w-3 rounded-full" style="background-color: #ef4444"></div>
-              <span class="text-sm text-slate-300">离线 (Offline)</span>
+              <span class="text-sm text-ink-muted">离线 (Offline)</span>
             </div>
           </div>
         </div>
 
         <!-- Edge Legend -->
         <div class="mb-5">
-          <p class="mb-2 text-xs font-medium text-slate-500">链路利用率</p>
+          <p class="mb-2 text-xs font-medium text-ink-faint">链路利用率</p>
           <div class="space-y-2">
             <div class="flex items-center gap-3">
               <div class="h-0.5 w-8" style="background-color: #6b7280"></div>
-              <span class="text-sm text-slate-300">低 (&lt;50%)</span>
+              <span class="text-sm text-ink-muted">低 (&lt;50%)</span>
             </div>
             <div class="flex items-center gap-3">
               <div class="h-1 w-8" style="background-color: #f59e0b"></div>
-              <span class="text-sm text-slate-300">中 (50-80%)</span>
+              <span class="text-sm text-ink-muted">中 (50-80%)</span>
             </div>
             <div class="flex items-center gap-3">
               <div class="h-1.5 w-8" style="background-color: #ef4444"></div>
-              <span class="text-sm text-slate-300">高 (&gt;80%)</span>
+              <span class="text-sm text-ink-muted">高 (&gt;80%)</span>
             </div>
             <div class="flex items-center gap-3">
               <div class="h-0.5 w-8" style="background-color: #ef4444"></div>
@@ -95,25 +95,25 @@
 
         <!-- Custom Links -->
         <div>
-          <p class="mb-2 text-xs font-medium text-slate-500">自定义连线</p>
+          <p class="mb-2 text-xs font-medium text-ink-faint">自定义连线</p>
           <div class="space-y-2">
             <select
               v-model="linkForm.sourceId"
-              class="w-full rounded-lg border border-slate-700 bg-slate-800 px-2 py-1.5 text-xs text-slate-300 focus:outline-none focus:border-cyan-500"
+              class="w-full rounded-lg border border-line bg-surface-2 px-2 py-1.5 text-xs text-ink-muted focus:outline-none focus:border-cyan-500"
             >
               <option value="">— 设备 A —</option>
               <option v-for="d in managedDevices" :key="d.id" :value="d.id">{{ d.name }} ({{ d.ip }})</option>
             </select>
             <select
               v-model="linkForm.targetId"
-              class="w-full rounded-lg border border-slate-700 bg-slate-800 px-2 py-1.5 text-xs text-slate-300 focus:outline-none focus:border-cyan-500"
+              class="w-full rounded-lg border border-line bg-surface-2 px-2 py-1.5 text-xs text-ink-muted focus:outline-none focus:border-cyan-500"
             >
               <option value="">— 设备 B —</option>
               <option v-for="d in managedDevices" :key="d.id" :value="d.id">{{ d.name }} ({{ d.ip }})</option>
             </select>
             <select
               v-model="linkForm.linkType"
-              class="w-full rounded-lg border border-slate-700 bg-slate-800 px-2 py-1.5 text-xs text-slate-300 focus:outline-none focus:border-cyan-500"
+              class="w-full rounded-lg border border-line bg-surface-2 px-2 py-1.5 text-xs text-ink-muted focus:outline-none focus:border-cyan-500"
             >
               <option value="custom">自定义链路</option>
               <option value="fiber">光纤直连</option>
@@ -133,9 +133,9 @@
             <div
               v-for="l in customLinks"
               :key="l.id"
-              class="flex items-center justify-between gap-2 rounded-lg bg-slate-800/60 px-2 py-1.5 text-xs"
+              class="flex items-center justify-between gap-2 rounded-lg bg-surface-2/60 px-2 py-1.5 text-xs"
             >
-              <span class="text-slate-300 truncate">{{ l.source_name }} ↔ {{ l.target_name }}</span>
+              <span class="text-ink-muted truncate">{{ l.source_name }} ↔ {{ l.target_name }}</span>
               <button
                 @click="removeLink(l.id)"
                 class="shrink-0 rounded px-1 text-red-400 hover:bg-red-500/20 hover:text-red-300"
@@ -143,7 +143,7 @@
               >✕</button>
             </div>
           </div>
-          <div v-else class="mt-3 text-xs text-slate-600">暂无自定义连线</div>
+          <div v-else class="mt-3 text-xs text-ink-faint">暂无自定义连线</div>
         </div>
       </div>
     </div>
@@ -151,6 +151,8 @@
 </template>
 
 <script setup>
+import { chartTheme } from '../utils/chartTheme'
+const cc = chartTheme()
 import { ref, onMounted, onBeforeUnmount, nextTick } from 'vue'
 import { useRouter } from 'vue-router'
 import * as echarts from 'echarts'
@@ -178,7 +180,7 @@ const linkForm = ref({ sourceId: '', targetId: '', linkType: 'custom' })
 const getEdgeColor = (utilization) => {
   if (utilization >= 80) return '#ef4444'
   if (utilization >= 50) return '#f59e0b'
-  return '#6b7280'
+  return cc.sub
 }
 
 const formatBandwidth = (bandwidth) => {
@@ -195,12 +197,12 @@ const buildChartOption = (data) => {
     backgroundColor: 'transparent',
     tooltip: {
       show: true,
-      backgroundColor: 'rgba(17, 24, 39, 0.95)',
-      borderColor: '#374151',
+      backgroundColor: cc.tooltipBg,
+      borderColor: cc.tooltipBorder,
       borderWidth: 1,
       padding: 12,
       textStyle: {
-        color: '#f3f4f6',
+        color: cc.text,
         fontSize: 13
       },
       formatter: (params) => {
@@ -214,16 +216,16 @@ const buildChartOption = (data) => {
           const statusColor = getStatusColor(d.status)
           const typeCfg = params.data._typeCfg
           return `
-            <div style="font-weight:600;font-size:14px;margin-bottom:8px;color:#f3f4f6;">${esc(d.name)}</div>
+            <div style="font-weight:600;font-size:14px;margin-bottom:8px;color:${cc.text};">${esc(d.name)}</div>
             <div style="display:grid;grid-template-columns:auto auto;gap:4px 12px;font-size:12px;">
-              <span style="color:#9ca3af;">类型:</span><span style="color:#e5e7eb;">${esc(typeCfg.label)}</span>
-              <span style="color:#9ca3af;">IP地址:</span><span style="color:#e5e7eb;font-family:monospace;">${esc(d.ip)}</span>
-              <span style="color:#9ca3af;">厂商:</span><span style="color:#e5e7eb;">${esc(d.vendor)}</span>
-              <span style="color:#9ca3af;">状态:</span><span style="color:${statusColor};font-weight:600;">${statusText[d.status] || esc(d.status)}</span>
-              <span style="color:#9ca3af;">CPU:</span><span style="color:${d.cpu >= 80 ? '#ef4444' : d.cpu >= 60 ? '#f59e0b' : '#10b981'};">${d.cpu}%</span>
-              <span style="color:#9ca3af;">内存:</span><span style="color:${d.memory >= 80 ? '#ef4444' : d.memory >= 60 ? '#f59e0b' : '#10b981'};">${d.memory}%</span>
+              <span style="color:${cc.sub};">类型:</span><span style="color:${cc.text};">${esc(typeCfg.label)}</span>
+              <span style="color:${cc.sub};">IP地址:</span><span style="color:${cc.text};font-family:monospace;">${esc(d.ip)}</span>
+              <span style="color:${cc.sub};">厂商:</span><span style="color:${cc.text};">${esc(d.vendor)}</span>
+              <span style="color:${cc.sub};">状态:</span><span style="color:${statusColor};font-weight:600;">${statusText[d.status] || esc(d.status)}</span>
+              <span style="color:${cc.sub};">CPU:</span><span style="color:${d.cpu >= 80 ? '#ef4444' : d.cpu >= 60 ? '#f59e0b' : '#10b981'};">${d.cpu}%</span>
+              <span style="color:${cc.sub};">内存:</span><span style="color:${d.memory >= 80 ? '#ef4444' : d.memory >= 60 ? '#f59e0b' : '#10b981'};">${d.memory}%</span>
             </div>
-            <div style="font-size:11px;color:#22d3ee;margin-top:6px;">🖱 双击设备查看详情</div>
+            <div style="font-size:11px;color:${cc.brand};margin-top:6px;">🖱 双击设备查看详情</div>
           `
         }
         if (params.dataType === 'edge' && params.data._rawData) {
@@ -232,16 +234,16 @@ const buildChartOption = (data) => {
             const offlineTip = d._hasOffline ? '<div style="font-size:12px;color:#ef4444;font-weight:600;margin-top:4px;">⚠ 该链路涉及离线设备</div>' : ''
             return `
               <div style="font-weight:600;font-size:13px;margin-bottom:6px;">自定义连线</div>
-              <div style="font-size:12px;color:#9ca3af;">类型: <span style="color:#22d3ee;">${esc(d.link_type || 'custom')}</span></div>
-              ${d.label ? `<div style="font-size:12px;color:#9ca3af;">备注: <span style="color:#e5e7eb;">${esc(d.label)}</span></div>` : ''}
+              <div style="font-size:12px;color:${cc.sub};">类型: <span style="color:${cc.brand};">${esc(d.link_type || 'custom')}</span></div>
+              ${d.label ? `<div style="font-size:12px;color:${cc.sub};">备注: <span style="color:${cc.text};">${esc(d.label)}</span></div>` : ''}
               ${offlineTip}
             `
           }
           const offlineTip = d._hasOffline ? '<div style="font-size:12px;color:#ef4444;font-weight:600;margin-top:4px;">⚠ 该链路涉及离线设备</div>' : ''
           return `
             <div style="font-weight:600;font-size:13px;margin-bottom:6px;">链路信息</div>
-            <div style="font-size:12px;color:#9ca3af;">带宽: <span style="color:#e5e7eb;">${formatBandwidth(d.bandwidth)}</span></div>
-            <div style="font-size:12px;color:#9ca3af;">利用率: <span style="color:${getEdgeColor(d.utilization)};">${d.utilization}%</span></div>
+            <div style="font-size:12px;color:${cc.sub};">带宽: <span style="color:${cc.text};">${formatBandwidth(d.bandwidth)}</span></div>
+            <div style="font-size:12px;color:${cc.sub};">利用率: <span style="color:${getEdgeColor(d.utilization)};">${d.utilization}%</span></div>
             ${offlineTip}
           `
         }

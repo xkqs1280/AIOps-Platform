@@ -1,5 +1,5 @@
 <template>
-  <div class="min-h-screen bg-slate-950 text-slate-100 p-4 flex flex-col gap-4 animate-in">
+  <div class="min-h-screen bg-app text-ink-strong p-4 flex flex-col gap-4 animate-in">
     <!-- Header -->
     <div class="flex items-center justify-between px-2">
       <div class="flex items-center gap-3">
@@ -7,52 +7,52 @@
         <h1 class="text-2xl font-bold tracking-wide">安全监控</h1>
       </div>
       <div class="flex items-center gap-2">
-        <span class="text-xs text-slate-500">自动刷新: 15s</span>
+        <span class="text-xs text-ink-faint">自动刷新: 15s</span>
       </div>
     </div>
 
     <!-- 外部实时威胁态势（FireHOL 开放情报 + ipwho.is） -->
-    <div class="bg-slate-900 rounded-xl border border-slate-800 p-4 flex flex-col gap-4">
+    <div class="bg-surface rounded-xl border border-line p-4 flex flex-col gap-4">
       <div class="flex items-center justify-between">
         <div class="flex items-center gap-2 border-l-4 border-red-500 pl-2">
-          <span class="text-sm font-semibold text-slate-200">外部实时威胁态势</span>
+          <span class="text-sm font-semibold text-ink">外部实时威胁态势</span>
           <span class="text-xs text-red-400/80">全球恶意攻击源监测</span>
         </div>
-        <span class="text-xs text-slate-500 text-right">{{ threatNote }}</span>
+        <span class="text-xs text-ink-faint text-right">{{ threatNote }}</span>
       </div>
 
       <!-- Stat Cards -->
       <div class="grid grid-cols-4 gap-3">
-        <div class="bg-slate-800/50 rounded-lg p-3">
-          <span class="text-xs text-slate-400">恶意源条目总数</span>
+        <div class="bg-surface-2/50 rounded-lg p-3">
+          <span class="text-xs text-ink-muted">恶意源条目总数</span>
           <span class="block text-3xl font-bold text-red-400 mt-1">{{ latestThreat.total_entries || 0 }}</span>
-          <span class="text-xs text-slate-600">实时恶意 IP/CIDR 条目</span>
+          <span class="text-xs text-ink-faint">实时恶意 IP/CIDR 条目</span>
         </div>
-        <div class="bg-slate-800/50 rounded-lg p-3">
-          <span class="text-xs text-slate-400">涉及中国来源(抽样)</span>
+        <div class="bg-surface-2/50 rounded-lg p-3">
+          <span class="text-xs text-ink-muted">涉及中国来源(抽样)</span>
           <span class="block text-3xl font-bold text-yellow-400 mt-1">{{ latestThreat.china_entries || 0 }}</span>
-          <span class="text-xs text-slate-600">抽样 {{ latestThreat.sampled_ips || 0 }} 个 IP</span>
+          <span class="text-xs text-ink-faint">抽样 {{ latestThreat.sampled_ips || 0 }} 个 IP</span>
         </div>
-        <div class="bg-slate-800/50 rounded-lg p-3">
-          <span class="text-xs text-slate-400">攻击类型</span>
+        <div class="bg-surface-2/50 rounded-lg p-3">
+          <span class="text-xs text-ink-muted">攻击类型</span>
           <span class="block text-3xl font-bold text-cyan-400 mt-1">{{ threatTypeCount }}</span>
-          <span class="text-xs text-slate-600">{{ threatTypeSummary }}</span>
+          <span class="text-xs text-ink-faint">{{ threatTypeSummary }}</span>
         </div>
-        <div class="bg-slate-800/50 rounded-lg p-3">
-          <span class="text-xs text-slate-400">最近更新</span>
-          <span class="block text-2xl font-bold text-slate-100 mt-1 text-lg leading-9">{{ threatUpdatedAt }}</span>
-          <span class="text-xs text-slate-600">每 30 分钟自动刷新</span>
+        <div class="bg-surface-2/50 rounded-lg p-3">
+          <span class="text-xs text-ink-muted">最近更新</span>
+          <span class="block text-2xl font-bold text-ink-strong mt-1 text-lg leading-9">{{ threatUpdatedAt }}</span>
+          <span class="text-xs text-ink-faint">每 30 分钟自动刷新</span>
         </div>
       </div>
 
       <!-- Charts -->
       <div class="grid grid-cols-2 gap-3">
         <div>
-          <div class="text-xs text-slate-500 mb-1">攻击类型分布（恶意源条目数）</div>
+          <div class="text-xs text-ink-faint mb-1">攻击类型分布（恶意源条目数）</div>
           <div ref="extTypeChartRef" class="w-full h-52"></div>
         </div>
         <div>
-          <div class="text-xs text-slate-500 mb-1">恶意源来源国家 TOP10（抽样，中国黄色高亮）</div>
+          <div class="text-xs text-ink-faint mb-1">恶意源来源国家 TOP10（抽样，中国黄色高亮）</div>
           <div ref="extCountryChartRef" class="w-full h-52"></div>
         </div>
       </div>
@@ -61,6 +61,8 @@
 </template>
 
 <script setup>
+import { chartTheme } from '../utils/chartTheme'
+const cc = chartTheme()
 import { ref, computed, onMounted, onUnmounted, nextTick } from 'vue'
 import * as echarts from 'echarts'
 
@@ -107,25 +109,25 @@ function renderExtTypeChart() {
   const entries = Object.entries(td).map(([name, value]) => ({ name, value }))
   extTypeChart.setOption({
     color: ['#f87171', '#fb923c', '#facc15', '#38bdf8', '#a78bfa', '#34d399'],
-    tooltip: { trigger: 'axis', axisPointer: { type: 'shadow' }, backgroundColor: 'rgba(17,24,39,0.9)', borderColor: '#374151', textStyle: { color: '#e5e7eb' } },
+    tooltip: { trigger: 'axis', axisPointer: { type: 'shadow' }, backgroundColor: cc.tooltipBg, borderColor: cc.tooltipBorder, textStyle: { color: cc.text } },
     grid: { left: '3%', right: '12%', top: '3%', bottom: '3%', containLabel: true },
     xAxis: {
       type: 'value',
-      axisLabel: { color: '#6b7280', fontSize: 9 },
-      splitLine: { lineStyle: { color: '#1f2937' } },
+      axisLabel: { color: cc.sub, fontSize: 9 },
+      splitLine: { lineStyle: { color: cc.split } },
     },
     yAxis: {
       type: 'category',
       data: entries.map(d => d.name).reverse(),
-      axisLabel: { color: '#9ca3af', fontSize: 11 },
-      axisLine: { lineStyle: { color: '#374151' } },
+      axisLabel: { color: cc.sub, fontSize: 11 },
+      axisLine: { lineStyle: { color: cc.tooltipBorder } },
     },
     series: [{
       type: 'bar',
       data: entries.map(d => d.value).reverse(),
       barWidth: '45%',
       itemStyle: { borderRadius: [0, 4, 4, 0] },
-      label: { show: true, position: 'right', color: '#9ca3af', fontSize: 10 },
+      label: { show: true, position: 'right', color: cc.sub, fontSize: 10 },
     }],
   }, true)
 }
@@ -137,18 +139,18 @@ function renderExtCountryChart() {
   const data = top.slice(0, 10)
   extCountryChart.setOption({
     color: ['#22d3ee'],
-    tooltip: { trigger: 'axis', axisPointer: { type: 'shadow' }, backgroundColor: 'rgba(17,24,39,0.9)', borderColor: '#374151', textStyle: { color: '#e5e7eb' } },
+    tooltip: { trigger: 'axis', axisPointer: { type: 'shadow' }, backgroundColor: cc.tooltipBg, borderColor: cc.tooltipBorder, textStyle: { color: cc.text } },
     grid: { left: '3%', right: '12%', top: '3%', bottom: '3%', containLabel: true },
     xAxis: {
       type: 'value',
-      axisLabel: { color: '#6b7280', fontSize: 9 },
-      splitLine: { lineStyle: { color: '#1f2937' } },
+      axisLabel: { color: cc.sub, fontSize: 9 },
+      splitLine: { lineStyle: { color: cc.split } },
     },
     yAxis: {
       type: 'category',
       data: data.map(d => d.name).reverse(),
-      axisLabel: { color: '#9ca3af', fontSize: 11 },
-      axisLine: { lineStyle: { color: '#374151' } },
+      axisLabel: { color: cc.sub, fontSize: 11 },
+      axisLine: { lineStyle: { color: cc.tooltipBorder } },
     },
     series: [{
       type: 'bar',
@@ -161,7 +163,7 @@ function renderExtCountryChart() {
           return item && item.is_china ? '#f59e0b' : '#22d3ee'
         },
       },
-      label: { show: true, position: 'right', color: '#9ca3af', fontSize: 10 },
+      label: { show: true, position: 'right', color: cc.sub, fontSize: 10 },
     }],
   }, true)
 }
@@ -198,7 +200,7 @@ onUnmounted(() => {
 
 <style scoped>
 .custom-scrollbar::-webkit-scrollbar { width: 4px; }
-.custom-scrollbar::-webkit-scrollbar-track { background: #1f2937; border-radius: 2px; }
-.custom-scrollbar::-webkit-scrollbar-thumb { background: #4b5563; border-radius: 2px; }
+.custom-scrollbar::-webkit-scrollbar-track { background: var(--line-strong); border-radius: 2px; }
+.custom-scrollbar::-webkit-scrollbar-thumb { background: var(--ink-faint); border-radius: 2px; }
 .custom-scrollbar::-webkit-scrollbar-thumb:hover { background: #6b7280; }
 </style>

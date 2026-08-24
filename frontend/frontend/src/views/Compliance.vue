@@ -1,5 +1,5 @@
 <template>
-  <div class="min-h-screen bg-slate-950 text-slate-100 p-4 flex flex-col gap-4 animate-in">
+  <div class="min-h-screen bg-app text-ink-strong p-4 flex flex-col gap-4 animate-in">
     <div class="flex items-center justify-between px-2">
       <div class="flex items-center gap-3">
         <div class="w-2 h-8 bg-gradient-to-b from-green-400 to-teal-600 rounded-full"></div>
@@ -8,7 +8,7 @@
       <div class="flex items-center gap-2">
         <button
           @click="showExamples = true"
-          class="px-4 py-2 text-sm rounded-lg bg-slate-700/40 text-slate-300 border border-slate-600/50 hover:bg-slate-700/60 transition-colors"
+          class="px-4 py-2 text-sm rounded-lg bg-hover/40 text-ink-muted border border-line-strong/50 hover:bg-hover/60 transition-colors"
         >
           合规示例（H3C）
         </button>
@@ -30,50 +30,50 @@
     </div>
 
     <!-- 评估方式说明 -->
-    <div class="px-2 -mt-1 text-xs text-slate-500">
+    <div class="px-2 -mt-1 text-xs text-ink-faint">
       <span class="inline-flex items-center gap-1 mr-4">
         <span class="w-2 h-2 rounded-full bg-cyan-400"></span> SSH 真实配置核查（等保二级交换机）
       </span>
       <span class="inline-flex items-center gap-1">
-        <span class="w-2 h-2 rounded-full bg-slate-500"></span> 平台指标推断（设备未配置 SSH 时回退）
+        <span class="w-2 h-2 rounded-full bg-ink-faint"></span> 平台指标推断（设备未配置 SSH 时回退）
       </span>
     </div>
 
     <!-- Overall Score + Radar Chart -->
     <div class="grid grid-cols-3 gap-4 h-48">
-      <div class="bg-slate-900 rounded-xl border border-slate-800 p-4 flex flex-col items-center justify-center">
-        <span class="text-xs text-slate-400 mb-1">整体合规评分</span>
+      <div class="bg-surface rounded-xl border border-line p-4 flex flex-col items-center justify-center">
+        <span class="text-xs text-ink-muted mb-1">整体合规评分</span>
         <span class="text-5xl font-bold" :class="scoreColor">{{ overallScore }}%</span>
-        <span class="text-xs text-slate-500 mt-1">{{ overallStats.compliant_devices || 0 }} / {{ overallStats.total_devices || 0 }} 设备合规</span>
+        <span class="text-xs text-ink-faint mt-1">{{ overallStats.compliant_devices || 0 }} / {{ overallStats.total_devices || 0 }} 设备合规</span>
       </div>
-      <div class="col-span-2 bg-slate-900 rounded-xl border border-slate-800 p-4 flex flex-col">
+      <div class="col-span-2 bg-surface rounded-xl border border-line p-4 flex flex-col">
         <div class="flex items-center gap-2 border-l-4 border-green-400 pl-2 mb-2">
-          <span class="text-sm font-semibold text-slate-200">五大类合规得分</span>
+          <span class="text-sm font-semibold text-ink">五大类合规得分</span>
         </div>
         <div ref="radarChartRef" class="flex-1 w-full"></div>
       </div>
     </div>
 
     <!-- Device Compliance Table -->
-    <div class="bg-slate-900 rounded-xl border border-slate-800 overflow-hidden flex-1">
-      <div class="flex items-center justify-between px-4 py-3 border-b border-slate-800">
+    <div class="bg-surface rounded-xl border border-line overflow-hidden flex-1">
+      <div class="flex items-center justify-between px-4 py-3 border-b border-line">
         <div class="flex items-center gap-2">
           <span class="w-2.5 h-2.5 bg-green-400 rounded-full"></span>
           <h3 class="text-sm font-semibold">设备合规状态</h3>
-          <span class="text-xs text-slate-500">({{ devices.length }})</span>
+          <span class="text-xs text-ink-faint">({{ devices.length }})</span>
         </div>
-        <div class="flex items-center gap-3 text-xs text-slate-400">
-          <label class="flex items-center gap-1.5 cursor-pointer hover:text-slate-200">
+        <div class="flex items-center gap-3 text-xs text-ink-muted">
+          <label class="flex items-center gap-1.5 cursor-pointer hover:text-ink">
             <input type="checkbox" :checked="allSelected" @change="toggleAll" class="accent-cyan-500" />
             全选
           </label>
-          <button @click="clearSelection" class="hover:text-slate-200">清空</button>
+          <button @click="clearSelection" class="hover:text-ink">清空</button>
         </div>
       </div>
       <div class="overflow-x-auto">
         <table class="w-full text-sm">
           <thead>
-            <tr class="border-b border-slate-800 text-slate-400 text-xs">
+            <tr class="border-b border-line text-ink-muted text-xs">
               <th class="text-left px-4 py-2.5 font-medium w-8">
                 <input type="checkbox" :checked="allSelected" @change="toggleAll" class="accent-cyan-500" />
               </th>
@@ -87,7 +87,7 @@
           <tbody>
             <template v-for="device in devices" :key="deviceKey(device)">
               <tr
-                class="border-b border-slate-800/50 hover:bg-slate-800/30 transition-colors cursor-pointer"
+                class="border-b border-line/50 hover:bg-hover/30 transition-colors cursor-pointer"
                 @click="toggleExpand(deviceKey(device))"
               >
                 <td class="px-4 py-2.5" @click.stop>
@@ -99,16 +99,16 @@
                   />
                 </td>
                 <td class="px-4 py-2.5">
-                  <span class="text-slate-500 text-xs transition-transform inline-block mr-1" :class="expandedId === deviceKey(device) ? 'rotate-90' : ''">&#9654;</span>
+                  <span class="text-ink-faint text-xs transition-transform inline-block mr-1" :class="expandedId === deviceKey(device) ? 'rotate-90' : ''">&#9654;</span>
                   <div class="inline-flex flex-col align-middle">
-                    <span class="text-slate-200">{{ device.device_name }}</span>
-                    <span class="text-xs text-slate-500 font-mono">{{ device.ip || '-' }}</span>
+                    <span class="text-ink">{{ device.device_name }}</span>
+                    <span class="text-xs text-ink-faint font-mono">{{ device.ip || '-' }}</span>
                   </div>
                 </td>
                 <td class="px-4 py-2.5">
                   <span
                     class="px-2 py-0.5 rounded text-xs font-medium"
-                    :class="device.method === 'ssh_config' ? 'bg-cyan-500/15 text-cyan-400 border border-cyan-500/30' : 'bg-slate-600/20 text-slate-400 border border-slate-600/30'"
+                    :class="device.method === 'ssh_config' ? 'bg-cyan-500/15 text-cyan-400 border border-cyan-500/30' : 'bg-line-strong/20 text-ink-muted border border-line-strong/30'"
                   >
                     {{ device.method === 'ssh_config' ? 'SSH 核查' : (device.method === 'snmp_fallback' ? '指标推断' : '待评估') }}
                   </span>
@@ -116,23 +116,23 @@
                 <td class="px-4 py-2.5">
                   <span class="px-2 py-0.5 rounded text-xs font-medium" :class="complianceScoreBadge(device.score != null ? device.score : device.compliance_score)">{{ device.score != null ? device.score : device.compliance_score }}%</span>
                 </td>
-                <td class="px-4 py-2.5 text-slate-400">{{ device.passed != null ? device.passed : (device.passed_checks || 0) }} / {{ device.total != null ? device.total : (device.total_checks || 0) }}</td>
-                <td class="px-4 py-2.5 text-slate-500 text-xs">{{ formatTime(device.checked_at || device.last_checked) }}</td>
+                <td class="px-4 py-2.5 text-ink-muted">{{ device.passed != null ? device.passed : (device.passed_checks || 0) }} / {{ device.total != null ? device.total : (device.total_checks || 0) }}</td>
+                <td class="px-4 py-2.5 text-ink-faint text-xs">{{ formatTime(device.checked_at || device.last_checked) }}</td>
               </tr>
               <!-- Expanded: Control Checks Detail -->
-              <tr v-if="expandedId === deviceKey(device)" class="bg-slate-800/30">
+              <tr v-if="expandedId === deviceKey(device)" class="bg-surface-2/30">
                 <td colspan="6" class="px-6 py-3">
-                  <div v-if="expandedLoading" class="text-slate-500 text-sm py-4 text-center">加载中...</div>
-                  <div v-else-if="expandedChecks.length === 0" class="text-slate-500 text-sm py-4 text-center">暂无检查项数据</div>
+                  <div v-if="expandedLoading" class="text-ink-faint text-sm py-4 text-center">加载中...</div>
+                  <div v-else-if="expandedChecks.length === 0" class="text-ink-faint text-sm py-4 text-center">暂无检查项数据</div>
                   <div v-else>
                     <!-- 分类得分 -->
                     <div v-if="expandedCategories && Object.keys(expandedCategories).length" class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-2 mb-4">
                       <div
                         v-for="(cat, key) in expandedCategories"
                         :key="key"
-                        class="bg-slate-900/60 rounded-lg px-3 py-2 border border-slate-700/50"
+                        class="bg-surface/60 rounded-lg px-3 py-2 border border-line/50"
                       >
-                        <div class="text-xs text-slate-400">{{ cat.label }}</div>
+                        <div class="text-xs text-ink-muted">{{ cat.label }}</div>
                         <div class="text-sm font-semibold mt-0.5" :class="scoreColorClass(cat.score)">{{ cat.score }}%</div>
                       </div>
                     </div>
@@ -140,13 +140,13 @@
                       <div
                         v-for="check in expandedChecks"
                         :key="check.id || check.control_id"
-                        class="flex items-start justify-between gap-3 bg-slate-900/60 rounded-lg px-4 py-2 border border-slate-700/50"
+                        class="flex items-start justify-between gap-3 bg-surface/60 rounded-lg px-4 py-2 border border-line/50"
                       >
                         <div class="flex items-start gap-3 min-w-0">
                           <span class="w-2 h-2 rounded-full mt-1.5 shrink-0" :class="checkStatusDot(check.status)"></span>
                           <div class="min-w-0">
-                            <div class="text-sm text-slate-300">{{ check.desc || check.name || check.control_name }}</div>
-                            <div v-if="check.evidence" class="text-xs text-slate-500 mt-0.5 break-words">{{ check.evidence }}</div>
+                            <div class="text-sm text-ink-muted">{{ check.desc || check.name || check.control_name }}</div>
+                            <div v-if="check.evidence" class="text-xs text-ink-faint mt-0.5 break-words">{{ check.evidence }}</div>
                           </div>
                         </div>
                         <span class="text-xs px-2 py-0.5 rounded font-medium shrink-0" :class="checkStatusBadge(check.status)">{{ checkStatusLabel(check.status) }}</span>
@@ -158,17 +158,17 @@
             </template>
           </tbody>
         </table>
-        <div v-if="devices.length === 0" class="px-4 py-10 text-center text-slate-500 text-sm">暂无设备合规数据</div>
+        <div v-if="devices.length === 0" class="px-4 py-10 text-center text-ink-faint text-sm">暂无设备合规数据</div>
         <!-- 分页控件 -->
-        <div v-if="complianceTotal > compliancePageSize" class="flex items-center justify-between px-4 py-3 border-t border-slate-800">
-          <span class="text-xs text-slate-500">共 {{ complianceTotal }} 台设备</span>
+        <div v-if="complianceTotal > compliancePageSize" class="flex items-center justify-between px-4 py-3 border-t border-line">
+          <span class="text-xs text-ink-faint">共 {{ complianceTotal }} 台设备</span>
           <div class="flex items-center gap-3 text-sm">
-            <span class="flex items-center gap-1 text-xs text-slate-500">
+            <span class="flex items-center gap-1 text-xs text-ink-faint">
               每页
               <select
                 v-model="compliancePageSize"
                 @change="onCompliancePageSizeChange"
-                class="bg-slate-800 border border-slate-700 rounded-lg px-2 py-1 text-sm text-slate-200 focus:outline-none"
+                class="bg-surface-2 border border-line rounded-lg px-2 py-1 text-sm text-ink focus:outline-none"
               >
                 <option :value="20">20</option>
                 <option :value="50">50</option>
@@ -179,13 +179,13 @@
             <button
               @click="compliancePage--; fetchStatus()"
               :disabled="compliancePage <= 1"
-              class="px-3 py-1 rounded-lg bg-slate-800 text-slate-300 border border-slate-700 hover:bg-slate-700 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+              class="px-3 py-1 rounded-lg bg-surface-2 text-ink-muted border border-line hover:bg-hover disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
             >上一页</button>
-            <span class="text-xs text-slate-400">第 {{ compliancePage }} / {{ complianceTotalPages }} 页</span>
+            <span class="text-xs text-ink-muted">第 {{ compliancePage }} / {{ complianceTotalPages }} 页</span>
             <button
               @click="compliancePage++; fetchStatus()"
               :disabled="compliancePage >= complianceTotalPages"
-              class="px-3 py-1 rounded-lg bg-slate-800 text-slate-300 border border-slate-700 hover:bg-slate-700 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+              class="px-3 py-1 rounded-lg bg-surface-2 text-ink-muted border border-line hover:bg-hover disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
             >下一页</button>
           </div>
         </div>
@@ -198,36 +198,36 @@
       class="fixed inset-0 z-50 flex items-center justify-center bg-black/60"
       @click.self="showExamples = false"
     >
-      <div class="bg-slate-900 border border-slate-700 rounded-xl w-[820px] max-h-[85vh] flex flex-col shadow-2xl">
-        <div class="flex items-center justify-between px-6 py-4 border-b border-slate-800">
+      <div class="bg-surface border border-line rounded-xl w-[820px] max-h-[85vh] flex flex-col shadow-2xl">
+        <div class="flex items-center justify-between px-6 py-4 border-b border-line">
           <div>
             <h3 class="text-lg font-bold">等保合规配置示例（H3C 设备）</h3>
-            <p class="text-xs text-slate-500 mt-0.5">对应平台合规检查项 SEC-1.1 ~ SEC-5.1，可直接复制到设备执行（需在系统视图下）</p>
+            <p class="text-xs text-ink-faint mt-0.5">对应平台合规检查项 SEC-1.1 ~ SEC-5.1，可直接复制到设备执行（需在系统视图下）</p>
           </div>
-          <button class="px-3 py-1.5 text-xs text-slate-400 hover:text-slate-200" @click="showExamples = false">关闭</button>
+          <button class="px-3 py-1.5 text-xs text-ink-muted hover:text-ink" @click="showExamples = false">关闭</button>
         </div>
         <div class="flex-1 overflow-auto custom-scrollbar p-6 space-y-6">
           <div v-for="group in complianceExamples" :key="group.category">
             <div class="flex items-center gap-2 mb-3">
               <span class="text-sm font-semibold" :class="group.color">{{ group.category }}</span>
-              <span class="text-[10px] px-1.5 py-0.5 rounded bg-slate-800 text-slate-500">{{ group.items.length }} 项</span>
-              <div class="flex-1 h-px bg-slate-800"></div>
+              <span class="text-[10px] px-1.5 py-0.5 rounded bg-surface-2 text-ink-faint">{{ group.items.length }} 项</span>
+              <div class="flex-1 h-px bg-surface-2"></div>
             </div>
             <div class="space-y-3">
-              <div v-for="item in group.items" :key="item.id" class="bg-slate-800/40 border border-slate-700/60 rounded-lg p-3">
+              <div v-for="item in group.items" :key="item.id" class="bg-surface-2/40 border border-line/60 rounded-lg p-3">
                 <div class="flex items-start justify-between gap-3 mb-1.5">
                   <div class="flex items-center gap-2">
                     <span class="text-[10px] px-1.5 py-0.5 rounded bg-blue-900/50 text-blue-300 font-mono">{{ item.id }}</span>
-                    <span class="text-sm text-slate-200">{{ item.desc }}</span>
+                    <span class="text-sm text-ink">{{ item.desc }}</span>
                   </div>
                   <button
-                    class="px-2 py-0.5 text-[10px] bg-slate-700 hover:bg-slate-600 rounded text-slate-300 shrink-0 transition-colors"
+                    class="px-2 py-0.5 text-[10px] bg-hover hover:bg-line-strong rounded text-ink-muted shrink-0 transition-colors"
                     @click="copyExample(item.cmd)"
                   >
                     复制
                   </button>
                 </div>
-                <pre class="text-xs text-green-300/90 font-mono whitespace-pre-wrap leading-relaxed bg-slate-950/70 rounded p-2.5 overflow-x-auto">{{ item.cmd }}</pre>
+                <pre class="text-xs text-green-300/90 font-mono whitespace-pre-wrap leading-relaxed bg-app/70 rounded p-2.5 overflow-x-auto">{{ item.cmd }}</pre>
               </div>
             </div>
           </div>
@@ -238,6 +238,8 @@
 </template>
 
 <script setup>
+import { chartTheme } from '../utils/chartTheme'
+const cc = chartTheme()
 import { ref, computed, onMounted, onUnmounted, nextTick } from 'vue'
 import * as echarts from 'echarts'
 
@@ -402,8 +404,8 @@ function complianceScoreBadge(score) {
 }
 
 function checkStatusDot(status) {
-  const map = { compliant: 'bg-green-500', partial: 'bg-yellow-500', non_compliant: 'bg-red-500', not_applicable: 'bg-slate-500' }
-  return map[status] || 'bg-slate-500'
+  const map = { compliant: 'bg-green-500', partial: 'bg-yellow-500', non_compliant: 'bg-red-500', not_applicable: 'bg-ink-faint' }
+  return map[status] || 'bg-ink-faint'
 }
 
 function checkStatusBadge(status) {
@@ -411,9 +413,9 @@ function checkStatusBadge(status) {
     compliant: 'bg-green-500/15 text-green-400 border-green-500/30',
     partial: 'bg-yellow-500/15 text-yellow-400 border-yellow-500/30',
     non_compliant: 'bg-red-500/15 text-red-400 border-red-500/30',
-    not_applicable: 'bg-slate-600/20 text-slate-400 border-slate-600/30',
+    not_applicable: 'bg-line-strong/20 text-ink-muted border-line-strong/30',
   }
-  return (map[status] || 'bg-slate-600/20 text-slate-400') + ' border'
+  return (map[status] || 'bg-line-strong/20 text-ink-muted') + ' border'
 }
 
 function checkStatusLabel(status) {
@@ -499,16 +501,16 @@ function renderRadarChart() {
 
   radarChart.setOption({
     color: ['#10b981'],
-    tooltip: { backgroundColor: 'rgba(17,24,39,0.9)', borderColor: '#374151', textStyle: { color: '#e5e7eb' } },
-    legend: { bottom: 0, textStyle: { color: '#9ca3af', fontSize: 10 } },
+    tooltip: { backgroundColor: cc.tooltipBg, borderColor: cc.tooltipBorder, textStyle: { color: cc.text } },
+    legend: { bottom: 0, textStyle: { color: cc.sub, fontSize: 10 } },
     radar: {
       center: ['50%', '45%'],
       radius: '65%',
       indicator: indicators,
-      axisName: { color: '#9ca3af', fontSize: 10 },
+      axisName: { color: cc.sub, fontSize: 10 },
       splitArea: { areaStyle: { color: ['transparent'] } },
-      splitLine: { lineStyle: { color: '#1f2937' } },
-      axisLine: { lineStyle: { color: '#374151' } },
+      splitLine: { lineStyle: { color: cc.split } },
+      axisLine: { lineStyle: { color: cc.tooltipBorder } },
     },
     series: [{
       type: 'radar',
@@ -652,7 +654,7 @@ onUnmounted(() => {
 
 <style scoped>
 .custom-scrollbar::-webkit-scrollbar { width: 4px; }
-.custom-scrollbar::-webkit-scrollbar-track { background: #1f2937; border-radius: 2px; }
-.custom-scrollbar::-webkit-scrollbar-thumb { background: #4b5563; border-radius: 2px; }
+.custom-scrollbar::-webkit-scrollbar-track { background: var(--line-strong); border-radius: 2px; }
+.custom-scrollbar::-webkit-scrollbar-thumb { background: var(--ink-faint); border-radius: 2px; }
 .custom-scrollbar::-webkit-scrollbar-thumb:hover { background: #6b7280; }
 </style>

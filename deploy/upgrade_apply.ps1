@@ -117,7 +117,11 @@ function Start-App {
     $svc = Get-Service -Name "AIOpsPlatform" -ErrorAction SilentlyContinue
     if ($svc) {
         try { Start-Service -Name "AIOpsPlatform" -ErrorAction Stop } catch { }
-        return
+        # Give the service a moment; if it fails to start, fall through to vbs/exe launch
+        Start-Sleep -Seconds 3
+        $svc2 = Get-Service -Name "AIOpsPlatform" -ErrorAction SilentlyContinue
+        if ($svc2 -and $svc2.Status -eq "Running") { return }
+        Write-Host "Service AIOpsPlatform did not reach Running, falling back to vbs/exe launch"
     }
     if ($IsSource) {
         # Source deployment: start python backend (inherits PYTHONPATH from the parent env)
@@ -147,23 +151,37 @@ function Wait-Healthy {
     # HTTPS-compatible health check (self-signed).
     # PS 5.1's ServerCertificateValidationCallback scriptblock fails on the .NET thread
     # ("no runspace"), so use curl.exe (built into Win10 1803+) with -k to skip certs.
+    #
+    # Wait window: up to 150 x (3s sleep + probe) ~= 7+ minutes. The backend exe is a
+    # PyInstaller onefile (90MB+), whose cold start (extract to temp + AV scan +
+    # uvicorn boot + DB connect) can take 2-5 minutes on slow/AV-protected disks.
+    # Shorter windows caused false "health check timeout" after successful replace
+    # (the process was still booting and came up minutes later).
     $url = "http://127.0.0.1:8000/health"
     if (Test-Path (Join-Path $AppRoot "backend\certs\server.crt")) {
         $url = "https://127.0.0.1:8000/health"
     }
     $curl = Get-Command curl.exe -ErrorAction SilentlyContinue
-    for ($i = 0; $i -lt 40; $i++) {
+    for ($i = 0; $i -lt 150; $i++) {
         Start-Sleep -Seconds 3
         if ($curl) {
             try {
-                $resp = & $curl.Source -sk -m 5 $url 2>$null
+                $resp = & $curl.Source -sk -m 8 $url 2>$null
                 if ($LASTEXITCODE -eq 0 -and "$resp" -match "healthy|ok") { return $true }
             } catch { }
         } else {
             try {
-                $r = Invoke-WebRequest -Uri $url -UseBasicParsing -TimeoutSec 5 -ErrorAction Stop
+                $r = Invoke-WebRequest -Uri $url -UseBasicParsing -TimeoutSec 8 -ErrorAction Stop
                 if ($r.StatusCode -eq 200) { return $true }
             } catch { }
+        }
+        # If the process died (not just slow), fail fast with diagnostics
+        $procs = Get-Process -Name "AIOpsServer" -ErrorAction SilentlyContinue
+        if (-not $procs) {
+            $svc = Get-Service -Name "AIOpsPlatform" -ErrorAction SilentlyContinue
+            if (-not $svc) {
+                Write-Host "Health probe ${i}: process AIOpsServer is not running"
+            }
         }
     }
     return $false

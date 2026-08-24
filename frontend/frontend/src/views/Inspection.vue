@@ -1,5 +1,5 @@
 <template>
-  <div class="min-h-screen bg-slate-950 text-slate-100 p-4 flex flex-col gap-4 animate-in">
+  <div class="min-h-screen bg-app text-ink-strong p-4 flex flex-col gap-4 animate-in">
     <div class="flex items-center justify-between px-2">
       <div class="flex items-center gap-3">
         <div class="w-2 h-8 bg-gradient-to-b from-red-400 to-orange-600 rounded-full"></div>
@@ -14,14 +14,14 @@
     </div>
 
     <!-- Task List -->
-    <div class="bg-slate-900 rounded-xl border border-slate-800 overflow-hidden">
-      <div class="px-5 py-4 border-b border-slate-800 flex items-center justify-between">
-        <h2 class="text-sm font-semibold text-slate-200">巡检任务</h2>
+    <div class="bg-surface rounded-xl border border-line overflow-hidden">
+      <div class="px-5 py-4 border-b border-line flex items-center justify-between">
+        <h2 class="text-sm font-semibold text-ink">巡检任务</h2>
         <button @click="fetchTasks" class="text-xs text-cyan-400 hover:text-cyan-300">刷新</button>
       </div>
       <div class="overflow-x-auto">
         <table class="w-full text-sm text-left">
-          <thead class="bg-slate-800/50 text-slate-400 text-xs uppercase">
+          <thead class="bg-surface-2/50 text-ink-muted text-xs uppercase">
             <tr>
               <th class="px-5 py-3">任务名称</th>
               <th class="px-5 py-3">状态</th>
@@ -32,22 +32,22 @@
               <th class="px-5 py-3 text-right">操作</th>
             </tr>
           </thead>
-          <tbody class="divide-y divide-slate-800">
-            <tr v-for="task in tasks" :key="task.id" class="hover:bg-slate-800/30">
-              <td class="px-5 py-3 font-medium text-slate-200">{{ task.name }}</td>
+          <tbody class="divide-y divide-line">
+            <tr v-for="task in tasks" :key="task.id" class="hover:bg-hover/30">
+              <td class="px-5 py-3 font-medium text-ink">{{ task.name }}</td>
               <td class="px-5 py-3">
                 <span class="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium" :class="statusClass(task.status)">
                   {{ statusText(task.status) }}
                 </span>
               </td>
-              <td class="px-5 py-3 text-slate-300">{{ task.total_devices }}</td>
+              <td class="px-5 py-3 text-ink-muted">{{ task.total_devices }}</td>
               <td class="px-5 py-3">
                 <span class="text-green-400">{{ task.success_count }}</span>
-                <span class="text-slate-500 mx-1">/</span>
+                <span class="text-ink-faint mx-1">/</span>
                 <span class="text-red-400">{{ task.failed_count }}</span>
               </td>
-              <td class="px-5 py-3 text-slate-400 text-xs">{{ formatTime(task.created_at) }}</td>
-              <td class="px-5 py-3 text-slate-400 text-xs">{{ formatTime(task.completed_at) }}</td>
+              <td class="px-5 py-3 text-ink-muted text-xs">{{ formatTime(task.created_at) }}</td>
+              <td class="px-5 py-3 text-ink-muted text-xs">{{ formatTime(task.completed_at) }}</td>
               <td class="px-5 py-3 text-right space-x-2">
                 <button
                   @click="viewDetail(task)"
@@ -70,7 +70,7 @@
               </td>
             </tr>
             <tr v-if="!tasks.length">
-              <td colspan="7" class="px-5 py-10 text-center text-slate-500 text-sm">暂无巡检任务</td>
+              <td colspan="7" class="px-5 py-10 text-center text-ink-faint text-sm">暂无巡检任务</td>
             </tr>
           </tbody>
         </table>
@@ -79,32 +79,32 @@
 
     <!-- Create Modal -->
     <div v-if="showCreate" class="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm" @click.self="closeCreate">
-      <div class="bg-slate-900 border border-slate-700 rounded-xl w-full max-w-lg p-6 shadow-2xl">
+      <div class="bg-surface border border-line rounded-xl w-full max-w-lg p-6 shadow-2xl">
         <h3 class="text-lg font-semibold mb-4">新建 H3C 巡检任务</h3>
         <div class="space-y-4">
           <div>
-            <label class="text-xs text-slate-400 mb-1 block">任务名称</label>
+            <label class="text-xs text-ink-muted mb-1 block">任务名称</label>
             <input
               v-model="createForm.name"
               type="text"
               placeholder="例如：月度 H3C 交换机巡检"
-              class="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm text-slate-200 focus:border-orange-500 focus:outline-none"
+              class="w-full bg-surface-2 border border-line rounded-lg px-3 py-2 text-sm text-ink focus:border-orange-500 focus:outline-none"
             />
           </div>
           <div>
-            <label class="text-xs text-slate-400 mb-1 block">选择设备</label>
-            <div class="bg-slate-800 border border-slate-700 rounded-lg p-3 max-h-60 overflow-y-auto custom-scrollbar">
-              <div v-if="!h3cDevices.length" class="text-xs text-slate-500 text-center py-2">暂无 H3C 设备</div>
+            <label class="text-xs text-ink-muted mb-1 block">选择设备</label>
+            <div class="bg-surface-2 border border-line rounded-lg p-3 max-h-60 overflow-y-auto custom-scrollbar">
+              <div v-if="!h3cDevices.length" class="text-xs text-ink-faint text-center py-2">暂无 H3C 设备</div>
               <label
                 v-if="h3cDevices.length"
-                class="flex items-center gap-3 px-2 py-2 rounded hover:bg-slate-700/50 cursor-pointer border-b border-slate-700/60"
+                class="flex items-center gap-3 px-2 py-2 rounded hover:bg-hover/50 cursor-pointer border-b border-line/60"
               >
                 <input
                   type="checkbox"
                   :checked="allSelected"
                   v-indeterminate="someSelected"
                   @change="toggleSelectAll"
-                  class="w-4 h-4 rounded border-slate-600 bg-slate-700 text-orange-500 focus:ring-orange-500"
+                  class="w-4 h-4 rounded border-line-strong bg-hover text-orange-500 focus:ring-orange-500"
                 />
                 <div class="flex-1">
                   <div class="text-sm text-orange-300 font-semibold">全选（共 {{ h3cDevices.length }} 台）</div>
@@ -113,26 +113,26 @@
               <label
                 v-for="device in h3cDevices"
                 :key="device.id"
-                class="flex items-center gap-3 px-2 py-2 rounded hover:bg-slate-700/50 cursor-pointer"
+                class="flex items-center gap-3 px-2 py-2 rounded hover:bg-hover/50 cursor-pointer"
               >
                 <input
                   v-model="createForm.deviceIds"
                   :value="device.id"
                   type="checkbox"
-                  class="w-4 h-4 rounded border-slate-600 bg-slate-700 text-orange-500 focus:ring-orange-500"
+                  class="w-4 h-4 rounded border-line-strong bg-hover text-orange-500 focus:ring-orange-500"
                 />
                 <div class="flex-1">
-                  <div class="text-sm text-slate-200">{{ device.name }}</div>
-                  <div class="text-xs text-slate-500">{{ device.ip }} · {{ device.model || '未知型号' }}</div>
+                  <div class="text-sm text-ink">{{ device.name }}</div>
+                  <div class="text-xs text-ink-faint">{{ device.ip }} · {{ device.model || '未知型号' }}</div>
                 </div>
               </label>
             </div>
-            <p class="text-xs text-slate-500 mt-1">已选 {{ createForm.deviceIds.length }} 台设备</p>
+            <p class="text-xs text-ink-faint mt-1">已选 {{ createForm.deviceIds.length }} 台设备</p>
           </div>
         </div>
         <p v-if="createError" class="text-xs text-red-400 mt-2">{{ createError }}</p>
         <div class="flex justify-end gap-2 mt-5">
-          <button @click="closeCreate" :disabled="creating" class="px-4 py-2 text-sm rounded-lg bg-slate-800 text-slate-400 hover:text-slate-200 transition-colors disabled:opacity-50">取消</button>
+          <button @click="closeCreate" :disabled="creating" class="px-4 py-2 text-sm rounded-lg bg-surface-2 text-ink-muted hover:text-ink transition-colors disabled:opacity-50">取消</button>
           <button
             @click="doCreate"
             :disabled="creating || !createForm.name || !createForm.deviceIds.length"
@@ -146,16 +146,16 @@
 
     <!-- Detail Modal -->
     <div v-if="showDetail" class="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm" @click.self="closeDetail">
-      <div class="bg-slate-900 border border-slate-700 rounded-xl w-full max-w-2xl p-6 shadow-2xl max-h-[80vh] overflow-y-auto custom-scrollbar">
+      <div class="bg-surface border border-line rounded-xl w-full max-w-2xl p-6 shadow-2xl max-h-[80vh] overflow-y-auto custom-scrollbar">
         <h3 class="text-lg font-semibold mb-4">{{ currentTask?.name }} - 设备明细</h3>
         <div class="space-y-2">
           <div
             v-for="r in currentTask?.device_results || []"
             :key="r.id"
-            class="bg-slate-800/50 rounded-lg p-3 flex items-center justify-between"
+            class="bg-surface-2/50 rounded-lg p-3 flex items-center justify-between"
           >
             <div>
-              <div class="text-sm text-slate-200">{{ r.device_name }} <span class="text-xs text-slate-500">({{ r.device_ip }})</span></div>
+              <div class="text-sm text-ink">{{ r.device_name }} <span class="text-xs text-ink-faint">({{ r.device_ip }})</span></div>
               <div v-if="r.error_message" class="text-xs text-red-400 mt-1">{{ r.error_message }}</div>
             </div>
             <div class="flex items-center gap-3">
@@ -174,7 +174,7 @@
           </div>
         </div>
         <div class="flex justify-end mt-5">
-          <button @click="closeDetail" class="px-4 py-2 text-sm rounded-lg bg-slate-800 text-slate-400 hover:text-slate-200 transition-colors">关闭</button>
+          <button @click="closeDetail" class="px-4 py-2 text-sm rounded-lg bg-surface-2 text-ink-muted hover:text-ink transition-colors">关闭</button>
         </div>
       </div>
     </div>
@@ -203,7 +203,7 @@ const createForm = ref({
 
 function statusClass(status) {
   const map = {
-    pending: 'bg-slate-500/10 text-slate-400 border border-slate-500/20',
+    pending: 'bg-ink-faint/10 text-ink-muted border border-line-strong/20',
     running: 'bg-blue-500/10 text-blue-400 border border-blue-500/20',
     completed: 'bg-green-500/10 text-green-400 border border-green-500/20',
     success: 'bg-green-500/10 text-green-400 border border-green-500/20',
@@ -429,7 +429,7 @@ onUnmounted(() => {
 
 <style scoped>
 .custom-scrollbar::-webkit-scrollbar { width: 4px; }
-.custom-scrollbar::-webkit-scrollbar-track { background: #1f2937; border-radius: 2px; }
-.custom-scrollbar::-webkit-scrollbar-thumb { background: #4b5563; border-radius: 2px; }
+.custom-scrollbar::-webkit-scrollbar-track { background: var(--line-strong); border-radius: 2px; }
+.custom-scrollbar::-webkit-scrollbar-thumb { background: var(--ink-faint); border-radius: 2px; }
 .custom-scrollbar::-webkit-scrollbar-thumb:hover { background: #6b7280; }
 </style>

@@ -106,6 +106,12 @@ const routes = [
         meta: { title: '授权管理' },
       },
       {
+        path: 'display',
+        name: 'DisplaySettings',
+        component: () => import('../views/DisplaySettings.vue'),
+        meta: { title: '显示设置' },
+      },
+      {
         path: 'audit-logs',
         name: 'AuditLogs',
         component: () => import('../views/AuditLogs.vue'),

@@ -20,13 +20,13 @@ onMounted(async () => {
       let cls = ''
       let txt = ''
       if (!s.activated) {
-        cls = 'bg-red-900/30 border-red-800/60 text-red-300'
+        cls = 'bg-danger/10 border-danger/30 text-danger'
         txt = '⚠ 平台未授权，登录后请前往「授权管理」激活（联系邮箱 x1280455974@163.com）'
       } else if (s.locked) {
-        cls = 'bg-red-900/30 border-red-800/60 text-red-300'
+        cls = 'bg-danger/10 border-danger/30 text-danger'
         txt = '⚠ 平台授权已到期并锁定，请前往「授权管理」激活（联系邮箱 x1280455974@163.com）'
       } else if (!s.permanent && s.days_left !== null && s.days_left <= 30) {
-        cls = 'bg-amber-900/30 border-amber-800/60 text-amber-300'
+        cls = 'bg-warning/10 border-warning/30 text-warning'
         txt = `⚠ 平台授权将于 ${(s.expires_at || '').slice(0, 10)} 到期（剩余 ${s.days_left} 天），请及时续期（联系邮箱 x1280455974@163.com）`
       }
       licMsg.value = txt
@@ -56,8 +56,8 @@ async function doLogin() {
 
 <template>
   <div
-    class="min-h-screen bg-slate-950 flex items-center justify-center px-4 animate-fade"
-    style="background-image: radial-gradient(80% 60% at 50% 0%, rgba(14, 165, 233, 0.12) 0%, rgba(2, 6, 23, 0) 55%), radial-gradient(60% 50% at 85% 90%, rgba(34, 211, 238, 0.08) 0%, rgba(2, 6, 23, 0) 60%)"
+    class="min-h-screen bg-app flex items-center justify-center px-4 animate-fade"
+    style="background-image: var(--color-login-gradient)"
   >
     <div class="w-full max-w-sm">
       <div
@@ -69,16 +69,16 @@ async function doLogin() {
       </div>
 
       <form
-        class="bg-slate-900 border border-slate-800 rounded-2xl p-8 shadow-2xl grad-border animate-in"
+        class="bg-surface border border-line rounded-2xl p-8 shadow-2xl grad-border animate-in"
         @submit.prevent="doLogin"
       >
         <div class="flex flex-col items-center mb-6">
           <img src="/logo.svg" class="w-14 h-14" alt="AIOps" />
           <h1 class="text-xl font-bold text-brand-400 mt-3">AIOps 平台登录</h1>
-          <p class="text-xs text-slate-500 mt-1">网络及安全设备智能运维托管平台</p>
+          <p class="text-xs text-ink-faint mt-1">网络及安全设备智能运维托管平台</p>
         </div>
 
-        <label class="block text-xs text-slate-500 font-medium mb-1.5">用户名</label>
+        <label class="block text-xs text-ink-faint font-medium mb-1.5">用户名</label>
         <input
           v-model="username"
           type="text"
@@ -87,7 +87,7 @@ async function doLogin() {
           class="input"
         />
 
-        <label class="block text-xs text-slate-500 font-medium mt-4 mb-1.5">密码</label>
+        <label class="block text-xs text-ink-faint font-medium mt-4 mb-1.5">密码</label>
         <input
           v-model="password"
           type="password"
