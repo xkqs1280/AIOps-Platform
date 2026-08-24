@@ -1,5 +1,5 @@
 <template>
-  <div class="min-h-screen bg-slate-950 text-slate-100 p-4 flex flex-col gap-4 animate-in">
+  <div class="min-h-screen bg-app text-ink-strong p-4 flex flex-col gap-4 animate-in">
     <!-- Header -->
     <div class="flex items-center justify-between px-2">
       <div class="flex items-center gap-3">
@@ -16,7 +16,7 @@
         </button>
         <button
           @click="openGroupModal()"
-          class="px-4 py-2 text-sm rounded-lg bg-slate-700/40 text-slate-300 border border-slate-600/50 hover:bg-slate-700/60 transition-colors"
+          class="px-4 py-2 text-sm rounded-lg bg-hover/40 text-ink-muted border border-line-strong/50 hover:bg-hover/60 transition-colors"
         >+ 分组</button>
         <button
           @click="openTerminalModal()"
@@ -27,20 +27,20 @@
 
     <!-- Stats -->
     <div class="grid grid-cols-4 gap-4">
-      <div class="bg-slate-900 border border-slate-800 rounded-xl p-4">
-        <div class="text-xs text-slate-500 mb-1">监控终端</div>
+      <div class="bg-surface border border-line rounded-xl p-4">
+        <div class="text-xs text-ink-faint mb-1">监控终端</div>
         <div class="text-2xl font-bold">{{ summary.total || 0 }}</div>
       </div>
-      <div class="bg-slate-900 border border-slate-800 rounded-xl p-4">
-        <div class="text-xs text-slate-500 mb-1">在线</div>
+      <div class="bg-surface border border-line rounded-xl p-4">
+        <div class="text-xs text-ink-faint mb-1">在线</div>
         <div class="text-2xl font-bold text-green-400">{{ summary.online || 0 }}</div>
       </div>
-      <div class="bg-slate-900 border border-slate-800 rounded-xl p-4">
-        <div class="text-xs text-slate-500 mb-1">离线</div>
+      <div class="bg-surface border border-line rounded-xl p-4">
+        <div class="text-xs text-ink-faint mb-1">离线</div>
         <div class="text-2xl font-bold text-red-400">{{ summary.offline || 0 }}</div>
       </div>
-      <div class="bg-slate-900 border border-slate-800 rounded-xl p-4">
-        <div class="text-xs text-slate-500 mb-1">离线告警次数</div>
+      <div class="bg-surface border border-line rounded-xl p-4">
+        <div class="text-xs text-ink-faint mb-1">离线告警次数</div>
         <div class="text-2xl font-bold text-orange-400">{{ summary.offline_alerts || 0 }}</div>
       </div>
     </div>
@@ -52,19 +52,19 @@
         :key="tab.key"
         @click="activeTab = tab.key"
         class="px-3 py-1.5 text-sm rounded-lg transition-colors"
-        :class="activeTab === tab.key ? 'bg-slate-800 text-cyan-400' : 'text-slate-500 hover:text-slate-300'"
+        :class="activeTab === tab.key ? 'bg-surface-2 text-cyan-400' : 'text-ink-faint hover:text-ink-muted'"
       >{{ tab.label }}</button>
     </div>
 
     <!-- Terminal List -->
-    <div v-if="activeTab === 'terminals'" class="bg-slate-900 border border-slate-800 rounded-xl overflow-hidden">
-      <div class="flex items-center justify-between px-4 py-3 border-b border-slate-800">
+    <div v-if="activeTab === 'terminals'" class="bg-surface border border-line rounded-xl overflow-hidden">
+      <div class="flex items-center justify-between px-4 py-3 border-b border-line">
         <div class="flex items-center gap-3">
-          <select v-model="filterGroupId" class="bg-slate-800 border border-slate-700 rounded-lg px-3 py-1.5 text-sm text-slate-200 focus:outline-none" @change="termPage = 1; loadTerminals()">
+          <select v-model="filterGroupId" class="bg-surface-2 border border-line rounded-lg px-3 py-1.5 text-sm text-ink focus:outline-none" @change="termPage = 1; loadTerminals()">
             <option :value="null">全部分组</option>
             <option v-for="g in groups" :key="g.id" :value="g.id">{{ g.name }} ({{ g.terminal_count }})</option>
           </select>
-          <select v-model="filterStatus" class="bg-slate-800 border border-slate-700 rounded-lg px-3 py-1.5 text-sm text-slate-200 focus:outline-none" @change="termPage = 1; loadTerminals()">
+          <select v-model="filterStatus" class="bg-surface-2 border border-line rounded-lg px-3 py-1.5 text-sm text-ink focus:outline-none" @change="termPage = 1; loadTerminals()">
             <option value="">全部状态</option>
             <option value="online">在线</option>
             <option value="offline">离线</option>
@@ -73,7 +73,7 @@
           <input
             v-model="filterKeyword"
             placeholder="搜索名称/IP/描述..."
-            class="bg-slate-800 border border-slate-700 rounded-lg px-3 py-1.5 text-sm text-slate-200 focus:border-cyan-500 focus:outline-none w-56"
+            class="bg-surface-2 border border-line rounded-lg px-3 py-1.5 text-sm text-ink focus:border-cyan-500 focus:outline-none w-56"
             @input="onTermSearch"
           />
         </div>
@@ -81,7 +81,7 @@
       </div>
       <table class="w-full text-sm">
         <thead>
-          <tr class="text-left text-slate-500 border-b border-slate-800">
+          <tr class="text-left text-ink-faint border-b border-line">
             <th class="px-4 py-2.5 font-medium">终端名称</th>
             <th class="px-4 py-2.5 font-medium">分组</th>
             <th class="px-4 py-2.5 font-medium">IP</th>
@@ -93,42 +93,42 @@
           </tr>
         </thead>
         <tbody>
-          <tr v-for="t in terminals" :key="t.id" class="border-b border-slate-800/60 hover:bg-slate-800/30">
-            <td class="px-4 py-2.5 text-slate-200">{{ t.name }}</td>
-            <td class="px-4 py-2.5 text-slate-400 text-xs">{{ groupName(t.group_id) }}</td>
-            <td class="px-4 py-2.5 text-slate-300 font-mono text-xs">{{ t.ip }}</td>
-            <td class="px-4 py-2.5 text-slate-500 font-mono text-xs">{{ t.mac || '-' }}</td>
-            <td class="px-4 py-2.5 text-slate-500 text-xs max-w-[160px] truncate">{{ t.description || '-' }}</td>
+          <tr v-for="t in terminals" :key="t.id" class="border-b border-line/60 hover:bg-hover/30">
+            <td class="px-4 py-2.5 text-ink">{{ t.name }}</td>
+            <td class="px-4 py-2.5 text-ink-muted text-xs">{{ groupName(t.group_id) }}</td>
+            <td class="px-4 py-2.5 text-ink-muted font-mono text-xs">{{ t.ip }}</td>
+            <td class="px-4 py-2.5 text-ink-faint font-mono text-xs">{{ t.mac || '-' }}</td>
+            <td class="px-4 py-2.5 text-ink-faint text-xs max-w-[160px] truncate">{{ t.description || '-' }}</td>
             <td class="px-4 py-2.5">
               <span class="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium" :class="statusClass(t.status)">
                 <span class="w-1.5 h-1.5 rounded-full mr-1.5" :class="statusDot(t.status)"></span>
                 {{ statusText(t.status) }}
               </span>
             </td>
-            <td class="px-4 py-2.5 text-slate-400 text-xs">{{ formatTime(t.last_online_at) }}</td>
+            <td class="px-4 py-2.5 text-ink-muted text-xs">{{ formatTime(t.last_online_at) }}</td>
             <td class="px-4 py-2.5 text-right space-x-1.5">
               <button
                 @click="probeOne(t)"
                 :disabled="probingId === t.id"
                 class="px-2 py-0.5 text-xs rounded bg-purple-500/10 text-purple-400 border border-purple-500/20 hover:bg-purple-500/20 disabled:opacity-50"
               >{{ probingId === t.id ? '探测中' : '探测' }}</button>
-              <button @click="openTerminalModal(t)" class="px-2 py-0.5 text-xs rounded bg-slate-700/40 text-slate-300 border border-slate-600/40 hover:bg-slate-700/60">编辑</button>
+              <button @click="openTerminalModal(t)" class="px-2 py-0.5 text-xs rounded bg-hover/40 text-ink-muted border border-line-strong/40 hover:bg-hover/60">编辑</button>
               <button @click="deleteTerminal(t)" class="px-2 py-0.5 text-xs rounded bg-red-500/10 text-red-400 border border-red-500/20 hover:bg-red-500/20">删除</button>
             </td>
           </tr>
           <tr v-if="terminals.length === 0">
-            <td colspan="8" class="px-4 py-10 text-center text-slate-500 text-sm">暂无终端，点击右上角"添加终端"开始监控</td>
+            <td colspan="8" class="px-4 py-10 text-center text-ink-faint text-sm">暂无终端，点击右上角"添加终端"开始监控</td>
           </tr>
         </tbody>
       </table>
 
       <!-- 终端分页 -->
-      <div v-if="termTotal > 0" class="flex items-center justify-between px-4 py-3 border-t border-slate-800 text-sm text-slate-500">
+      <div v-if="termTotal > 0" class="flex items-center justify-between px-4 py-3 border-t border-line text-sm text-ink-faint">
         <span>共 {{ termTotal }} 台终端</span>
         <div class="flex items-center gap-3">
           <select
             v-model="termPageSize"
-            class="px-2 py-1 bg-slate-800 border border-slate-700 rounded text-slate-300 focus:outline-none focus:border-cyan-500"
+            class="px-2 py-1 bg-surface-2 border border-line rounded text-ink-muted focus:outline-none focus:border-cyan-500"
             @change="termPage = 1; loadTerminals()"
           >
             <option :value="10">10 条/页</option>
@@ -136,13 +136,13 @@
             <option :value="50">50 条/页</option>
           </select>
           <button
-            class="px-3 py-1 bg-slate-800 border border-slate-700 rounded text-slate-300 hover:bg-slate-700 disabled:opacity-40"
+            class="px-3 py-1 bg-surface-2 border border-line rounded text-ink-muted hover:bg-hover disabled:opacity-40"
             :disabled="termPage <= 1"
             @click="termPage--; loadTerminals()"
           >上一页</button>
           <span>第 {{ termPage }} / {{ termTotalPages }} 页</span>
           <button
-            class="px-3 py-1 bg-slate-800 border border-slate-700 rounded text-slate-300 hover:bg-slate-700 disabled:opacity-40"
+            class="px-3 py-1 bg-surface-2 border border-line rounded text-ink-muted hover:bg-hover disabled:opacity-40"
             :disabled="termPage >= termTotalPages"
             @click="termPage++; loadTerminals()"
           >下一页</button>
@@ -151,9 +151,9 @@
     </div>
 
     <!-- Alert Records -->
-    <div v-if="activeTab === 'alerts'" class="bg-slate-900 border border-slate-800 rounded-xl overflow-hidden">
-      <div class="flex items-center justify-between px-4 py-3 border-b border-slate-800">
-        <h3 class="text-sm text-slate-400">离线/恢复告警记录</h3>
+    <div v-if="activeTab === 'alerts'" class="bg-surface border border-line rounded-xl overflow-hidden">
+      <div class="flex items-center justify-between px-4 py-3 border-b border-line">
+        <h3 class="text-sm text-ink-muted">离线/恢复告警记录</h3>
         <div class="flex items-center gap-3">
           <button @click="loadAlerts" class="text-xs text-cyan-400 hover:text-cyan-300">刷新</button>
           <button
@@ -167,7 +167,7 @@
       </div>
       <table class="w-full text-sm">
         <thead>
-          <tr class="text-left text-slate-500 border-b border-slate-800">
+          <tr class="text-left text-ink-faint border-b border-line">
             <th class="px-4 py-2.5 font-medium">时间</th>
             <th class="px-4 py-2.5 font-medium">类型</th>
             <th class="px-4 py-2.5 font-medium">终端</th>
@@ -176,15 +176,15 @@
           </tr>
         </thead>
         <tbody>
-          <tr v-for="a in alerts" :key="a.id" class="border-b border-slate-800/60">
-            <td class="px-4 py-2.5 text-slate-400 text-xs">{{ formatTime(a.created_at) }}</td>
+          <tr v-for="a in alerts" :key="a.id" class="border-b border-line/60">
+            <td class="px-4 py-2.5 text-ink-muted text-xs">{{ formatTime(a.created_at) }}</td>
             <td class="px-4 py-2.5">
               <span class="px-2 py-0.5 rounded text-xs font-medium" :class="a.alert_type === 'offline' ? 'bg-red-500/15 text-red-400' : 'bg-green-500/15 text-green-400'">
                 {{ a.alert_type === 'offline' ? '离线告警' : '已恢复' }}
               </span>
             </td>
-            <td class="px-4 py-2.5 text-slate-200">{{ a.terminal_name }} <span class="text-slate-500 font-mono text-xs">({{ a.terminal_ip }})</span></td>
-            <td class="px-4 py-2.5 text-slate-400 text-xs">{{ a.message }}</td>
+            <td class="px-4 py-2.5 text-ink">{{ a.terminal_name }} <span class="text-ink-faint font-mono text-xs">({{ a.terminal_ip }})</span></td>
+            <td class="px-4 py-2.5 text-ink-muted text-xs">{{ a.message }}</td>
             <td class="px-4 py-2.5">
               <button
                 @click="removeAlert(a)"
@@ -195,18 +195,18 @@
             </td>
           </tr>
           <tr v-if="alerts.length === 0">
-            <td colspan="5" class="px-4 py-10 text-center text-slate-500 text-sm">暂无告警记录</td>
+            <td colspan="5" class="px-4 py-10 text-center text-ink-faint text-sm">暂无告警记录</td>
           </tr>
         </tbody>
       </table>
 
       <!-- 分页 -->
-      <div v-if="alertTotal > 0" class="flex items-center justify-between px-4 py-3 border-t border-slate-800 text-sm text-slate-500">
+      <div v-if="alertTotal > 0" class="flex items-center justify-between px-4 py-3 border-t border-line text-sm text-ink-faint">
         <span>共 {{ alertTotal }} 条记录</span>
         <div class="flex items-center gap-3">
           <select
             v-model="alertPageSize"
-            class="px-2 py-1 bg-slate-800 border border-slate-700 rounded text-slate-300 focus:outline-none focus:border-cyan-500"
+            class="px-2 py-1 bg-surface-2 border border-line rounded text-ink-muted focus:outline-none focus:border-cyan-500"
             @change="alertPage = 1; loadAlerts()"
           >
             <option :value="10">10 条/页</option>
@@ -214,13 +214,13 @@
             <option :value="50">50 条/页</option>
           </select>
           <button
-            class="px-3 py-1 bg-slate-800 border border-slate-700 rounded text-slate-300 hover:bg-slate-700 disabled:opacity-40"
+            class="px-3 py-1 bg-surface-2 border border-line rounded text-ink-muted hover:bg-hover disabled:opacity-40"
             :disabled="alertPage <= 1"
             @click="alertPage--; loadAlerts()"
           >上一页</button>
           <span>第 {{ alertPage }} / {{ alertTotalPages }} 页</span>
           <button
-            class="px-3 py-1 bg-slate-800 border border-slate-700 rounded text-slate-300 hover:bg-slate-700 disabled:opacity-40"
+            class="px-3 py-1 bg-surface-2 border border-line rounded text-ink-muted hover:bg-hover disabled:opacity-40"
             :disabled="alertPage >= alertTotalPages"
             @click="alertPage++; loadAlerts()"
           >下一页</button>
@@ -230,20 +230,20 @@
 
     <!-- Group Modal -->
     <div v-if="showGroupModal" class="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm" @click.self="showGroupModal = false">
-      <div class="bg-slate-900 border border-slate-700 rounded-xl w-full max-w-sm p-6 shadow-2xl">
+      <div class="bg-surface border border-line rounded-xl w-full max-w-sm p-6 shadow-2xl">
         <h3 class="text-lg font-semibold mb-4">{{ groupForm.id ? '编辑分组' : '添加分组' }}</h3>
         <div class="space-y-3">
           <div>
-            <label class="text-xs text-slate-400 mb-1 block">分组名称</label>
-            <input v-model="groupForm.name" class="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm text-slate-200 focus:border-cyan-500 focus:outline-none" placeholder="如: 厂区监控" />
+            <label class="text-xs text-ink-muted mb-1 block">分组名称</label>
+            <input v-model="groupForm.name" class="w-full bg-surface-2 border border-line rounded-lg px-3 py-2 text-sm text-ink focus:border-cyan-500 focus:outline-none" placeholder="如: 厂区监控" />
           </div>
           <div>
-            <label class="text-xs text-slate-400 mb-1 block">描述</label>
-            <input v-model="groupForm.description" class="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm text-slate-200 focus:border-cyan-500 focus:outline-none" placeholder="可选" />
+            <label class="text-xs text-ink-muted mb-1 block">描述</label>
+            <input v-model="groupForm.description" class="w-full bg-surface-2 border border-line rounded-lg px-3 py-2 text-sm text-ink focus:border-cyan-500 focus:outline-none" placeholder="可选" />
           </div>
         </div>
         <div class="flex justify-end gap-2 mt-5">
-          <button @click="showGroupModal = false" class="px-4 py-2 text-sm rounded-lg bg-slate-800 text-slate-400 hover:text-slate-200 transition-colors">取消</button>
+          <button @click="showGroupModal = false" class="px-4 py-2 text-sm rounded-lg bg-surface-2 text-ink-muted hover:text-ink transition-colors">取消</button>
           <button @click="submitGroup" class="px-4 py-2 text-sm rounded-lg bg-cyan-500/20 text-cyan-400 border border-cyan-500/30 hover:bg-cyan-500/30 transition-colors">保存</button>
         </div>
       </div>
@@ -251,47 +251,47 @@
 
     <!-- Terminal Modal -->
     <div v-if="showTerminalModal" class="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm" @click.self="showTerminalModal = false">
-      <div class="bg-slate-900 border border-slate-700 rounded-xl w-full max-w-md p-6 shadow-2xl">
+      <div class="bg-surface border border-line rounded-xl w-full max-w-md p-6 shadow-2xl">
         <h3 class="text-lg font-semibold mb-4">{{ termForm.id ? '编辑终端' : '添加监控终端' }}</h3>
 
         <!-- 模式切换（编辑时固定单个） -->
         <div v-if="!termForm.id" class="flex gap-2 mb-4">
           <button
             class="px-3 py-1.5 rounded-lg text-sm font-medium transition-colors"
-            :class="termMode === 'single' ? 'bg-cyan-500/20 text-cyan-400 border border-cyan-500/40' : 'bg-slate-800 text-slate-400 hover:bg-slate-700'"
+            :class="termMode === 'single' ? 'bg-cyan-500/20 text-cyan-400 border border-cyan-500/40' : 'bg-surface-2 text-ink-muted hover:bg-hover'"
             @click="termMode = 'single'"
           >单个添加</button>
           <button
             class="px-3 py-1.5 rounded-lg text-sm font-medium transition-colors"
-            :class="termMode === 'batch' ? 'bg-cyan-500/20 text-cyan-400 border border-cyan-500/40' : 'bg-slate-800 text-slate-400 hover:bg-slate-700'"
+            :class="termMode === 'batch' ? 'bg-cyan-500/20 text-cyan-400 border border-cyan-500/40' : 'bg-surface-2 text-ink-muted hover:bg-hover'"
             @click="termMode = 'batch'"
           >批量添加</button>
         </div>
 
         <div v-if="termMode === 'single' || termForm.id" class="space-y-3">
           <div>
-            <label class="text-xs text-slate-400 mb-1 block">所属分组</label>
-            <select v-model="termForm.group_id" class="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm text-slate-200 focus:outline-none">
+            <label class="text-xs text-ink-muted mb-1 block">所属分组</label>
+            <select v-model="termForm.group_id" class="w-full bg-surface-2 border border-line rounded-lg px-3 py-2 text-sm text-ink focus:outline-none">
               <option v-for="g in groups" :key="g.id" :value="g.id">{{ g.name }}</option>
             </select>
           </div>
           <div>
-            <label class="text-xs text-slate-400 mb-1 block">终端名称</label>
-            <input v-model="termForm.name" class="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm text-slate-200 focus:border-cyan-500 focus:outline-none" placeholder="如: 大厅东监控" />
+            <label class="text-xs text-ink-muted mb-1 block">终端名称</label>
+            <input v-model="termForm.name" class="w-full bg-surface-2 border border-line rounded-lg px-3 py-2 text-sm text-ink focus:border-cyan-500 focus:outline-none" placeholder="如: 大厅东监控" />
           </div>
           <div>
-            <label class="text-xs text-slate-400 mb-1 block">IP 地址</label>
-            <input v-model="termForm.ip" class="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm text-slate-200 focus:border-cyan-500 focus:outline-none font-mono" placeholder="如: 192.168.1.50" />
+            <label class="text-xs text-ink-muted mb-1 block">IP 地址</label>
+            <input v-model="termForm.ip" class="w-full bg-surface-2 border border-line rounded-lg px-3 py-2 text-sm text-ink focus:border-cyan-500 focus:outline-none font-mono" placeholder="如: 192.168.1.50" />
           </div>
           <div>
-            <label class="text-xs text-slate-400 mb-1 block">MAC 地址（可选）</label>
-            <input v-model="termForm.mac" class="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm text-slate-200 focus:border-cyan-500 focus:outline-none font-mono" placeholder="如: 00-11-22-33-44-55" />
+            <label class="text-xs text-ink-muted mb-1 block">MAC 地址（可选）</label>
+            <input v-model="termForm.mac" class="w-full bg-surface-2 border border-line rounded-lg px-3 py-2 text-sm text-ink focus:border-cyan-500 focus:outline-none font-mono" placeholder="如: 00-11-22-33-44-55" />
           </div>
           <div>
-            <label class="text-xs text-slate-400 mb-1 block">描述</label>
-            <input v-model="termForm.description" class="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm text-slate-200 focus:border-cyan-500 focus:outline-none" placeholder="如: 一楼大厅东侧" />
+            <label class="text-xs text-ink-muted mb-1 block">描述</label>
+            <input v-model="termForm.description" class="w-full bg-surface-2 border border-line rounded-lg px-3 py-2 text-sm text-ink focus:border-cyan-500 focus:outline-none" placeholder="如: 一楼大厅东侧" />
           </div>
-          <label class="flex items-center gap-2 text-sm text-slate-300">
+          <label class="flex items-center gap-2 text-sm text-ink-muted">
             <input type="checkbox" v-model="termForm.enabled" class="accent-cyan-500" /> 启用监控
           </label>
         </div>
@@ -299,39 +299,39 @@
         <!-- 批量添加表单 -->
         <div v-else class="space-y-3">
           <div>
-            <label class="text-xs text-slate-400 mb-1 block">所属分组</label>
-            <select v-model="batchForm.group_id" class="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm text-slate-200 focus:outline-none">
+            <label class="text-xs text-ink-muted mb-1 block">所属分组</label>
+            <select v-model="batchForm.group_id" class="w-full bg-surface-2 border border-line rounded-lg px-3 py-2 text-sm text-ink focus:outline-none">
               <option v-for="g in groups" :key="g.id" :value="g.id">{{ g.name }}</option>
             </select>
           </div>
           <div>
-            <label class="text-xs text-slate-400 mb-1 block">名称前缀</label>
-            <input v-model="batchForm.name_prefix" class="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm text-slate-200 focus:border-cyan-500 focus:outline-none" placeholder="如: AP" />
-            <p class="text-[11px] text-slate-500 mt-1">生成的名称：{{ batchForm.name_prefix }}_1、{{ batchForm.name_prefix }}_2 …</p>
+            <label class="text-xs text-ink-muted mb-1 block">名称前缀</label>
+            <input v-model="batchForm.name_prefix" class="w-full bg-surface-2 border border-line rounded-lg px-3 py-2 text-sm text-ink focus:border-cyan-500 focus:outline-none" placeholder="如: AP" />
+            <p class="text-[11px] text-ink-faint mt-1">生成的名称：{{ batchForm.name_prefix }}_1、{{ batchForm.name_prefix }}_2 …</p>
           </div>
           <div class="grid grid-cols-2 gap-3">
             <div>
-              <label class="text-xs text-slate-400 mb-1 block">起始序号</label>
-              <input v-model.number="batchForm.start_index" type="number" min="1" class="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm text-slate-200 focus:border-cyan-500 focus:outline-none" />
+              <label class="text-xs text-ink-muted mb-1 block">起始序号</label>
+              <input v-model.number="batchForm.start_index" type="number" min="1" class="w-full bg-surface-2 border border-line rounded-lg px-3 py-2 text-sm text-ink focus:border-cyan-500 focus:outline-none" />
             </div>
             <div>
-              <label class="text-xs text-slate-400 mb-1 block">数量</label>
-              <input v-model.number="batchForm.count" type="number" min="1" max="200" class="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm text-slate-200 focus:border-cyan-500 focus:outline-none" />
+              <label class="text-xs text-ink-muted mb-1 block">数量</label>
+              <input v-model.number="batchForm.count" type="number" min="1" max="200" class="w-full bg-surface-2 border border-line rounded-lg px-3 py-2 text-sm text-ink focus:border-cyan-500 focus:outline-none" />
             </div>
           </div>
           <div>
-            <label class="text-xs text-slate-400 mb-1 block">起始 IP</label>
-            <input v-model="batchForm.start_ip" class="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm text-slate-200 focus:border-cyan-500 focus:outline-none font-mono" placeholder="如: 192.168.1.50" />
-            <p class="text-[11px] text-slate-500 mt-1">IP 从 {{ batchForm.start_ip || '起始IP' }} 开始逐台 +1 递增</p>
+            <label class="text-xs text-ink-muted mb-1 block">起始 IP</label>
+            <input v-model="batchForm.start_ip" class="w-full bg-surface-2 border border-line rounded-lg px-3 py-2 text-sm text-ink focus:border-cyan-500 focus:outline-none font-mono" placeholder="如: 192.168.1.50" />
+            <p class="text-[11px] text-ink-faint mt-1">IP 从 {{ batchForm.start_ip || '起始IP' }} 开始逐台 +1 递增</p>
           </div>
           <div>
-            <label class="text-xs text-slate-400 mb-1 block">描述（可选，统一备注）</label>
-            <input v-model="batchForm.description" class="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm text-slate-200 focus:border-cyan-500 focus:outline-none" placeholder="如: 一楼 AP" />
+            <label class="text-xs text-ink-muted mb-1 block">描述（可选，统一备注）</label>
+            <input v-model="batchForm.description" class="w-full bg-surface-2 border border-line rounded-lg px-3 py-2 text-sm text-ink focus:border-cyan-500 focus:outline-none" placeholder="如: 一楼 AP" />
           </div>
         </div>
 
         <div class="flex justify-end gap-2 mt-5">
-          <button @click="showTerminalModal = false" class="px-4 py-2 text-sm rounded-lg bg-slate-800 text-slate-400 hover:text-slate-200 transition-colors">取消</button>
+          <button @click="showTerminalModal = false" class="px-4 py-2 text-sm rounded-lg bg-surface-2 text-ink-muted hover:text-ink transition-colors">取消</button>
           <button
             @click="termMode === 'batch' && !termForm.id ? submitBatchTerminals() : submitTerminal()"
             class="px-4 py-2 text-sm rounded-lg bg-cyan-500/20 text-cyan-400 border border-cyan-500/30 hover:bg-cyan-500/30 transition-colors"
@@ -400,10 +400,10 @@ function statusText(s) {
   return { online: '在线', offline: '离线', unknown: '未知' }[s] || s
 }
 function statusClass(s) {
-  return { online: 'bg-green-500/15 text-green-400', offline: 'bg-red-500/15 text-red-400', unknown: 'bg-slate-500/15 text-slate-400' }[s] || 'bg-slate-500/15 text-slate-400'
+  return { online: 'bg-green-500/15 text-green-400', offline: 'bg-red-500/15 text-red-400', unknown: 'bg-ink-faint/15 text-ink-muted' }[s] || 'bg-ink-faint/15 text-ink-muted'
 }
 function statusDot(s) {
-  return { online: 'bg-green-500', offline: 'bg-red-500', unknown: 'bg-slate-500' }[s] || 'bg-slate-500'
+  return { online: 'bg-green-500', offline: 'bg-red-500', unknown: 'bg-ink-faint' }[s] || 'bg-ink-faint'
 }
 
 function formatTime(v) {

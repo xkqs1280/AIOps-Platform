@@ -1,36 +1,36 @@
 <template>
   <div class="p-4">
     <header class="mb-4 flex items-center gap-3">
-      <button @click="$router.back()" class="rounded-lg border border-slate-700 px-2.5 py-1.5 text-sm text-slate-300">‹ 返回</button>
-      <h1 class="text-lg font-bold text-slate-100">系统升级</h1>
+      <button @click="$router.back()" class="rounded-lg border border-line px-2.5 py-1.5 text-sm text-ink-muted">‹ 返回</button>
+      <h1 class="text-lg font-bold text-ink-strong">系统升级</h1>
     </header>
 
     <!-- 版本信息 -->
-    <div class="mb-4 rounded-2xl border border-slate-800 bg-slate-900 p-4">
+    <div class="mb-4 rounded-2xl border border-line bg-surface p-4">
       <div class="flex justify-between text-sm">
         <div>
-          <p class="text-xs text-slate-500">当前版本</p>
-          <p class="mt-0.5 font-medium text-slate-100">{{ versionInfo.version || '—' }}</p>
+          <p class="text-xs text-ink-faint">当前版本</p>
+          <p class="mt-0.5 font-medium text-ink-strong">{{ versionInfo.version || '—' }}</p>
         </div>
         <div class="text-right">
-          <p class="text-xs text-slate-500">构建时间</p>
-          <p class="mt-0.5 text-slate-300">{{ versionInfo.build_time || '—' }}</p>
+          <p class="text-xs text-ink-faint">构建时间</p>
+          <p class="mt-0.5 text-ink-muted">{{ versionInfo.build_time || '—' }}</p>
         </div>
       </div>
     </div>
 
     <!-- 升级进度 -->
-    <div v-if="status.state && status.state !== 'idle'" class="mb-4 rounded-2xl border border-slate-800 bg-slate-900 p-4">
-      <p class="text-sm font-medium text-slate-100">{{ stateText }}</p>
-      <div class="mt-2 h-2 w-full overflow-hidden rounded-full bg-slate-800">
+    <div v-if="status.state && status.state !== 'idle'" class="mb-4 rounded-2xl border border-line bg-surface p-4">
+      <p class="text-sm font-medium text-ink-strong">{{ stateText }}</p>
+      <div class="mt-2 h-2 w-full overflow-hidden rounded-full bg-surface-2">
         <div
           class="h-full rounded-full transition-all duration-500"
           :class="progressColor"
           :style="{ width: (status.progress || 0) + '%' }"
         ></div>
       </div>
-      <p class="mt-2 text-xs text-slate-400">{{ status.message }}</p>
-      <div class="mt-2 max-h-40 overflow-y-auto rounded-lg bg-black/40 p-2 font-mono text-[10px] leading-relaxed text-slate-500">
+      <p class="mt-2 text-xs text-ink-muted">{{ status.message }}</p>
+      <div class="mt-2 max-h-40 overflow-y-auto rounded-lg bg-black/40 p-2 font-mono text-[10px] leading-relaxed text-ink-faint">
         <div v-for="(line, i) in status.log" :key="i">{{ line }}</div>
       </div>
       <button
@@ -47,13 +47,13 @@
     </div>
 
     <!-- 上传 -->
-    <div class="rounded-2xl border border-slate-800 bg-slate-900 p-4">
-      <p class="text-sm font-medium text-slate-100">上传升级包</p>
-      <p class="mt-1 text-xs text-slate-500">选择官方升级包（.zip）后点击升级，自动备份并保留设备与数据。</p>
+    <div class="rounded-2xl border border-line bg-surface p-4">
+      <p class="text-sm font-medium text-ink-strong">上传升级包</p>
+      <p class="mt-1 text-xs text-ink-faint">选择官方升级包（.zip）后点击升级，自动备份并保留设备与数据。</p>
       <input
         type="file"
         accept=".zip"
-        class="mt-3 w-full rounded-lg border border-slate-700 bg-slate-800 px-2 py-2 text-xs text-slate-300"
+        class="mt-3 w-full rounded-lg border border-line bg-surface-2 px-2 py-2 text-xs text-ink-muted"
         @change="onPick"
       />
       <button

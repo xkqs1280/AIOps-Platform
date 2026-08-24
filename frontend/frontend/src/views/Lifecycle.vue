@@ -1,12 +1,12 @@
 <template>
-  <div class="min-h-screen bg-slate-950 text-slate-100 p-4 flex flex-col gap-4 animate-in">
+  <div class="min-h-screen bg-app text-ink-strong p-4 flex flex-col gap-4 animate-in">
     <div class="flex items-center gap-3 px-2">
       <div class="w-2 h-8 bg-gradient-to-b from-yellow-400 to-orange-600 rounded-full"></div>
       <h1 class="text-2xl font-bold tracking-wide">设备生命周期管理</h1>
     </div>
 
     <!-- Tabs -->
-    <div class="flex gap-1 bg-slate-900 rounded-lg p-1 w-fit">
+    <div class="flex gap-1 bg-surface rounded-lg p-1 w-fit">
       <button
         v-for="tab in tabs"
         :key="tab.key"
@@ -14,13 +14,13 @@
         class="px-5 py-2 rounded-md text-sm font-medium transition-colors"
         :class="activeTab === tab.key
           ? 'bg-cyan-500/20 text-cyan-400'
-          : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800'"
+          : 'text-ink-muted hover:text-ink hover:bg-hover'"
       >{{ tab.label }}</button>
     </div>
 
     <!-- Tab 1: Reminders -->
     <div v-if="activeTab === 'reminders'" class="flex flex-col gap-4">
-      <div v-for="section in reminderSections" :key="section.key" class="bg-slate-900 rounded-xl border border-slate-800 overflow-hidden">
+      <div v-for="section in reminderSections" :key="section.key" class="bg-surface rounded-xl border border-line overflow-hidden">
         <div class="flex items-center justify-between px-4 py-3" :class="section.headerBg">
           <div class="flex items-center gap-2">
             <span class="w-2.5 h-2.5 rounded-full" :class="section.dotColor"></span>
@@ -32,7 +32,7 @@
         <div class="overflow-x-auto">
           <table class="w-full text-sm" v-if="getReminderList(section.key).length">
             <thead>
-              <tr class="border-b border-slate-800 text-slate-400 text-xs">
+              <tr class="border-b border-line text-ink-muted text-xs">
                 <th class="text-left px-4 py-2.5 font-medium">设备名称</th>
                 <th class="text-left px-4 py-2.5 font-medium">剩余天数</th>
                 <th class="text-left px-4 py-2.5 font-medium">到期日期</th>
@@ -42,24 +42,24 @@
               <tr
                 v-for="(item, idx) in getReminderList(section.key)"
                 :key="idx"
-                class="border-b border-slate-800/50 hover:bg-slate-800/30 transition-colors"
+                class="border-b border-line/50 hover:bg-hover/30 transition-colors"
               >
-                <td class="px-4 py-2.5 text-slate-200">{{ item.device_name }}</td>
+                <td class="px-4 py-2.5 text-ink">{{ item.device_name }}</td>
                 <td class="px-4 py-2.5">
                   <span class="px-2 py-0.5 rounded text-xs font-medium" :class="section.badgeBg">{{ item.days_remaining }} 天</span>
                 </td>
-                <td class="px-4 py-2.5 text-slate-400">{{ item.date }}</td>
+                <td class="px-4 py-2.5 text-ink-muted">{{ item.date }}</td>
               </tr>
             </tbody>
           </table>
-          <div v-else class="px-4 py-10 text-center text-slate-500 text-sm">暂无数据</div>
+          <div v-else class="px-4 py-10 text-center text-ink-faint text-sm">暂无数据</div>
         </div>
       </div>
     </div>
 
     <!-- Tab 2: 厂商生命周期数据库 -->
-    <div v-if="activeTab === 'eos'" class="bg-slate-900 rounded-xl border border-slate-800 overflow-hidden">
-      <div class="flex items-center justify-between px-4 py-3 border-b border-slate-800">
+    <div v-if="activeTab === 'eos'" class="bg-surface rounded-xl border border-line overflow-hidden">
+      <div class="flex items-center justify-between px-4 py-3 border-b border-line">
         <div class="flex items-center gap-2">
           <span class="w-2.5 h-2.5 bg-blue-400 rounded-full"></span>
           <h3 class="text-sm font-semibold">厂商生命周期数据库</h3>
@@ -72,7 +72,7 @@
       <div class="overflow-x-auto">
         <table class="w-full text-sm" v-if="eosDb.length">
           <thead>
-            <tr class="border-b border-slate-800 text-slate-400 text-xs">
+            <tr class="border-b border-line text-ink-muted text-xs">
               <th class="text-left px-4 py-2.5 font-medium">厂商</th>
               <th class="text-left px-4 py-2.5 font-medium">型号</th>
               <th class="text-left px-4 py-2.5 font-medium">维保到期</th>
@@ -85,13 +85,13 @@
             <tr
               v-for="item in eosDb"
               :key="item.id"
-              class="border-b border-slate-800/50 hover:bg-slate-800/30 transition-colors"
+              class="border-b border-line/50 hover:bg-hover/30 transition-colors"
             >
-              <td class="px-4 py-2.5 text-slate-200">{{ item.vendor }}</td>
-              <td class="px-4 py-2.5 text-slate-300 font-mono text-xs">{{ item.model }}</td>
-              <td class="px-4 py-2.5 text-slate-400">{{ item.eos_date }}</td>
-              <td class="px-4 py-2.5 text-slate-400">{{ item.eol_date }}</td>
-              <td class="px-4 py-2.5 text-slate-500 text-xs">{{ item.source }}</td>
+              <td class="px-4 py-2.5 text-ink">{{ item.vendor }}</td>
+              <td class="px-4 py-2.5 text-ink-muted font-mono text-xs">{{ item.model }}</td>
+              <td class="px-4 py-2.5 text-ink-muted">{{ item.eos_date }}</td>
+              <td class="px-4 py-2.5 text-ink-muted">{{ item.eol_date }}</td>
+              <td class="px-4 py-2.5 text-ink-faint text-xs">{{ item.source }}</td>
               <td class="px-4 py-2.5 text-right">
                 <button @click="openEditModal(item)" class="text-blue-400 hover:text-blue-300 text-xs mr-3 transition-colors">编辑</button>
                 <button @click="deleteDbItem(item.id)" class="text-red-400 hover:text-red-300 text-xs transition-colors">删除</button>
@@ -99,80 +99,80 @@
             </tr>
           </tbody>
         </table>
-        <div v-else class="px-4 py-10 text-center text-slate-500 text-sm">暂无数据，请添加或点击"种子数据"</div>
+        <div v-else class="px-4 py-10 text-center text-ink-faint text-sm">暂无数据，请添加或点击"种子数据"</div>
       </div>
     </div>
 
     <!-- Add/Edit Modal -->
     <div v-if="showModal" class="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm" @click.self="closeModal">
-      <div class="bg-slate-900 border border-slate-700 rounded-xl w-full max-w-lg p-6 shadow-2xl max-h-[85vh] overflow-auto custom-scrollbar">
+      <div class="bg-surface border border-line rounded-xl w-full max-w-lg p-6 shadow-2xl max-h-[85vh] overflow-auto custom-scrollbar">
         <h3 class="text-lg font-semibold mb-4">{{ editingItem ? '编辑记录' : '添加记录（选择设备）' }}</h3>
         <div class="space-y-3">
           <!-- 编辑模式：厂商/型号直接输入 -->
           <template v-if="editingItem">
             <div>
-              <label class="text-xs text-slate-400 mb-1 block">厂商</label>
-              <input v-model="form.vendor" class="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm text-slate-200 focus:border-cyan-500 focus:outline-none" placeholder="如: H3C" />
+              <label class="text-xs text-ink-muted mb-1 block">厂商</label>
+              <input v-model="form.vendor" class="w-full bg-surface-2 border border-line rounded-lg px-3 py-2 text-sm text-ink focus:border-cyan-500 focus:outline-none" placeholder="如: H3C" />
             </div>
             <div>
-              <label class="text-xs text-slate-400 mb-1 block">型号</label>
-              <input v-model="form.model" class="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm text-slate-200 focus:border-cyan-500 focus:outline-none" placeholder="如: S5130S-28P-EI" />
+              <label class="text-xs text-ink-muted mb-1 block">型号</label>
+              <input v-model="form.model" class="w-full bg-surface-2 border border-line rounded-lg px-3 py-2 text-sm text-ink focus:border-cyan-500 focus:outline-none" placeholder="如: S5130S-28P-EI" />
             </div>
           </template>
 
           <!-- 添加模式：从已纳管设备选择（单台/批量） -->
           <template v-else>
             <div>
-              <label class="text-xs text-slate-400 mb-1 block">选择已纳管设备（可多选）</label>
+              <label class="text-xs text-ink-muted mb-1 block">选择已纳管设备（可多选）</label>
               <input
                 v-model="deviceFilter"
-                class="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm text-slate-200 focus:border-cyan-500 focus:outline-none mb-1.5"
+                class="w-full bg-surface-2 border border-line rounded-lg px-3 py-2 text-sm text-ink focus:border-cyan-500 focus:outline-none mb-1.5"
                 placeholder="搜索设备名 / IP / 厂商 / 型号..."
               />
-              <div class="max-h-40 overflow-auto border border-slate-700 rounded-lg bg-slate-800/40 divide-y divide-slate-800 custom-scrollbar">
+              <div class="max-h-40 overflow-auto border border-line rounded-lg bg-surface-2/40 divide-y divide-line custom-scrollbar">
                 <label
                   v-for="d in filteredDevices"
                   :key="d.id"
-                  class="flex items-center gap-2.5 px-3 py-1.5 cursor-pointer hover:bg-slate-700/40"
+                  class="flex items-center gap-2.5 px-3 py-1.5 cursor-pointer hover:bg-hover/40"
                 >
                   <input type="checkbox" :value="d.id" v-model="selectedDeviceIds" class="accent-cyan-500" />
-                  <span class="text-sm text-slate-200">{{ d.name }}</span>
-                  <span class="text-xs text-slate-500 font-mono">{{ d.ip }}</span>
-                  <span v-if="d.vendor || d.model" class="text-xs text-slate-600 ml-auto">
+                  <span class="text-sm text-ink">{{ d.name }}</span>
+                  <span class="text-xs text-ink-faint font-mono">{{ d.ip }}</span>
+                  <span v-if="d.vendor || d.model" class="text-xs text-ink-faint ml-auto">
                     {{ d.vendor || '?' }} {{ d.model || '未识别型号' }}
                   </span>
                 </label>
-                <div v-if="filteredDevices.length === 0" class="px-3 py-4 text-center text-xs text-slate-500">无匹配设备</div>
+                <div v-if="filteredDevices.length === 0" class="px-3 py-4 text-center text-xs text-ink-faint">无匹配设备</div>
               </div>
-              <div class="mt-1 text-xs text-slate-500">已选 {{ selectedDeviceIds.length }} 台</div>
+              <div class="mt-1 text-xs text-ink-faint">已选 {{ selectedDeviceIds.length }} 台</div>
             </div>
 
             <!-- 型号去重预览 -->
             <div v-if="devicePreview.length" class="bg-blue-950/20 border border-blue-900/40 rounded-lg p-3">
               <div class="text-xs text-blue-300 mb-1.5">将按型号创建 {{ devicePreview.length }} 条厂商维保/寿命记录（同型号合并）并回写所选设备：</div>
-              <div v-for="p in devicePreview" :key="`${p.vendor}|${p.model}`" class="text-xs text-slate-300 py-0.5">
-                {{ p.vendor || '未识别厂商' }} <span class="text-slate-500">/</span> {{ p.model || '未识别型号' }}
-                <span class="text-slate-500">× {{ p.count }} 台</span>
+              <div v-for="p in devicePreview" :key="`${p.vendor}|${p.model}`" class="text-xs text-ink-muted py-0.5">
+                {{ p.vendor || '未识别厂商' }} <span class="text-ink-faint">/</span> {{ p.model || '未识别型号' }}
+                <span class="text-ink-faint">× {{ p.count }} 台</span>
               </div>
               <div v-if="devicePreview.some(p => !p.model)" class="mt-1 text-[11px] text-yellow-500/80">含未识别型号的设备，仅回写设备维保/寿命日期，不生成厂商记录</div>
             </div>
           </template>
 
           <div>
-            <label class="text-xs text-slate-400 mb-1 block">维保到期日期</label>
-            <input v-model="form.eos_date" type="date" class="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm text-slate-200 focus:border-cyan-500 focus:outline-none" />
+            <label class="text-xs text-ink-muted mb-1 block">维保到期日期</label>
+            <input v-model="form.eos_date" type="date" class="w-full bg-surface-2 border border-line rounded-lg px-3 py-2 text-sm text-ink focus:border-cyan-500 focus:outline-none" />
           </div>
           <div>
-            <label class="text-xs text-slate-400 mb-1 block">设备寿命到期日期（一般按 8 年）</label>
-            <input v-model="form.eol_date" type="date" class="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm text-slate-200 focus:border-cyan-500 focus:outline-none" />
+            <label class="text-xs text-ink-muted mb-1 block">设备寿命到期日期（一般按 8 年）</label>
+            <input v-model="form.eol_date" type="date" class="w-full bg-surface-2 border border-line rounded-lg px-3 py-2 text-sm text-ink focus:border-cyan-500 focus:outline-none" />
           </div>
           <div>
-            <label class="text-xs text-slate-400 mb-1 block">来源</label>
-            <input v-model="form.source" class="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm text-slate-200 focus:border-cyan-500 focus:outline-none" placeholder="如: H3C官方" />
+            <label class="text-xs text-ink-muted mb-1 block">来源</label>
+            <input v-model="form.source" class="w-full bg-surface-2 border border-line rounded-lg px-3 py-2 text-sm text-ink focus:border-cyan-500 focus:outline-none" placeholder="如: H3C官方" />
           </div>
         </div>
         <div class="flex justify-end gap-2 mt-5">
-          <button @click="closeModal" class="px-4 py-2 text-sm rounded-lg bg-slate-800 text-slate-400 hover:text-slate-200 transition-colors">取消</button>
+          <button @click="closeModal" class="px-4 py-2 text-sm rounded-lg bg-surface-2 text-ink-muted hover:text-ink transition-colors">取消</button>
           <button @click="submitForm" class="px-4 py-2 text-sm rounded-lg bg-cyan-500/20 text-cyan-400 border border-cyan-500/30 hover:bg-cyan-500/30 transition-colors">{{ editingItem ? '保存' : '添加' }}</button>
         </div>
       </div>
@@ -229,9 +229,9 @@ const reminderSections = [
     key: 'already_eol',
     title: '已过寿命设备',
     description: '已超过生命周期',
-    headerBg: 'bg-slate-800/50',
-    dotColor: 'bg-slate-500',
-    badgeBg: 'bg-slate-600/30 text-slate-400',
+    headerBg: 'bg-surface-2/50',
+    dotColor: 'bg-ink-faint',
+    badgeBg: 'bg-line-strong/30 text-ink-muted',
   },
 ]
 

@@ -1,10 +1,66 @@
 @import "tailwindcss";
 
+/* ============ 明暗主题：跟随系统（移动端原生习惯） ============ */
+/* 语义色：亮色（默认 :root）与暗色（prefers-color-scheme: dark）双套。
+   基础变量 --app/--surface/--ink/... 通过 @theme inline 映射为
+   bg-surface / text-ink / border-line 等工具类。 */
+
+:root {
+  --app: #f1f5f9;                /* 页面背景  slate-100 */
+  --surface: #ffffff;            /* 卡片/面板 white */
+  --surface-2: #f8fafc;          /* 次级面板/输入框 slate-50 */
+  --ink: #0f172a;                /* 主文本    slate-900 */
+  --ink-strong: #020617;         /* 强调文本  slate-950 */
+  --ink-muted: #64748b;          /* 次要文本  slate-600 */
+  --ink-faint: #94a3b8;          /* 弱化文本  slate-500 */
+  --line: #e2e8f0;               /* 边框/分隔 slate-200 */
+  --line-strong: #cbd5e1;        /* 强调边框  slate-300 */
+  --hover: #f1f5f9;              /* hover 背景 slate-100 */
+  --cyan-300: #0e7490;
+  --cyan-400: #0891b2;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --app: #020617;                /* slate-950 */
+    --surface: #0f172a;            /* slate-900 */
+    --surface-2: #1e293b;          /* slate-800 */
+    --ink: #e2e8f0;                /* slate-200 */
+    --ink-strong: #f8fafc;         /* slate-50 */
+    --ink-muted: #94a3b8;          /* slate-400 */
+    --ink-faint: #64748b;          /* slate-500 */
+    --line: #334155;               /* slate-700 */
+    --line-strong: #475569;        /* slate-600 */
+    --hover: #1e293b;              /* slate-800 */
+    --cyan-300: #67e8f9;
+    --cyan-400: #22d3ee;
+  }
+}
+
 * { -webkit-tap-highlight-color: transparent; }
 html, body { height: 100%; }
 body {
   font-family: "PingFang SC", "Microsoft YaHei", system-ui, sans-serif;
-  background: #020617;
+  background-color: var(--app);
+  color: var(--ink);
   overscroll-behavior: none;
+  -webkit-font-smoothing: antialiased;
+  font-feature-settings: "tnum";
 }
 #app { height: 100%; }
+
+/* 明暗语义工具类（与桌面端一致） */
+@theme inline {
+  --color-app: var(--app);
+  --color-surface: var(--surface);
+  --color-surface-2: var(--surface-2);
+  --color-ink: var(--ink);
+  --color-ink-strong: var(--ink-strong);
+  --color-ink-muted: var(--ink-muted);
+  --color-ink-faint: var(--ink-faint);
+  --color-line: var(--line);
+  --color-line-strong: var(--line-strong);
+  --color-hover: var(--hover);
+  --color-cyan-300: var(--cyan-300);
+  --color-cyan-400: var(--cyan-400);
+}

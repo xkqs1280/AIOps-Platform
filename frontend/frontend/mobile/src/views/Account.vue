@@ -1,27 +1,27 @@
 <template>
   <div class="p-4 pb-8">
-    <button @click="$router.back()" class="mb-3 flex items-center gap-1 text-sm text-slate-400 active:text-slate-200">← 返回</button>
-    <h1 class="mb-3 text-lg font-bold text-slate-100">账号设置</h1>
+    <button @click="$router.back()" class="mb-3 flex items-center gap-1 text-sm text-ink-muted active:text-ink">← 返回</button>
+    <h1 class="mb-3 text-lg font-bold text-ink-strong">账号设置</h1>
 
-    <div v-if="me" class="mb-4 rounded-2xl border border-slate-800 bg-slate-900 p-4">
+    <div v-if="me" class="mb-4 rounded-2xl border border-line bg-surface p-4">
       <div class="flex items-center gap-3">
         <div class="flex h-11 w-11 items-center justify-center rounded-full bg-cyan-500/15 text-lg font-bold text-cyan-400">
           {{ (me.username || 'A')[0].toUpperCase() }}
         </div>
         <div>
-          <p class="text-sm font-semibold text-slate-100">{{ me.username }}</p>
-          <p class="text-xs text-slate-500">{{ me.role === 'admin' ? '管理员' : '普通用户' }}</p>
+          <p class="text-sm font-semibold text-ink-strong">{{ me.username }}</p>
+          <p class="text-xs text-ink-faint">{{ me.role === 'admin' ? '管理员' : '普通用户' }}</p>
         </div>
       </div>
     </div>
 
     <!-- 修改密码 -->
-    <div class="rounded-2xl border border-slate-800 bg-slate-900 p-4">
-      <p class="mb-3 text-sm font-semibold text-slate-200">修改密码</p>
+    <div class="rounded-2xl border border-line bg-surface p-4">
+      <p class="mb-3 text-sm font-semibold text-ink">修改密码</p>
       <div class="space-y-2.5">
-        <input v-model="oldPwd" type="password" placeholder="原密码" class="w-full rounded-xl border border-slate-700 bg-slate-900 px-3 py-2.5 text-sm text-slate-100 outline-none placeholder:text-slate-600 focus:border-cyan-500" />
-        <input v-model="newPwd" type="password" placeholder="新密码" class="w-full rounded-xl border border-slate-700 bg-slate-900 px-3 py-2.5 text-sm text-slate-100 outline-none placeholder:text-slate-600 focus:border-cyan-500" />
-        <input v-model="confirmPwd" type="password" placeholder="确认新密码" class="w-full rounded-xl border border-slate-700 bg-slate-900 px-3 py-2.5 text-sm text-slate-100 outline-none placeholder:text-slate-600 focus:border-cyan-500" />
+        <input v-model="oldPwd" type="password" placeholder="原密码" class="w-full rounded-xl border border-line bg-surface px-3 py-2.5 text-sm text-ink-strong outline-none placeholder:text-ink-faint focus:border-cyan-500" />
+        <input v-model="newPwd" type="password" placeholder="新密码" class="w-full rounded-xl border border-line bg-surface px-3 py-2.5 text-sm text-ink-strong outline-none placeholder:text-ink-faint focus:border-cyan-500" />
+        <input v-model="confirmPwd" type="password" placeholder="确认新密码" class="w-full rounded-xl border border-line bg-surface px-3 py-2.5 text-sm text-ink-strong outline-none placeholder:text-ink-faint focus:border-cyan-500" />
         <button @click="doChangePwd" :disabled="changing" class="w-full rounded-xl bg-cyan-600 py-2.5 text-sm font-medium text-white active:bg-cyan-500 disabled:opacity-50">
           {{ changing ? '提交中...' : '修改密码' }}
         </button>

@@ -46,6 +46,7 @@ npm-debug.log*
 yarn-error.log*
 frontend/dist/
 frontend/mobile_dist/
+vite.config.js.timestamp-*.mjs
 
 # === IDE / 系统 ===
 .idea/

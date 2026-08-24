@@ -1,13 +1,13 @@
-"""制作 AIOps v4.0 Linux 生产包（源码部署）"""
+"""制作 AIOps v4.2.6 Linux 生产包（源码部署）"""
 import io
 import os
 import shutil
 import zipfile
 
 ROOT = r"D:\WorkBuddy\codex\AIOps"
-STAGE = os.path.join(ROOT, "dist", "aiops-v4.0-linux")
+STAGE = os.path.join(ROOT, "dist", "aiops-v4.2.6-linux")
 PKG_DIR = os.path.join(STAGE, "AIOps")
-OUT = os.path.join(ROOT, "dist", "aiops-v4.0-linux.zip")
+OUT = os.path.join(ROOT, "dist", "aiops-v4.2.6-linux.zip")
 
 # 清空 staging
 if os.path.isdir(STAGE):
@@ -37,7 +37,7 @@ shutil.copy2(os.path.join(ROOT, "backend", "requirements.txt"),
              os.path.join(PKG_DIR, "backend", "requirements.txt"))
 
 # .env.example
-env_example = """# AIOps v4.0 环境配置模板（复制为 .env 后按需修改）
+env_example = """# AIOps v4.2.6 环境配置模板（复制为 .env 后按需修改）
 # PostgreSQL 连接串
 DATABASE_URL=postgresql+psycopg_async://aiops:aiops123@localhost:5432/aiops
 # 会话密钥：留空即可，首次启动自动生成随机密钥并写回 .env（重启不失效；删除后重启将使所有登录失效）
@@ -54,14 +54,23 @@ CORS_ORIGINS=http://localhost:8000,http://127.0.0.1:8000
 """
 io.open(os.path.join(PKG_DIR, "backend", ".env.example"), "w", encoding="utf-8").write(env_example)
 
-print("== 复制前端 dist（v4.0） ==")
+print("== 复制前端 dist（v4.2.6） ==")
 n = copy_tree(os.path.join(ROOT, "frontend", "dist"), os.path.join(PKG_DIR, "frontend", "dist"))
 print("  frontend/dist 文件:", n)
+
+print("== 复制升级脚本 ==")
+os.makedirs(os.path.join(PKG_DIR, "deploy"), exist_ok=True)
+upgrade_sh = os.path.join(ROOT, "deploy", "upgrade_apply.sh")
+if os.path.isfile(upgrade_sh):
+    shutil.copy2(upgrade_sh, os.path.join(PKG_DIR, "deploy", "upgrade_apply.sh"))
+    print("  deploy/upgrade_apply.sh 已复制")
+else:
+    print("  [!] 未找到 deploy/upgrade_apply.sh")
 
 # ---------------- install.sh ----------------
 install_sh = r'''#!/usr/bin/env bash
 # ============================================
-#  AIOps v4.0  Linux 一键安装脚本
+#  AIOps v4.2.6  Linux 一键安装脚本
 #  适用: Ubuntu 22.04+ / Debian 12+ / CentOS 9+
 # ============================================
 set -e
@@ -156,7 +165,7 @@ nohup .venv/bin/uvicorn app.main:app --host 0.0.0.0 --port 8000 >> uvicorn.log 2
 sleep 2
 if pgrep -f '[u]vicorn app.main:app' >/dev/null; then
   IP=$(hostname -I 2>/dev/null | awk '{print $1}')
-  echo "AIOps v4.0 已启动: http://${IP:-127.0.0.1}:8000  （日志: backend/uvicorn.log）"
+  echo "AIOps v4.2.6 已启动: http://${IP:-127.0.0.1}:8000  （日志: backend/uvicorn.log）"
 else
   echo "启动失败，查看日志: backend/uvicorn.log"
   tail -20 uvicorn.log
@@ -169,7 +178,7 @@ stop_sh = '#!/usr/bin/env bash\npkill -f "[u]vicorn app.main:app" 2>/dev/null &&
 io.open(os.path.join(PKG_DIR, "stop.sh"), "w", encoding="utf-8").write(stop_sh)
 
 print("== 写 README ==")
-readme = """# AIOps 智能运维托管平台 v4.0
+readme = """# AIOps 智能运维托管平台 v4.2.6
 
 网络及安全设备 7×24 智能监控与故障预测平台。包含：监控大屏、设备管理、告警、拓扑、配置备份、H3C 巡检、重要业务监控、生命周期、安全监控、等保合规、**平台授权**（测试版/全功能版）等模块。
 
@@ -201,7 +210,7 @@ python start_dev.py
 
 ---
 
-## 二、Linux 部署（源码包 `aiops-v4.0-linux.zip`）
+## 二、Linux 部署（源码包 `aiops-v4.2.6-linux.zip`）
 
 ### 环境要求
 - Ubuntu 22.04+ / Debian 12+ / CentOS 9+，Python 3.10+
@@ -210,7 +219,7 @@ python start_dev.py
 ### 安装步骤
 ```bash
 # 1. 解压
-unzip aiops-v4.0-linux.zip && cd AIOps
+unzip aiops-v4.2.6-linux.zip && cd AIOps
 
 # 2. 一键安装（建 venv + 装依赖 + 准备 PostgreSQL + 生成 .env）
 chmod +x install.sh && ./install.sh
@@ -276,7 +285,7 @@ sudo systemctl daemon-reload && sudo systemctl enable --now aiops
 | 修改端口 | start.sh / 一键部署中调整 8000 并同步 .env CORS |
 
 ---
-*© 2026 AIOps Platform v4.0*
+*© 2026 AIOps Platform v4.2.6*
 """
 io.open(os.path.join(PKG_DIR, "README.md"), "w", encoding="utf-8").write(readme)
 

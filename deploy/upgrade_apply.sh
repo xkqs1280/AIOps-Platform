@@ -105,9 +105,11 @@ start_app() {
 wait_healthy() {
   local url="http://127.0.0.1:8000/health"
   if [ -f "$AppRoot/backend/certs/server.crt" ]; then url="https://127.0.0.1:8000/health"; fi
-  for i in $(seq 1 40); do
+  # 放宽等待窗口：冷启动（PyInstaller onefile 解压 + 杀软/慢磁盘 + uvicorn 引导）
+  # 可能超过 2 分钟，原来 40 次 (约 2 分钟) 会在替换成功后误报 health check timeout。
+  for i in $(seq 1 150); do
     sleep 3
-    if curl -sk -m 5 "$url" >/dev/null 2>&1; then return 0; fi
+    if curl -sk -m 8 "$url" >/dev/null 2>&1; then return 0; fi
   done
   return 1
 }

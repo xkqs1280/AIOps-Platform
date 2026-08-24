@@ -1,5 +1,54 @@
 @import "tailwindcss";
 
+/* ============ 明暗主题：class 策略（html.dark 切换） ============ */
+@custom-variant dark (&:where(.dark, .dark *));
+
+/* 语义色：亮色（默认 :root）与暗色（.dark）双套。
+   基础变量 --app/--surface/--ink/... 通过下方 @theme inline 映射为
+   bg-surface / text-ink / border-line 等工具类，主题切换时自动变化。 */
+:root {
+  --app: #f1f5f9;                /* 页面背景  slate-100 */
+  --surface: #ffffff;            /* 卡片/面板 white */
+  --surface-2: #f8fafc;          /* 次级面板/输入框 slate-50 */
+  --ink: #0f172a;                /* 主文本    slate-900 */
+  --ink-strong: #020617;         /* 强调文本  slate-950 */
+  --ink-muted: #64748b;          /* 次要文本  slate-600 */
+  --ink-faint: #94a3b8;          /* 弱化文本  slate-500 */
+  --line: #e2e8f0;               /* 边框/分隔 slate-200 */
+  --line-strong: #cbd5e1;        /* 强调边框  slate-300 */
+  --hover: #f1f5f9;              /* hover 背景 slate-100 */
+  --color-app-gradient: radial-gradient(100% 60% at 50% 0%, rgba(14, 165, 233, 0.06) 0%, rgba(241, 245, 249, 0) 60%);
+  --color-login-gradient: radial-gradient(80% 60% at 50% 0%, rgba(14, 165, 233, 0.10) 0%, rgba(241, 245, 249, 0) 55%),
+                          radial-gradient(60% 50% at 85% 90%, rgba(34, 211, 238, 0.06) 0%, rgba(241, 245, 249, 0) 60%);
+  --color-sidebar-bg: rgba(255, 255, 255, 0.72);
+  --gradient-sidebar: radial-gradient(120% 90% at 0% 0%, rgba(6, 182, 212, 0.08) 0%, rgba(241, 245, 249, 0) 55%),
+                      radial-gradient(140% 80% at 100% 100%, rgba(14, 165, 233, 0.05) 0%, rgba(241, 245, 249, 0) 50%);
+  /* 亮色下 cyan-300/400 文字加深（对应 brand-700/600） */
+  --cyan-300: #0e7490;
+  --cyan-400: #0891b2;
+}
+.dark {
+  --app: #020617;                /* slate-950 */
+  --surface: #0f172a;            /* slate-900 */
+  --surface-2: #1e293b;          /* slate-800 */
+  --ink: #e2e8f0;                /* slate-200 */
+  --ink-strong: #f8fafc;         /* slate-50 */
+  --ink-muted: #94a3b8;          /* slate-400 */
+  --ink-faint: #64748b;          /* slate-500 */
+  --line: #334155;               /* slate-700 */
+  --line-strong: #475569;        /* slate-600 */
+  --hover: #1e293b;              /* slate-800 */
+  --color-app-gradient: radial-gradient(100% 60% at 50% 0%, rgba(14, 165, 233, 0.05) 0%, rgba(2, 6, 23, 0) 60%);
+  --color-login-gradient: radial-gradient(80% 60% at 50% 0%, rgba(14, 165, 233, 0.12) 0%, rgba(2, 6, 23, 0) 55%),
+                          radial-gradient(60% 50% at 85% 90%, rgba(34, 211, 238, 0.08) 0%, rgba(2, 6, 23, 0) 60%);
+  --color-sidebar-bg: rgba(15, 23, 42, 0.72);
+  --gradient-sidebar: radial-gradient(120% 90% at 0% 0%, rgba(6, 182, 212, 0.10) 0%, rgba(15, 23, 42, 0) 55%),
+                      radial-gradient(140% 80% at 100% 100%, rgba(14, 165, 233, 0.06) 0%, rgba(15, 23, 42, 0) 50%);
+  /* 暗色保持原浅青 */
+  --cyan-300: #67e8f9;
+  --cyan-400: #22d3ee;
+}
+
 /* ============================================================
    AIOps 平台设计系统 v4.0
    Operate-mode: 克制、高可扫描、数据密集的运维监控界面
@@ -29,8 +78,6 @@
   /* 品牌渐变（cyan → sky，深色背景上的科技感强调） */
   --gradient-brand: linear-gradient(135deg, #22d3ee 0%, #0ea5e9 100%);
   --gradient-brand-soft: linear-gradient(135deg, rgba(34, 211, 238, 0.16) 0%, rgba(14, 165, 233, 0.10) 100%);
-  --gradient-sidebar: radial-gradient(120% 90% at 0% 0%, rgba(6, 182, 212, 0.10) 0%, rgba(15, 23, 42, 0) 55%),
-                      radial-gradient(140% 80% at 100% 100%, rgba(14, 165, 233, 0.06) 0%, rgba(15, 23, 42, 0) 50%);
 
   /* 字体：离线部署，使用系统字体栈；数字用等宽保证数据对齐 */
   --font-sans: "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei",
@@ -42,14 +89,32 @@
   --ease-spring: cubic-bezier(0.34, 1.56, 0.64, 1);
 }
 
+/* 明暗语义工具类：由 :root/.dark 的基础变量驱动（html.dark 切换） */
+@theme inline {
+  --color-app: var(--app);
+  --color-surface: var(--surface);
+  --color-surface-2: var(--surface-2);
+  --color-ink: var(--ink);
+  --color-ink-strong: var(--ink-strong);
+  --color-ink-muted: var(--ink-muted);
+  --color-ink-faint: var(--ink-faint);
+  --color-line: var(--line);
+  --color-line-strong: var(--line-strong);
+  --color-hover: var(--hover);
+  /* 亮色下 cyan-300/400 作为文字色对比度不足（~1.7:1），
+     映射到深青（brand-700/600）；暗色保持原浅青。 */
+  --color-cyan-300: var(--cyan-300);
+  --color-cyan-400: var(--cyan-400);
+}
+
 @layer base {
   html {
     font-family: var(--font-sans);
     font-size: 14px;
   }
   body {
-    background-color: #020617; /* slate-950 */
-    color: #e2e8f0;            /* slate-200 */
+    background-color: var(--app);
+    color: var(--ink);
     -webkit-font-smoothing: antialiased;
     font-feature-settings: "tnum";
   }
@@ -62,7 +127,7 @@
     outline-offset: 2px;
     border-radius: 4px;
   }
-  /* 深色滚动条 */
+  /* 主题化滚动条 */
   ::-webkit-scrollbar {
     width: 8px;
     height: 8px;
@@ -71,11 +136,11 @@
     background: transparent;
   }
   ::-webkit-scrollbar-thumb {
-    background: #334155;              /* slate-700 */
+    background: var(--color-line-strong);
     border-radius: 4px;
   }
   ::-webkit-scrollbar-thumb:hover {
-    background: #475569;              /* slate-600 */
+    background: var(--color-ink-faint);
   }
   /* 尊重系统减少动效偏好 */
   @media (prefers-reduced-motion: reduce) {
@@ -143,7 +208,7 @@
 
   /* ============ 卡片 ============ */
   .card {
-    @apply bg-slate-900 border border-slate-800 rounded-xl;
+    @apply bg-surface border border-line rounded-xl;
   }
   .card-lift {
     @apply transition-all duration-200;
@@ -155,7 +220,7 @@
     box-shadow: 0 8px 24px -8px rgba(6, 182, 212, 0.18);
   }
   .card-title {
-    @apply text-[13px] font-semibold text-slate-300 tracking-wide;
+    @apply text-[13px] font-semibold text-ink-muted tracking-wide;
   }
 
   /* ============ 按钮 ============ */
@@ -194,12 +259,16 @@
     box-shadow: 0 6px 18px -6px rgba(239, 68, 68, 0.4);
   }
   .btn-ghost {
-    @apply bg-slate-800 text-slate-200 hover:bg-slate-700;
+    @apply bg-surface-2 text-ink hover:bg-hover;
   }
   .btn-outline {
-    @apply bg-transparent border border-slate-700 text-slate-300 hover:bg-slate-800/60;
+    @apply bg-transparent border border-line text-ink-muted hover:bg-hover/60;
   }
   .btn-outline:hover:not(:disabled) {
+    border-color: var(--color-brand-500);
+    color: var(--color-brand-600);
+  }
+  .dark .btn-outline:hover:not(:disabled) {
     border-color: rgba(34, 211, 238, 0.4);
     color: #67e8f9;
   }
@@ -207,12 +276,12 @@
     @apply px-2.5 py-1.5 text-xs rounded-md;
   }
   .btn-icon {
-    @apply p-2 rounded-lg text-slate-400;
+    @apply p-2 rounded-lg text-ink-muted;
     transition: color 0.18s var(--ease-smooth), background-color 0.18s var(--ease-smooth),
                 transform 0.18s var(--ease-spring);
   }
   .btn-icon:hover {
-    @apply text-slate-100 bg-slate-800;
+    @apply text-ink-strong bg-surface-2;
     transform: translateY(-1px);
   }
   .btn-icon:active {
@@ -221,12 +290,12 @@
 
   /* ============ 表单 ============ */
   .form-label {
-    @apply block text-xs font-medium text-slate-400 mb-1.5 tracking-wide;
+    @apply block text-xs font-medium text-ink-muted mb-1.5 tracking-wide;
   }
   .input,
   .select,
   .textarea {
-    @apply w-full px-3 py-2 bg-slate-800/70 border border-slate-700 rounded-lg text-slate-100 placeholder:text-slate-500;
+    @apply w-full px-3 py-2 bg-surface-2/70 border border-line rounded-lg text-ink-strong placeholder:text-ink-faint;
     transition: border-color 0.18s var(--ease-smooth),
                 box-shadow 0.18s var(--ease-smooth),
                 background-color 0.18s var(--ease-smooth);
@@ -234,7 +303,7 @@
   .input:hover,
   .select:hover,
   .textarea:hover {
-    @apply border-slate-600;
+    @apply border-line-strong;
   }
   .input:focus,
   .select:focus,
@@ -248,7 +317,7 @@
     background-position: right 0.6rem center;
   }
   .checkbox {
-    @apply w-4 h-4 rounded bg-slate-800 border-slate-600 accent-brand-500 cursor-pointer;
+    @apply w-4 h-4 rounded bg-surface-2 border-line-strong accent-brand-500 cursor-pointer;
     transition: transform 0.15s var(--ease-spring), border-color 0.15s var(--ease-smooth);
   }
   .checkbox:hover {
@@ -272,13 +341,13 @@
     @apply bg-info/15 text-info border border-info/30;
   }
   .badge-neutral {
-    @apply bg-slate-500/15 text-slate-400 border border-slate-600/40;
+    @apply bg-ink-faint/15 text-ink-muted border border-line-strong/40;
   }
 
   /* ============ 导航 ============ */
   .nav-item {
     @apply flex items-center gap-3 px-3 py-2 rounded-lg text-sm;
-    @apply text-slate-400 hover:bg-slate-800/70 hover:text-slate-200;
+    @apply text-ink-muted hover:bg-hover/70 hover:text-ink;
     transition: background-color 0.18s var(--ease-smooth), color 0.18s var(--ease-smooth),
                 transform 0.18s var(--ease-smooth);
   }
@@ -302,25 +371,25 @@
     @apply w-full text-left;
   }
   .table thead tr {
-    @apply bg-slate-800/50;
+    @apply bg-surface-2/50;
   }
   .table th {
-    @apply px-4 py-3 text-left text-xs font-semibold text-slate-400 tracking-wider whitespace-nowrap;
+    @apply px-4 py-3 text-left text-xs font-semibold text-ink-muted tracking-wider whitespace-nowrap;
   }
   .table td {
-    @apply px-4 py-3 text-sm text-slate-300 align-middle;
+    @apply px-4 py-3 text-sm text-ink-muted align-middle;
   }
   .table tbody tr {
     @apply transition-colors duration-150;
   }
   .table tbody tr:hover {
-    @apply bg-slate-800/40;
+    @apply bg-surface-2/40;
   }
   .table tbody {
-    @apply divide-y divide-slate-800;
+    @apply divide-y divide-line;
   }
   .table .th-sortable {
-    @apply cursor-pointer select-none hover:text-slate-200 transition-colors;
+    @apply cursor-pointer select-none hover:text-ink transition-colors;
   }
 
   /* ============ 状态点 ============ */
@@ -332,7 +401,7 @@
     box-shadow: 0 0 6px rgba(16, 185, 129, 0.6);
   }
   .status-dot-offline {
-    @apply bg-slate-600;
+    @apply bg-line-strong;
   }
   .status-dot-warning {
     @apply bg-warning;

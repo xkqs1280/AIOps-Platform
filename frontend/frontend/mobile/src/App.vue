@@ -1,6 +1,6 @@
 <template>
   <div
-    class="flex h-full flex-col bg-slate-950 text-slate-100"
+    class="flex h-full flex-col bg-app text-ink-strong"
     style="padding-top: env(safe-area-inset-top)"
   >
     <!-- 内容区 -->
@@ -11,7 +11,7 @@
     <!-- 底部 Tab（登录页不显示） -->
     <nav
       v-if="route.path !== '/login'"
-      class="fixed bottom-0 left-0 right-0 z-40 border-t border-slate-800 bg-slate-900/95 backdrop-blur"
+      class="fixed bottom-0 left-0 right-0 z-40 border-t border-line bg-surface/95 backdrop-blur"
       style="padding-bottom: env(safe-area-inset-bottom)"
     >
       <div class="flex">
@@ -20,7 +20,7 @@
           :key="t.path"
           :to="t.path"
           class="flex flex-1 flex-col items-center gap-0.5 py-2 text-[10px]"
-          :class="isActive(t.path) ? 'text-cyan-400' : 'text-slate-500'"
+          :class="isActive(t.path) ? 'text-cyan-400' : 'text-ink-faint'"
         >
           <span class="text-xl leading-none">{{ t.icon }}</span>
           <span>{{ t.label }}</span>

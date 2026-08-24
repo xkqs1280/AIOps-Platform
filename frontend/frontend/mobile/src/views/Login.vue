@@ -1,37 +1,37 @@
 <template>
-  <div class="flex min-h-full flex-col bg-slate-950 px-6 pt-16">
+  <div class="flex min-h-full flex-col bg-app px-6 pt-16">
     <div class="mb-8 text-center">
       <img src="../assets/logo.svg" alt="AIOps" class="mx-auto mb-3 h-16 w-16" />
-      <h1 class="text-xl font-bold text-slate-100">AIOps 移动端</h1>
-      <p class="mt-1 text-xs text-slate-500">智能运维托管平台</p>
+      <h1 class="text-xl font-bold text-ink-strong">AIOps 移动端</h1>
+      <p class="mt-1 text-xs text-ink-faint">智能运维托管平台</p>
     </div>
 
     <div class="space-y-4">
       <!-- 服务器地址 -->
       <div>
-        <label class="mb-1.5 block text-xs text-slate-400">服务器地址</label>
+        <label class="mb-1.5 block text-xs text-ink-muted">服务器地址</label>
         <div class="flex gap-2">
-          <div class="flex flex-1 items-center gap-1 rounded-xl border border-slate-700 bg-slate-900 px-3">
-            <span class="text-slate-500">https://</span>
+          <div class="flex flex-1 items-center gap-1 rounded-xl border border-line bg-surface px-3">
+            <span class="text-ink-faint">https://</span>
             <input
               v-model="ip"
               type="text"
               inputmode="decimal"
               placeholder="192.168.1.100"
-              class="w-full bg-transparent py-3 text-sm text-slate-100 outline-none placeholder:text-slate-600"
+              class="w-full bg-transparent py-3 text-sm text-ink-strong outline-none placeholder:text-ink-faint"
             />
           </div>
-          <div class="flex items-center rounded-xl border border-slate-700 bg-slate-900 px-2">
-            <span class="text-slate-500">:</span>
+          <div class="flex items-center rounded-xl border border-line bg-surface px-2">
+            <span class="text-ink-faint">:</span>
             <input
               v-model="port"
               type="number"
               placeholder="8000"
-              class="w-14 bg-transparent py-3 text-sm text-slate-100 outline-none placeholder:text-slate-600"
+              class="w-14 bg-transparent py-3 text-sm text-ink-strong outline-none placeholder:text-ink-faint"
             />
           </div>
         </div>
-        <label class="mt-2 flex items-center gap-2 text-xs text-slate-400">
+        <label class="mt-2 flex items-center gap-2 text-xs text-ink-muted">
           <input v-model="remembered" type="checkbox" class="accent-cyan-500" />
           记住此服务器
         </label>
@@ -39,25 +39,25 @@
 
       <!-- 账号 -->
       <div>
-        <label class="mb-1.5 block text-xs text-slate-400">账号</label>
+        <label class="mb-1.5 block text-xs text-ink-muted">账号</label>
         <input
           v-model="username"
           type="text"
           autocomplete="username"
           placeholder="admin"
-          class="w-full rounded-xl border border-slate-700 bg-slate-900 px-3 py-3 text-sm text-slate-100 outline-none placeholder:text-slate-600 focus:border-cyan-500"
+          class="w-full rounded-xl border border-line bg-surface px-3 py-3 text-sm text-ink-strong outline-none placeholder:text-ink-faint focus:border-cyan-500"
         />
       </div>
 
       <!-- 密码 -->
       <div>
-        <label class="mb-1.5 block text-xs text-slate-400">密码</label>
+        <label class="mb-1.5 block text-xs text-ink-muted">密码</label>
         <input
           v-model="password"
           type="password"
           autocomplete="current-password"
           placeholder="请输入密码"
-          class="w-full rounded-xl border border-slate-700 bg-slate-900 px-3 py-3 text-sm text-slate-100 outline-none placeholder:text-slate-600 focus:border-cyan-500"
+          class="w-full rounded-xl border border-line bg-surface px-3 py-3 text-sm text-ink-strong outline-none placeholder:text-ink-faint focus:border-cyan-500"
           @keyup.enter="doLogin"
         />
       </div>
@@ -75,7 +75,7 @@
       <p v-if="error" class="text-center text-xs text-red-400">{{ error }}</p>
     </div>
 
-    <p class="mt-8 text-center text-[10px] text-slate-600">支持接入任意已部署的 AIOps 平台服务器</p>
+    <p class="mt-8 text-center text-[10px] text-ink-faint">支持接入任意已部署的 AIOps 平台服务器</p>
   </div>
 </template>
 

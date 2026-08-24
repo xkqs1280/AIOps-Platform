@@ -1,4 +1,6 @@
 <script setup>
+import { chartTheme } from '../utils/chartTheme'
+const cc = chartTheme()
 import { ref, computed, onMounted, watch, nextTick } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import * as echarts from 'echarts'
@@ -60,18 +62,18 @@ function maskSecret(v) {
 }
 
 function statusColor(status) {
-  const map = { online: 'bg-green-500', offline: 'bg-red-500', warning: 'bg-yellow-500', unknown: 'bg-slate-500' }
-  return map[status?.toLowerCase()] || 'bg-slate-500'
+  const map = { online: 'bg-green-500', offline: 'bg-red-500', warning: 'bg-yellow-500', unknown: 'bg-ink-faint' }
+  return map[status?.toLowerCase()] || 'bg-ink-faint'
 }
 
 function severityColor(severity) {
   const map = { critical: 'bg-red-600', major: 'bg-orange-500', minor: 'bg-yellow-500', warning: 'bg-blue-500' }
-  return map[severity?.toLowerCase()] || 'bg-slate-500'
+  return map[severity?.toLowerCase()] || 'bg-ink-faint'
 }
 
 function severityTextColor(severity) {
   const map = { critical: 'text-red-400', major: 'text-orange-400', minor: 'text-yellow-400', warning: 'text-blue-400' }
-  return map[severity?.toLowerCase()] || 'text-slate-400'
+  return map[severity?.toLowerCase()] || 'text-ink-muted'
 }
 
 function severityLabel(severity) {
@@ -145,13 +147,13 @@ function renderMemoryChart(data) {
     tooltip: { trigger: 'axis', formatter: '{b}<br/>内存: {c}%' },
     xAxis: {
       type: 'category', data: times, boundaryGap: false,
-      axisLine: { lineStyle: { color: '#4b5563' } },
-      axisLabel: { color: '#9ca3af', fontSize: 10 }
+      axisLine: { lineStyle: { color: cc.axisLine } },
+      axisLabel: { color: cc.sub, fontSize: 10 }
     },
     yAxis: {
       type: 'value', max: 100, min: 0,
-      axisLabel: { color: '#9ca3af', fontSize: 10, formatter: '{value}%' },
-      splitLine: { lineStyle: { color: '#1f2937' } }
+      axisLabel: { color: cc.sub, fontSize: 10, formatter: '{value}%' },
+      splitLine: { lineStyle: { color: cc.split } }
     },
     series: [{
       type: 'line', data: vals, smooth: true, showSymbol: false,
@@ -194,7 +196,7 @@ const lifecycleStages = computed(() => {
     isPast: d.date < now
   })).concat(
     min <= now && now <= max
-      ? [{ label: '今天', position: ((now - min) / range) * 100, color: 'bg-slate-400', isPast: false, isNow: true }]
+      ? [{ label: '今天', position: ((now - min) / range) * 100, color: 'bg-line-strong', isPast: false, isNow: true }]
       : []
   )
 })
@@ -350,17 +352,17 @@ watch(deviceId, () => {
 </script>
 
 <template>
-  <div class="min-h-screen bg-slate-950 text-slate-100 animate-in">
+  <div class="min-h-screen bg-app text-ink-strong animate-in">
     <!-- Loading -->
     <div v-if="loading" class="p-6 space-y-6 animate-pulse">
-      <div class="h-8 w-48 bg-slate-800 rounded" />
+      <div class="h-8 w-48 bg-surface-2 rounded" />
       <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        <div class="bg-slate-900 border border-slate-800 rounded-xl p-6 space-y-4">
-          <div v-for="i in 10" :key="i" class="h-5 bg-slate-800 rounded" :style="{ width: `${60 + Math.random() * 30}%` }" />
+        <div class="bg-surface border border-line rounded-xl p-6 space-y-4">
+          <div v-for="i in 10" :key="i" class="h-5 bg-surface-2 rounded" :style="{ width: `${60 + Math.random() * 30}%` }" />
         </div>
       </div>
       <div class="grid grid-cols-3 gap-6">
-        <div v-for="i in 3" :key="i" class="bg-slate-900 border border-slate-800 rounded-xl p-6 h-48" />
+        <div v-for="i in 3" :key="i" class="bg-surface border border-line rounded-xl p-6 h-48" />
       </div>
     </div>
 
@@ -369,7 +371,7 @@ watch(deviceId, () => {
       <div class="text-red-400 text-lg mb-4">{{ error }}</div>
       <button
         @click="fetchDevice"
-        class="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-200 rounded-lg border border-slate-700 transition-colors"
+        class="px-4 py-2 bg-surface-2 hover:bg-hover text-ink rounded-lg border border-line transition-colors"
       >
         重试
       </button>
@@ -378,12 +380,12 @@ watch(deviceId, () => {
     <!-- Main Content -->
     <template v-else-if="device">
       <!-- Header -->
-      <div class="sticky top-0 z-10 bg-slate-950/95 backdrop-blur border-b border-slate-800 px-6 py-4">
+      <div class="sticky top-0 z-10 bg-app/95 backdrop-blur border-b border-line px-6 py-4">
         <div class="flex items-center justify-between max-w-7xl mx-auto">
           <div class="flex items-center gap-4">
             <button
               @click="router.push('/devices')"
-              class="flex items-center gap-1 text-slate-400 hover:text-slate-200 transition-colors"
+              class="flex items-center gap-1 text-ink-muted hover:text-ink transition-colors"
             >
               <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7" />
@@ -426,8 +428,8 @@ watch(deviceId, () => {
         </div>
 
         <!-- Device Info Card -->
-        <div class="bg-slate-900 border border-slate-800 rounded-xl p-6">
-          <h2 class="text-lg font-semibold mb-4 text-slate-200">设备信息</h2>
+        <div class="bg-surface border border-line rounded-xl p-6">
+          <h2 class="text-lg font-semibold mb-4 text-ink">设备信息</h2>
 
           <!-- View Mode -->
           <div v-if="!isEditing" class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-x-8 gap-y-4">
@@ -448,8 +450,8 @@ watch(deviceId, () => {
               { label: '最后上线', value: formatDateTime(device.last_seen) },
               { label: '创建时间', value: formatDateTime(device.created_at) }
             ]" :key="field.label" class="min-w-0">
-              <div class="text-xs text-slate-500 mb-0.5">{{ field.label }}</div>
-              <div class="text-sm text-slate-200 truncate" :title="field.value || '-'">
+              <div class="text-xs text-ink-faint mb-0.5">{{ field.label }}</div>
+              <div class="text-sm text-ink truncate" :title="field.value || '-'">
                 {{ field.value || '-' }}
               </div>
             </div>
@@ -470,20 +472,20 @@ watch(deviceId, () => {
                 { key: 'group_name', label: '所属分组', type: 'text' },
                 { key: 'location', label: '位置', type: 'text' }
               ]" :key="field.key">
-                <label class="block text-xs text-slate-400 mb-1">{{ field.label }}</label>
+                <label class="block text-xs text-ink-muted mb-1">{{ field.label }}</label>
                 <input
                   v-model="editForm[field.key]"
                   :type="field.type"
-                  class="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm text-slate-200
+                  class="w-full bg-surface-2 border border-line rounded-lg px-3 py-2 text-sm text-ink
                          focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 transition-colors
                          placeholder-slate-600"
                 />
               </div>
               <div>
-                <label class="block text-xs text-slate-400 mb-1">状态</label>
+                <label class="block text-xs text-ink-muted mb-1">状态</label>
                 <select
                   v-model="editForm.status"
-                  class="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm text-slate-200
+                  class="w-full bg-surface-2 border border-line rounded-lg px-3 py-2 text-sm text-ink
                          focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 transition-colors"
                 >
                   <option value="online">在线</option>
@@ -495,15 +497,15 @@ watch(deviceId, () => {
             </div>
 
             <!-- 远程管理配置 -->
-            <div class="border-t border-slate-800 pt-4">
-              <div class="text-sm text-slate-400 mb-3 font-medium">远程管理配置</div>
+            <div class="border-t border-line pt-4">
+              <div class="text-sm text-ink-muted mb-3 font-medium">远程管理配置</div>
               <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
                 <div>
-                  <label class="block text-xs text-slate-400 mb-1">管理协议</label>
+                  <label class="block text-xs text-ink-muted mb-1">管理协议</label>
                   <select
                     v-model="editForm.mgmt_protocol"
                     @change="onProtocolChange"
-                    class="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm text-slate-200
+                    class="w-full bg-surface-2 border border-line rounded-lg px-3 py-2 text-sm text-ink
                            focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 transition-colors"
                   >
                     <option value="ssh">SSH</option>
@@ -511,37 +513,37 @@ watch(deviceId, () => {
                   </select>
                 </div>
                 <div>
-                  <label class="block text-xs text-slate-400 mb-1">端口</label>
+                  <label class="block text-xs text-ink-muted mb-1">端口</label>
                   <input
                     v-model.number="editForm.mgmt_port"
                     type="number"
-                    class="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm text-slate-200
+                    class="w-full bg-surface-2 border border-line rounded-lg px-3 py-2 text-sm text-ink
                            focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 transition-colors"
                   />
                 </div>
                 <div>
-                  <label class="block text-xs text-slate-400 mb-1">用户名</label>
+                  <label class="block text-xs text-ink-muted mb-1">用户名</label>
                   <input
                     v-model="editForm.mgmt_username"
                     type="text"
-                    class="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm text-slate-200
+                    class="w-full bg-surface-2 border border-line rounded-lg px-3 py-2 text-sm text-ink
                            focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 transition-colors
                            placeholder-slate-600"
                   />
                 </div>
                 <div>
-                  <label class="block text-xs text-slate-400 mb-1">密码</label>
+                  <label class="block text-xs text-ink-muted mb-1">密码</label>
                   <input
                     v-model="editForm.mgmt_password"
                     type="password"
-                    class="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm text-slate-200
+                    class="w-full bg-surface-2 border border-line rounded-lg px-3 py-2 text-sm text-ink
                            focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 transition-colors
                            placeholder-slate-600"
                   />
                 </div>
               </div>
             </div>
-            <div class="flex items-center gap-3 pt-2 border-t border-slate-800">
+            <div class="flex items-center gap-3 pt-2 border-t border-line">
               <button
                 type="submit"
                 :disabled="saving"
@@ -553,7 +555,7 @@ watch(deviceId, () => {
               <button
                 type="button"
                 @click="cancelEdit"
-                class="px-5 py-2 bg-slate-700 hover:bg-slate-600 text-slate-200 rounded-lg transition-colors text-sm"
+                class="px-5 py-2 bg-hover hover:bg-line-strong text-ink rounded-lg transition-colors text-sm"
               >
                 取消
               </button>
@@ -562,11 +564,11 @@ watch(deviceId, () => {
         </div>
 
         <!-- 硬件组件明细（实体 MIB 采集：板卡/电源/风扇等） -->
-        <div class="bg-slate-900 border border-slate-800 rounded-xl p-6 mt-6">
+        <div class="bg-surface border border-line rounded-xl p-6 mt-6">
           <div class="flex items-center justify-between mb-4">
-            <h2 class="text-lg font-semibold text-slate-200">硬件组件明细</h2>
+            <h2 class="text-lg font-semibold text-ink">硬件组件明细</h2>
             <button
-              class="px-3 py-1.5 text-xs rounded-lg bg-slate-800 border border-slate-700 text-slate-300 hover:bg-slate-700 transition-colors"
+              class="px-3 py-1.5 text-xs rounded-lg bg-surface-2 border border-line text-ink-muted hover:bg-hover transition-colors"
               :disabled="compLoading"
               @click="loadComponents"
             >
@@ -574,15 +576,15 @@ watch(deviceId, () => {
             </button>
           </div>
 
-          <div v-if="compLoading" class="text-sm text-slate-400 py-4">组件信息加载中...</div>
+          <div v-if="compLoading" class="text-sm text-ink-muted py-4">组件信息加载中...</div>
           <div v-else-if="compError" class="text-sm text-orange-400 py-4">{{ compError }}</div>
-          <div v-else-if="!components.length" class="text-sm text-slate-500 py-4">
+          <div v-else-if="!components.length" class="text-sm text-ink-faint py-4">
             暂无组件信息。点击右上角「同步」按钮从设备采集实体 MIB（序列号/型号/版本）。
           </div>
           <div v-else class="overflow-x-auto">
             <table class="w-full text-sm">
               <thead>
-                <tr class="bg-slate-800/50 text-left text-xs text-slate-400">
+                <tr class="bg-surface-2/50 text-left text-xs text-ink-muted">
                   <th class="px-3 py-2.5">索引</th>
                   <th class="px-3 py-2.5">名称</th>
                   <th class="px-3 py-2.5">型号</th>
@@ -597,17 +599,17 @@ watch(deviceId, () => {
                 <tr
                   v-for="c in components"
                   :key="c.phys_index"
-                  class="border-t border-slate-800/60"
+                  class="border-t border-line/60"
                   :class="c.phys_index === 2 ? 'bg-cyan-500/5' : ''"
                 >
-                  <td class="px-3 py-2 text-slate-500">{{ c.phys_index }}{{ c.phys_index === 2 ? '（机箱）' : '' }}</td>
-                  <td class="px-3 py-2 text-slate-200">{{ c.name || '-' }}</td>
-                  <td class="px-3 py-2 text-slate-200">{{ c.model_name || '-' }}</td>
+                  <td class="px-3 py-2 text-ink-faint">{{ c.phys_index }}{{ c.phys_index === 2 ? '（机箱）' : '' }}</td>
+                  <td class="px-3 py-2 text-ink">{{ c.name || '-' }}</td>
+                  <td class="px-3 py-2 text-ink">{{ c.model_name || '-' }}</td>
                   <td class="px-3 py-2 text-cyan-300 font-mono">{{ c.serial_number || '-' }}</td>
-                  <td class="px-3 py-2 text-slate-400">{{ c.hardware_rev || '-' }}</td>
-                  <td class="px-3 py-2 text-slate-400">{{ c.firmware_rev || '-' }}</td>
-                  <td class="px-3 py-2 text-slate-400">{{ c.software_rev || '-' }}</td>
-                  <td class="px-3 py-2 text-slate-400">{{ c.mfg_name || '-' }}</td>
+                  <td class="px-3 py-2 text-ink-muted">{{ c.hardware_rev || '-' }}</td>
+                  <td class="px-3 py-2 text-ink-muted">{{ c.firmware_rev || '-' }}</td>
+                  <td class="px-3 py-2 text-ink-muted">{{ c.software_rev || '-' }}</td>
+                  <td class="px-3 py-2 text-ink-muted">{{ c.mfg_name || '-' }}</td>
                 </tr>
               </tbody>
             </table>
@@ -616,15 +618,15 @@ watch(deviceId, () => {
 
         <!-- Performance Metrics -->
         <div class="flex items-center justify-between mt-6">
-          <h2 class="text-lg font-semibold text-slate-200">实时性能指标</h2>
-          <span class="text-xs px-2.5 py-1 rounded-full bg-green-900/40 text-green-400 border border-green-800">
+          <h2 class="text-lg font-semibold text-ink">实时性能指标</h2>
+          <span class="text-xs px-2.5 py-1 rounded-full bg-green-100 text-green-700 border border-green-200 dark:bg-green-900/40 dark:text-green-400 dark:border-green-800">
             真实 SNMP 采集 · 每 60 秒
           </span>
         </div>
 
         <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
-          <div class="bg-slate-900 border border-slate-800 rounded-xl p-6 flex flex-col items-center">
-            <h3 class="text-sm text-slate-400 mb-4">CPU 使用率</h3>
+          <div class="bg-surface border border-line rounded-xl p-6 flex flex-col items-center">
+            <h3 class="text-sm text-ink-muted mb-4">CPU 使用率</h3>
             <svg viewBox="0 0 120 70" class="w-40 h-24">
               <path d="M 10 60 A 50 50 0 0 1 110 60" fill="none" stroke="#374151" stroke-width="10" stroke-linecap="round" />
               <path
@@ -637,12 +639,12 @@ watch(deviceId, () => {
                 :stroke-dashoffset="157 - (device.cpu_usage ?? 0) * 157 / 100"
                 class="transition-all duration-700 ease-out"
               />
-              <text x="60" y="48" text-anchor="middle" fill="#f3f4f6" font-size="18" font-weight="bold">
+              <text x="60" y="48" text-anchor="middle" fill="var(--ink)" font-size="18" font-weight="bold">
                 {{ device.cpu_usage == null ? 'N/A' : device.cpu_usage + '%' }}
               </text>
-              <text x="60" y="64" text-anchor="middle" fill="#9ca3af" font-size="10">CPU</text>
+              <text x="60" y="64" text-anchor="middle" fill="var(--ink-muted)" font-size="10">CPU</text>
             </svg>
-            <div v-if="device.cpu_usage == null" class="mt-2 text-xs text-slate-500 text-center leading-relaxed">
+            <div v-if="device.cpu_usage == null" class="mt-2 text-xs text-ink-faint text-center leading-relaxed">
               设备 SNMP 代理未开放 CPU MIB<br/>暂无真实数据
             </div>
             <div v-else class="mt-2 flex gap-2 text-xs">
@@ -652,8 +654,8 @@ watch(deviceId, () => {
             </div>
           </div>
 
-          <div class="bg-slate-900 border border-slate-800 rounded-xl p-6 flex flex-col items-center">
-            <h3 class="text-sm text-slate-400 mb-4">内存使用率</h3>
+          <div class="bg-surface border border-line rounded-xl p-6 flex flex-col items-center">
+            <h3 class="text-sm text-ink-muted mb-4">内存使用率</h3>
             <svg viewBox="0 0 120 70" class="w-40 h-24">
               <path d="M 10 60 A 50 50 0 0 1 110 60" fill="none" stroke="#374151" stroke-width="10" stroke-linecap="round" />
               <path
@@ -666,10 +668,10 @@ watch(deviceId, () => {
                 :stroke-dashoffset="157 - (device.memory_usage ?? 0) * 157 / 100"
                 class="transition-all duration-700 ease-out"
               />
-              <text x="60" y="48" text-anchor="middle" fill="#f3f4f6" font-size="18" font-weight="bold">
+              <text x="60" y="48" text-anchor="middle" fill="var(--ink)" font-size="18" font-weight="bold">
                 {{ device.memory_usage == null ? 'N/A' : device.memory_usage + '%' }}
               </text>
-              <text x="60" y="64" text-anchor="middle" fill="#9ca3af" font-size="10">Memory</text>
+              <text x="60" y="64" text-anchor="middle" fill="var(--ink-muted)" font-size="10">Memory</text>
             </svg>
             <div class="mt-2 flex gap-2 text-xs">
               <span class="flex items-center gap-1"><span class="w-2 h-2 rounded-full bg-green-500" /> 正常</span>
@@ -678,8 +680,8 @@ watch(deviceId, () => {
             </div>
           </div>
 
-          <div class="bg-slate-900 border border-slate-800 rounded-xl p-6 flex flex-col items-center">
-            <h3 class="text-sm text-slate-400 mb-4">设备温度</h3>
+          <div class="bg-surface border border-line rounded-xl p-6 flex flex-col items-center">
+            <h3 class="text-sm text-ink-muted mb-4">设备温度</h3>
             <svg viewBox="0 0 120 70" class="w-40 h-24">
               <path d="M 10 60 A 50 50 0 0 1 110 60" fill="none" stroke="#374151" stroke-width="10" stroke-linecap="round" />
               <path
@@ -692,12 +694,12 @@ watch(deviceId, () => {
                 :stroke-dashoffset="157 - Math.min(device.temperature ?? 0, 100) * 157 / 100"
                 class="transition-all duration-700 ease-out"
               />
-              <text x="60" y="48" text-anchor="middle" fill="#f3f4f6" font-size="18" font-weight="bold">
+              <text x="60" y="48" text-anchor="middle" fill="var(--ink)" font-size="18" font-weight="bold">
                 {{ device.temperature == null ? 'N/A' : device.temperature + '°C' }}
               </text>
-              <text x="60" y="64" text-anchor="middle" fill="#9ca3af" font-size="10">Temperature</text>
+              <text x="60" y="64" text-anchor="middle" fill="var(--ink-muted)" font-size="10">Temperature</text>
             </svg>
-            <div v-if="device.temperature == null" class="mt-2 text-xs text-slate-500 text-center leading-relaxed">
+            <div v-if="device.temperature == null" class="mt-2 text-xs text-ink-faint text-center leading-relaxed">
               设备 SNMP 代理未开放温度 MIB<br/>暂无真实数据
             </div>
             <div v-else class="mt-2 flex gap-2 text-xs">
@@ -709,11 +711,11 @@ watch(deviceId, () => {
         </div>
 
         <!-- 接口流量 TOP10（实时 SNMP） -->
-        <div class="bg-slate-900 border border-slate-800 rounded-xl p-6">
+        <div class="bg-surface border border-line rounded-xl p-6">
           <div class="flex items-center justify-between mb-3">
-            <h3 class="text-sm text-slate-400">接口流量 TOP10（实时 SNMP 采样）</h3>
+            <h3 class="text-sm text-ink-muted">接口流量 TOP10（实时 SNMP 采样）</h3>
             <button
-              class="px-2.5 py-1 text-xs bg-slate-800 hover:bg-slate-700 rounded-lg text-slate-300 transition-colors disabled:opacity-50"
+              class="px-2.5 py-1 text-xs bg-surface-2 hover:bg-hover rounded-lg text-ink-muted transition-colors disabled:opacity-50"
               :disabled="ifLoading"
               @click="loadInterfaces"
             >
@@ -722,61 +724,61 @@ watch(deviceId, () => {
           </div>
 
           <div v-if="ifLoading" class="space-y-2">
-            <div v-for="i in 5" :key="i" class="h-10 bg-slate-800 rounded animate-pulse" />
+            <div v-for="i in 5" :key="i" class="h-10 bg-surface-2 rounded animate-pulse" />
           </div>
           <div v-else-if="ifError" class="text-red-400 text-sm py-4">{{ ifError }}</div>
-          <div v-else-if="interfaces.length === 0" class="text-slate-500 text-sm py-4">
+          <div v-else-if="interfaces.length === 0" class="text-ink-faint text-sm py-4">
             未采集到活跃物理接口流量（设备 SNMP 未开放接口 MIB 或端口均无流量）
           </div>
           <div v-else class="space-y-2.5">
             <div v-for="it in interfaces" :key="it.ifindex" class="flex items-center gap-3">
-              <div class="w-36 shrink-0 font-mono text-xs text-slate-300 truncate" :title="it.name">{{ it.name }}</div>
-              <div class="w-10 shrink-0 text-xs text-slate-500">{{ formatBw(it.speed) }}</div>
+              <div class="w-36 shrink-0 font-mono text-xs text-ink-muted truncate" :title="it.name">{{ it.name }}</div>
+              <div class="w-10 shrink-0 text-xs text-ink-faint">{{ formatBw(it.speed) }}</div>
               <div class="flex-1">
                 <div class="flex items-center gap-2 mb-0.5">
                   <span class="text-[10px] text-cyan-400 w-14 shrink-0">↓ 下行</span>
-                  <div class="flex-1 h-1.5 bg-slate-800 rounded-full overflow-hidden">
+                  <div class="flex-1 h-1.5 bg-surface-2 rounded-full overflow-hidden">
                     <div class="h-full rounded-full bg-cyan-500 transition-all" :style="{ width: Math.min(it.in_util, 100) + '%' }" />
                   </div>
-                  <span class="text-[10px] text-slate-400 w-24 shrink-0 text-right">
+                  <span class="text-[10px] text-ink-muted w-24 shrink-0 text-right">
                     {{ it.in_util.toFixed(2) }}% ({{ formatRate(it.in_rate) }}bps)
                   </span>
                 </div>
                 <div class="flex items-center gap-2">
                   <span class="text-[10px] text-green-400 w-14 shrink-0">↑ 上行</span>
-                  <div class="flex-1 h-1.5 bg-slate-800 rounded-full overflow-hidden">
+                  <div class="flex-1 h-1.5 bg-surface-2 rounded-full overflow-hidden">
                     <div class="h-full rounded-full bg-green-500 transition-all" :style="{ width: Math.min(it.out_util, 100) + '%' }" />
                   </div>
-                  <span class="text-[10px] text-slate-400 w-24 shrink-0 text-right">
+                  <span class="text-[10px] text-ink-muted w-24 shrink-0 text-right">
                     {{ it.out_util.toFixed(2) }}% ({{ formatRate(it.out_rate) }}bps)
                   </span>
                 </div>
               </div>
             </div>
-            <div class="text-[11px] text-slate-600 pt-1">带宽利用率 = 接口实时速率 ÷ 端口带宽（按上下行较大值排序）</div>
+            <div class="text-[11px] text-ink-faint pt-1">带宽利用率 = 接口实时速率 ÷ 端口带宽（按上下行较大值排序）</div>
           </div>
         </div>
 
         <!-- 内存历史趋势（真实 SNMP 采集） -->
-        <div class="bg-slate-900 border border-slate-800 rounded-xl p-6">
+        <div class="bg-surface border border-line rounded-xl p-6">
           <div class="flex items-center justify-between mb-3">
-            <h3 class="text-sm text-slate-400">内存使用率趋势（近 24 小时 · 真实 SNMP 数据）</h3>
-            <span class="text-xs text-slate-500">{{ metricsNote }}</span>
+            <h3 class="text-sm text-ink-muted">内存使用率趋势（近 24 小时 · 真实 SNMP 数据）</h3>
+            <span class="text-xs text-ink-faint">{{ metricsNote }}</span>
           </div>
           <div ref="memChartRef" class="w-full h-52" />
         </div>
 
         <!-- Lifecycle Timeline -->
-        <div v-if="lifecycleStages.length > 0" class="bg-slate-900 border border-slate-800 rounded-xl p-6">
-          <h2 class="text-lg font-semibold mb-6 text-slate-200">设备生命周期</h2>
+        <div v-if="lifecycleStages.length > 0" class="bg-surface border border-line rounded-xl p-6">
+          <h2 class="text-lg font-semibold mb-6 text-ink">设备生命周期</h2>
           <div class="relative pt-2 pb-8">
             <!-- Track -->
-            <div class="absolute top-0 left-0 right-0 h-1.5 bg-slate-800 rounded-full" />
+            <div class="absolute top-0 left-0 right-0 h-1.5 bg-surface-2 rounded-full" />
 
             <!-- Past section -->
             <div
               v-if="lifecycleStages.some(s => s.isPast)"
-              class="absolute top-0 left-0 h-1.5 bg-slate-600 rounded-full"
+              class="absolute top-0 left-0 h-1.5 bg-line-strong rounded-full"
               :style="{ width: `${Math.max(...lifecycleStages.filter(s => s.isPast).map(s => s.position))}%` }"
             />
 
@@ -788,16 +790,16 @@ watch(deviceId, () => {
               :style="{ left: `${stage.position}%`, transform: 'translateX(-50%)' }"
             >
               <div
-                class="w-3 h-3 rounded-full -mt-[3px] border-2 border-slate-900"
-                :class="[stage.isNow ? 'bg-slate-400 ring-2 ring-slate-400/30' : stage.color]"
+                class="w-3 h-3 rounded-full -mt-[3px] border-2 border-line"
+                :class="[stage.isNow ? 'bg-line-strong ring-2 ring-slate-400/30' : stage.color]"
               />
               <span
                 class="mt-3 text-xs whitespace-nowrap"
-                :class="stage.isNow ? 'text-slate-400' : stage.isPast ? 'text-slate-500' : 'text-slate-300'"
+                :class="stage.isNow ? 'text-ink-muted' : stage.isPast ? 'text-ink-faint' : 'text-ink-muted'"
               >
                 {{ stage.label }}
               </span>
-              <span class="text-xs text-slate-500 whitespace-nowrap mt-0.5">
+              <span class="text-xs text-ink-faint whitespace-nowrap mt-0.5">
                 {{ formatDate(stage.key ? device[stage.key] : null) }}
               </span>
             </div>
@@ -807,17 +809,17 @@ watch(deviceId, () => {
         <!-- No lifecycle data -->
         <div
           v-else
-          class="bg-slate-900 border border-slate-800 rounded-xl p-6 text-center text-slate-500 text-sm"
+          class="bg-surface border border-line rounded-xl p-6 text-center text-ink-faint text-sm"
         >
           暂无生命周期数据
         </div>
 
         <!-- Recent Alerts -->
-        <div class="bg-slate-900 border border-slate-800 rounded-xl p-6">
-          <h2 class="text-lg font-semibold mb-4 text-slate-200">近期告警</h2>
+        <div class="bg-surface border border-line rounded-xl p-6">
+          <h2 class="text-lg font-semibold mb-4 text-ink">近期告警</h2>
 
-          <div v-if="alerts.length === 0" class="text-center py-12 text-slate-500 text-sm">
-            <svg class="w-12 h-12 mx-auto mb-3 text-slate-700" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <div v-if="alerts.length === 0" class="text-center py-12 text-ink-faint text-sm">
+            <svg class="w-12 h-12 mx-auto mb-3 text-ink-muted" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5"
                     d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
             </svg>
@@ -827,19 +829,19 @@ watch(deviceId, () => {
           <div v-else class="overflow-x-auto">
             <table class="w-full text-sm">
               <thead>
-                <tr class="border-b border-slate-800">
-                  <th class="text-left py-3 px-3 text-slate-500 font-medium text-xs uppercase">严重级别</th>
-                  <th class="text-left py-3 px-3 text-slate-500 font-medium text-xs uppercase">规则名称</th>
-                  <th class="text-left py-3 px-3 text-slate-500 font-medium text-xs uppercase">告警信息</th>
-                  <th class="text-left py-3 px-3 text-slate-500 font-medium text-xs uppercase">触发时间</th>
-                  <th class="text-left py-3 px-3 text-slate-500 font-medium text-xs uppercase">状态</th>
+                <tr class="border-b border-line">
+                  <th class="text-left py-3 px-3 text-ink-faint font-medium text-xs uppercase">严重级别</th>
+                  <th class="text-left py-3 px-3 text-ink-faint font-medium text-xs uppercase">规则名称</th>
+                  <th class="text-left py-3 px-3 text-ink-faint font-medium text-xs uppercase">告警信息</th>
+                  <th class="text-left py-3 px-3 text-ink-faint font-medium text-xs uppercase">触发时间</th>
+                  <th class="text-left py-3 px-3 text-ink-faint font-medium text-xs uppercase">状态</th>
                 </tr>
               </thead>
               <tbody>
                 <tr
                   v-for="alert in alerts"
                   :key="alert.id"
-                  class="border-b border-slate-800/50 hover:bg-slate-800/30 transition-colors"
+                  class="border-b border-line/50 hover:bg-hover/30 transition-colors"
                 >
                   <td class="py-3 px-3">
                     <span
@@ -849,11 +851,11 @@ watch(deviceId, () => {
                       {{ severityLabel(alert.severity) }}
                     </span>
                   </td>
-                  <td class="py-3 px-3 text-slate-300">{{ alert.rule_name || '-' }}</td>
-                  <td class="py-3 px-3 text-slate-400 max-w-xs truncate" :title="alert.message">
+                  <td class="py-3 px-3 text-ink-muted">{{ alert.rule_name || '-' }}</td>
+                  <td class="py-3 px-3 text-ink-muted max-w-xs truncate" :title="alert.message">
                     {{ alert.message || '-' }}
                   </td>
-                  <td class="py-3 px-3 text-slate-400 whitespace-nowrap">
+                  <td class="py-3 px-3 text-ink-muted whitespace-nowrap">
                     {{ formatDateTime(alert.triggered_at) }}
                   </td>
                   <td class="py-3 px-3">

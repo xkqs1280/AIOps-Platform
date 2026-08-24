@@ -2,31 +2,31 @@
   <div class="p-6 max-w-3xl mx-auto animate-in">
     <div class="flex items-center justify-between mb-6">
       <div>
-        <h2 class="text-xl font-bold text-slate-100">系统升级</h2>
-        <p class="text-sm text-slate-500 mt-1">一键升级平台（保留设备与数据），上传官方升级包后自动完成备份、替换、重启</p>
+        <h2 class="text-xl font-bold text-ink-strong">系统升级</h2>
+        <p class="text-sm text-ink-faint mt-1">一键升级平台（保留设备与数据），上传官方升级包后自动完成备份、替换、重启</p>
       </div>
     </div>
 
     <!-- 版本信息 -->
-    <div class="bg-slate-900 border border-slate-800 rounded-xl p-6 mb-6">
+    <div class="bg-surface border border-line rounded-xl p-6 mb-6">
       <div class="grid grid-cols-2 gap-4 text-sm">
-        <div class="bg-slate-800/60 rounded-lg p-3">
-          <div class="text-slate-500 text-xs mb-1">当前版本</div>
-          <div class="text-slate-100 font-medium">{{ versionInfo.version || '—' }}</div>
+        <div class="bg-surface-2/60 rounded-lg p-3">
+          <div class="text-ink-faint text-xs mb-1">当前版本</div>
+          <div class="text-ink-strong font-medium">{{ versionInfo.version || '—' }}</div>
         </div>
-        <div class="bg-slate-800/60 rounded-lg p-3">
-          <div class="text-slate-500 text-xs mb-1">构建时间</div>
-          <div class="text-slate-100 font-medium">{{ versionInfo.build_time || '—' }}</div>
+        <div class="bg-surface-2/60 rounded-lg p-3">
+          <div class="text-ink-faint text-xs mb-1">构建时间</div>
+          <div class="text-ink-strong font-medium">{{ versionInfo.build_time || '—' }}</div>
         </div>
       </div>
     </div>
 
     <!-- 升级进度（升级中/完成后显示） -->
-    <div v-if="status.state && status.state !== 'idle'" class="bg-slate-900 border border-slate-800 rounded-xl p-6 mb-6">
+    <div v-if="status.state && status.state !== 'idle'" class="bg-surface border border-line rounded-xl p-6 mb-6">
       <div class="flex items-center justify-between mb-3">
         <div>
-          <span class="text-slate-100 font-semibold">{{ stateText }}</span>
-          <span v-if="status.from_version && status.to_version" class="text-slate-500 text-sm ml-2">
+          <span class="text-ink-strong font-semibold">{{ stateText }}</span>
+          <span v-if="status.from_version && status.to_version" class="text-ink-faint text-sm ml-2">
             {{ status.from_version }} → {{ status.to_version }}
           </span>
         </div>
@@ -34,7 +34,7 @@
       </div>
 
       <!-- 进度条 -->
-      <div class="w-full h-2.5 bg-slate-800 rounded-full overflow-hidden mb-4">
+      <div class="w-full h-2.5 bg-surface-2 rounded-full overflow-hidden mb-4">
         <div
           class="h-full rounded-full transition-all duration-500"
           :class="progressColor"
@@ -42,11 +42,11 @@
         ></div>
       </div>
 
-      <div class="text-sm text-slate-300 mb-3">{{ status.message || '等待中…' }}</div>
+      <div class="text-sm text-ink-muted mb-3">{{ status.message || '等待中…' }}</div>
 
       <!-- 日志 -->
-      <div class="bg-black/40 border border-slate-800 rounded-lg p-3 max-h-52 overflow-y-auto font-mono text-xs space-y-1">
-        <div v-for="(line, i) in status.log" :key="i" class="text-slate-400">{{ line }}</div>
+      <div class="bg-black/40 border border-line rounded-lg p-3 max-h-52 overflow-y-auto font-mono text-xs space-y-1">
+        <div v-for="(line, i) in status.log" :key="i" class="text-ink-muted">{{ line }}</div>
       </div>
 
       <!-- 完成后操作 -->
@@ -68,15 +68,15 @@
     </div>
 
     <!-- 上传升级包 -->
-    <div class="bg-slate-900 border border-slate-800 rounded-xl p-6">
-      <h3 class="font-semibold text-slate-100 mb-1.5">上传升级包</h3>
-      <p class="text-sm text-slate-500 mb-4">
+    <div class="bg-surface border border-line rounded-xl p-6">
+      <h3 class="font-semibold text-ink-strong mb-1.5">上传升级包</h3>
+      <p class="text-sm text-ink-faint mb-4">
         从厂商获取 <code class="text-cyan-400">aiops-upgrade-vX.Y.Z.zip</code> 升级包后上传。升级会自动备份
         当前程序、配置与数据库快照，保留全部设备与历史数据；失败自动回滚。
       </p>
 
       <div
-        class="border-2 border-dashed border-slate-700 hover:border-cyan-600/60 rounded-xl p-8 text-center cursor-pointer transition-colors"
+        class="border-2 border-dashed border-line hover:border-cyan-600/60 rounded-xl p-8 text-center cursor-pointer transition-colors"
         :class="{ 'opacity-50 pointer-events-none': busy || upgrading }"
         @click="fileInput.click()"
         @dragover.prevent
@@ -84,8 +84,8 @@
       >
         <input ref="fileInput" type="file" accept=".zip" class="hidden" @change="onPick" />
         <div class="text-4xl mb-2">📦</div>
-        <div class="text-sm text-slate-400 mb-1">{{ pickedFile ? pickedFile.name : '点击选择或拖拽升级包到此处' }}</div>
-        <div v-if="pickedFile" class="text-xs text-slate-500">约 {{ (pickedFile.size / 1024 / 1024).toFixed(1) }} MB</div>
+        <div class="text-sm text-ink-muted mb-1">{{ pickedFile ? pickedFile.name : '点击选择或拖拽升级包到此处' }}</div>
+        <div v-if="pickedFile" class="text-xs text-ink-faint">约 {{ (pickedFile.size / 1024 / 1024).toFixed(1) }} MB</div>
       </div>
 
       <div class="flex items-center gap-3 mt-5">
@@ -96,13 +96,13 @@
         >
           {{ upgrading ? '升级中…' : '一键升级' }}
         </button>
-        <span v-if="busy" class="text-sm text-slate-400">正在处理，请勿关闭页面…</span>
+        <span v-if="busy" class="text-sm text-ink-muted">正在处理，请勿关闭页面…</span>
       </div>
 
       <p v-if="errorMsg" class="text-sm text-red-400 mt-3">{{ errorMsg }}</p>
     </div>
 
-    <p class="text-[11px] text-slate-600 mt-4">
+    <p class="text-[11px] text-ink-faint mt-4">
       升级说明：升级期间平台将短暂停机（约 30~60 秒），完成后自动恢复。升级不会清除任何设备、告警或配置数据。
     </p>
   </div>

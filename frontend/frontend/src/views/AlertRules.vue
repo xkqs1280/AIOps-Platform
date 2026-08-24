@@ -1,11 +1,11 @@
 <template>
-  <div class="min-h-screen bg-slate-950 text-slate-100 animate-in">
+  <div class="min-h-screen bg-app text-ink-strong animate-in">
     <!-- Header -->
-    <div class="border-b border-slate-800 bg-slate-900/50 px-6 py-4">
+    <div class="border-b border-line bg-surface/50 px-6 py-4">
       <div class="flex items-center justify-between">
         <div>
-          <h1 class="text-2xl font-bold text-slate-100">告警规则管理</h1>
-          <p class="mt-1 text-sm text-slate-400">配置和管理监控告警规则</p>
+          <h1 class="text-2xl font-bold text-ink-strong">告警规则管理</h1>
+          <p class="mt-1 text-sm text-ink-muted">配置和管理监控告警规则</p>
         </div>
         <button
           @click="openCreateModal"
@@ -18,9 +18,9 @@
 
     <!-- Rules Table -->
     <div class="px-6 py-6">
-      <div class="overflow-hidden rounded-xl border border-slate-800 bg-slate-900/50">
+      <div class="overflow-hidden rounded-xl border border-line bg-surface/50">
         <table class="w-full text-left text-sm">
-          <thead class="border-b border-slate-800 bg-slate-900 text-slate-400">
+          <thead class="border-b border-line bg-surface text-ink-muted">
             <tr>
               <th class="px-4 py-3 font-medium">规则名称</th>
               <th class="px-4 py-3 font-medium">监控指标</th>
@@ -32,24 +32,24 @@
               <th class="px-4 py-3 font-medium text-right">操作</th>
             </tr>
           </thead>
-          <tbody class="divide-y divide-slate-800">
+          <tbody class="divide-y divide-line">
             <tr
               v-for="rule in rules"
               :key="rule.id"
-              class="transition-colors hover:bg-slate-800/30"
+              class="transition-colors hover:bg-hover/30"
             >
               <td class="px-4 py-3">
-                <div class="font-medium text-slate-100">{{ rule.name }}</div>
-                <div class="mt-0.5 text-xs text-slate-500">{{ rule.description }}</div>
+                <div class="font-medium text-ink-strong">{{ rule.name }}</div>
+                <div class="mt-0.5 text-xs text-ink-faint">{{ rule.description }}</div>
               </td>
-              <td class="px-4 py-3 text-slate-300">{{ metricLabel(rule.metric) }}</td>
+              <td class="px-4 py-3 text-ink-muted">{{ metricLabel(rule.metric) }}</td>
               <td class="px-4 py-3">
-                <span class="inline-flex items-center rounded-md bg-slate-800 px-2 py-1 text-xs font-medium text-slate-300">
+                <span class="inline-flex items-center rounded-md bg-surface-2 px-2 py-1 text-xs font-medium text-ink-muted">
                   {{ conditionLabel(rule.condition) }}
                 </span>
               </td>
-              <td class="px-4 py-3 font-mono text-slate-200">{{ rule.threshold }}</td>
-              <td class="px-4 py-3 text-slate-300">{{ rule.duration }}s</td>
+              <td class="px-4 py-3 font-mono text-ink">{{ rule.threshold }}</td>
+              <td class="px-4 py-3 text-ink-muted">{{ rule.duration }}s</td>
               <td class="px-4 py-3">
                 <span :class="severityBadgeClass(rule.severity)" class="inline-flex items-center rounded-md px-2 py-1 text-xs font-medium">
                   {{ severityLabel(rule.severity) }}
@@ -58,7 +58,7 @@
               <td class="px-4 py-3">
                 <button
                   @click="toggleEnabled(rule)"
-                  :class="rule.enabled ? 'bg-brand-500' : 'bg-slate-600'"
+                  :class="rule.enabled ? 'bg-brand-500' : 'bg-line-strong'"
                   class="relative inline-flex h-6 w-11 items-center rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 focus:ring-offset-slate-950"
                 >
                   <span
@@ -85,7 +85,7 @@
               </td>
             </tr>
             <tr v-if="rules.length === 0">
-              <td colspan="8" class="px-4 py-12 text-center text-slate-500">
+              <td colspan="8" class="px-4 py-12 text-center text-ink-faint">
                 暂无告警规则，点击"添加规则"创建
               </td>
             </tr>
@@ -100,15 +100,15 @@
       class="fixed inset-0 z-50 flex items-center justify-center bg-black/60"
       @click.self="closeModal"
     >
-      <div class="w-full max-w-lg rounded-xl border border-slate-800 bg-slate-900 shadow-2xl">
-        <div class="border-b border-slate-800 px-6 py-4">
-          <h2 class="text-lg font-semibold text-slate-100">
+      <div class="w-full max-w-lg rounded-xl border border-line bg-surface shadow-2xl">
+        <div class="border-b border-line px-6 py-4">
+          <h2 class="text-lg font-semibold text-ink-strong">
             {{ isEditing ? '编辑规则' : '添加规则' }}
           </h2>
         </div>
         <div class="max-h-[60vh] space-y-4 overflow-y-auto px-6 py-4">
           <div>
-            <label class="mb-1 block text-sm font-medium text-slate-400">规则名称</label>
+            <label class="mb-1 block text-sm font-medium text-ink-muted">规则名称</label>
             <input
               v-model="formData.name"
               type="text"
@@ -117,10 +117,10 @@
             />
           </div>
           <div>
-            <label class="mb-1 block text-sm font-medium text-slate-400">监控指标</label>
+            <label class="mb-1 block text-sm font-medium text-ink-muted">监控指标</label>
             <select
               v-model="formData.metric"
-              class="w-full rounded-lg border border-slate-700 bg-slate-800 px-3 py-2 text-sm text-slate-100 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
+              class="w-full rounded-lg border border-line bg-surface-2 px-3 py-2 text-sm text-ink-strong focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
             >
               <option value="" disabled>请选择监控指标</option>
               <option value="cpu_usage">CPU 利用率 (%)</option>
@@ -133,14 +133,14 @@
               <option value="if_in_discards">入向丢弃速率 (个/秒)</option>
               <option value="if_out_discards">出向丢弃速率 (个/秒)</option>
             </select>
-            <p class="mt-1 text-xs text-slate-500">错包/丢弃指标：检测接口计数器增长速率，需设备支持 IF-MIB</p>
+            <p class="mt-1 text-xs text-ink-faint">错包/丢弃指标：检测接口计数器增长速率，需设备支持 IF-MIB</p>
           </div>
           <div class="grid grid-cols-2 gap-4">
             <div>
-              <label class="mb-1 block text-sm font-medium text-slate-400">条件</label>
+              <label class="mb-1 block text-sm font-medium text-ink-muted">条件</label>
               <select
                 v-model="formData.condition"
-                class="w-full rounded-lg border border-slate-700 bg-slate-800 px-3 py-2 text-sm text-slate-100 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
+                class="w-full rounded-lg border border-line bg-surface-2 px-3 py-2 text-sm text-ink-strong focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
               >
                 <option value="gt">大于 (gt)</option>
                 <option value="lt">小于 (lt)</option>
@@ -149,7 +149,7 @@
               </select>
             </div>
             <div>
-              <label class="mb-1 block text-sm font-medium text-slate-400">阈值</label>
+              <label class="mb-1 block text-sm font-medium text-ink-muted">阈值</label>
               <input
                 v-model.number="formData.threshold"
                 type="number"
@@ -160,7 +160,7 @@
           </div>
           <div class="grid grid-cols-2 gap-4">
             <div>
-              <label class="mb-1 block text-sm font-medium text-slate-400">持续时间 (秒)</label>
+              <label class="mb-1 block text-sm font-medium text-ink-muted">持续时间 (秒)</label>
               <input
                 v-model.number="formData.duration"
                 type="number"
@@ -169,10 +169,10 @@
               />
             </div>
             <div>
-              <label class="mb-1 block text-sm font-medium text-slate-400">严重级别</label>
+              <label class="mb-1 block text-sm font-medium text-ink-muted">严重级别</label>
               <select
                 v-model="formData.severity"
-                class="w-full rounded-lg border border-slate-700 bg-slate-800 px-3 py-2 text-sm text-slate-100 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
+                class="w-full rounded-lg border border-line bg-surface-2 px-3 py-2 text-sm text-ink-strong focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
               >
                 <option value="critical">严重</option>
                 <option value="major">重要</option>
@@ -182,7 +182,7 @@
             </div>
           </div>
           <div>
-            <label class="mb-1 block text-sm font-medium text-slate-400">描述</label>
+            <label class="mb-1 block text-sm font-medium text-ink-muted">描述</label>
             <textarea
               v-model="formData.description"
               rows="3"
@@ -194,15 +194,15 @@
             <input
               v-model="formData.enabled"
               type="checkbox"
-              class="h-4 w-4 rounded border-slate-600 bg-slate-800 text-blue-600 focus:ring-blue-500"
+              class="h-4 w-4 rounded border-line-strong bg-surface-2 text-blue-600 focus:ring-blue-500"
             />
-            <label class="text-sm text-slate-400">启用此规则</label>
+            <label class="text-sm text-ink-muted">启用此规则</label>
           </div>
         </div>
-        <div class="flex justify-end gap-3 border-t border-slate-800 px-6 py-4">
+        <div class="flex justify-end gap-3 border-t border-line px-6 py-4">
           <button
             @click="closeModal"
-            class="rounded-lg border border-slate-700 px-4 py-2 text-sm font-medium text-slate-300 transition-colors hover:bg-slate-800"
+            class="rounded-lg border border-line px-4 py-2 text-sm font-medium text-ink-muted transition-colors hover:bg-hover"
           >
             取消
           </button>
@@ -223,7 +223,7 @@
       class="fixed inset-0 z-50 flex items-center justify-center bg-black/60"
       @click.self="closeDeleteDialog"
     >
-      <div class="w-full max-w-sm rounded-xl border border-slate-800 bg-slate-900 shadow-2xl">
+      <div class="w-full max-w-sm rounded-xl border border-line bg-surface shadow-2xl">
         <div class="px-6 py-6">
           <div class="flex items-center gap-3">
             <div class="flex h-10 w-10 items-center justify-center rounded-full bg-red-600/20">
@@ -232,17 +232,17 @@
               </svg>
             </div>
             <div>
-              <h3 class="text-base font-semibold text-slate-100">确认删除</h3>
-              <p class="mt-1 text-sm text-slate-400">
+              <h3 class="text-base font-semibold text-ink-strong">确认删除</h3>
+              <p class="mt-1 text-sm text-ink-muted">
                 确定要删除规则 "{{ deleteTarget?.name }}" 吗？此操作不可撤销。
               </p>
             </div>
           </div>
         </div>
-        <div class="flex justify-end gap-3 border-t border-slate-800 px-6 py-4">
+        <div class="flex justify-end gap-3 border-t border-line px-6 py-4">
           <button
             @click="closeDeleteDialog"
-            class="rounded-lg border border-slate-700 px-4 py-2 text-sm font-medium text-slate-300 transition-colors hover:bg-slate-800"
+            class="rounded-lg border border-line px-4 py-2 text-sm font-medium text-ink-muted transition-colors hover:bg-hover"
           >
             取消
           </button>

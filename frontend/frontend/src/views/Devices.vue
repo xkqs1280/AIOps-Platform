@@ -1,9 +1,9 @@
 <template>
-  <div class="min-h-screen bg-slate-950 text-slate-100 p-6 animate-in">
+  <div class="min-h-screen bg-app text-ink-strong p-6 animate-in">
     <!-- Top Section: Search, Filters, Add Button -->
     <div class="flex flex-wrap items-end gap-4 mb-6">
       <div class="flex-1 min-w-[200px]">
-        <label class="block text-sm text-slate-400 mb-1">关键词搜索</label>
+        <label class="block text-sm text-ink-muted mb-1">关键词搜索</label>
         <input
           v-model="searchKeyword"
           type="text"
@@ -14,7 +14,7 @@
       </div>
 
       <div class="w-40">
-        <label class="block text-sm text-slate-400 mb-1">厂商</label>
+        <label class="block text-sm text-ink-muted mb-1">厂商</label>
         <select
           v-model="filterVendor"
           class="select"
@@ -30,7 +30,7 @@
       </div>
 
       <div class="w-40">
-        <label class="block text-sm text-slate-400 mb-1">设备类型</label>
+        <label class="block text-sm text-ink-muted mb-1">设备类型</label>
         <select
           v-model="filterDeviceType"
           class="select"
@@ -46,7 +46,7 @@
       </div>
 
       <div class="w-36">
-        <label class="block text-sm text-slate-400 mb-1">状态</label>
+        <label class="block text-sm text-ink-muted mb-1">状态</label>
         <select
           v-model="filterStatus"
           class="select"
@@ -68,6 +68,14 @@
       </button>
 
       <button
+        class="btn btn-outline"
+        :disabled="syncingAll || syncingIds.length > 0"
+        @click="syncAll"
+      >
+        {{ syncingAll ? '同步中...' : '↻ 一键同步' }}
+      </button>
+
+      <button
         class="btn btn-ghost"
         :disabled="exporting"
         @click="handleExport"
@@ -84,11 +92,11 @@
     </div>
 
     <!-- Device Table -->
-    <div class="bg-slate-900 rounded-xl border border-slate-800 overflow-hidden">
+    <div class="bg-surface rounded-xl border border-line overflow-hidden">
       <div class="overflow-x-auto">
         <table class="w-full">
           <thead>
-            <tr class="bg-slate-800/50 text-left text-sm text-slate-400">
+            <tr class="bg-surface-2/50 text-left text-sm text-ink-muted">
               <th class="px-4 py-3 w-10">
                 <input
                   type="checkbox"
@@ -98,61 +106,61 @@
                 />
               </th>
               <th
-                class="px-4 py-3 font-medium cursor-pointer select-none hover:text-slate-200 transition-colors"
+                class="px-4 py-3 font-medium cursor-pointer select-none hover:text-ink transition-colors"
                 @click="toggleSort('name')"
               >名称{{ sortArrow('name') }}</th>
               <th
-                class="px-4 py-3 font-medium cursor-pointer select-none hover:text-slate-200 transition-colors"
+                class="px-4 py-3 font-medium cursor-pointer select-none hover:text-ink transition-colors"
                 @click="toggleSort('ip')"
               >IP 地址{{ sortArrow('ip') }}</th>
               <th
-                class="px-4 py-3 font-medium cursor-pointer select-none hover:text-slate-200 transition-colors"
+                class="px-4 py-3 font-medium cursor-pointer select-none hover:text-ink transition-colors"
                 @click="toggleSort('vendor')"
               >厂商{{ sortArrow('vendor') }}</th>
               <th
-                class="px-4 py-3 font-medium cursor-pointer select-none hover:text-slate-200 transition-colors"
+                class="px-4 py-3 font-medium cursor-pointer select-none hover:text-ink transition-colors"
                 @click="toggleSort('model')"
               >型号{{ sortArrow('model') }}</th>
               <th
-                class="px-4 py-3 font-medium cursor-pointer select-none hover:text-slate-200 transition-colors"
+                class="px-4 py-3 font-medium cursor-pointer select-none hover:text-ink transition-colors"
                 @click="toggleSort('device_type')"
               >类型{{ sortArrow('device_type') }}</th>
               <th
-                class="px-4 py-3 font-medium cursor-pointer select-none hover:text-slate-200 transition-colors"
+                class="px-4 py-3 font-medium cursor-pointer select-none hover:text-ink transition-colors"
                 @click="toggleSort('status')"
               >状态{{ sortArrow('status') }}</th>
               <th
-                class="px-4 py-3 font-medium cursor-pointer select-none hover:text-slate-200 transition-colors"
+                class="px-4 py-3 font-medium cursor-pointer select-none hover:text-ink transition-colors"
                 @click="toggleSort('cpu_usage')"
               >CPU%{{ sortArrow('cpu_usage') }}</th>
               <th
-                class="px-4 py-3 font-medium cursor-pointer select-none hover:text-slate-200 transition-colors"
+                class="px-4 py-3 font-medium cursor-pointer select-none hover:text-ink transition-colors"
                 @click="toggleSort('memory_usage')"
               >内存%{{ sortArrow('memory_usage') }}</th>
               <th
-                class="px-4 py-3 font-medium cursor-pointer select-none hover:text-slate-200 transition-colors"
+                class="px-4 py-3 font-medium cursor-pointer select-none hover:text-ink transition-colors"
                 @click="toggleSort('last_seen')"
               >最后在线{{ sortArrow('last_seen') }}</th>
               <th class="px-4 py-3 font-medium">操作</th>
             </tr>
           </thead>
-          <tbody class="divide-y divide-slate-800">
+          <tbody class="divide-y divide-line">
             <tr v-if="loading" v-for="i in 5" :key="'sk-' + i" class="animate-pulse">
               <td v-for="j in 10" :key="'sc-' + j" class="px-4 py-3">
-                <div class="h-4 bg-slate-700 rounded w-3/4"></div>
+                <div class="h-4 bg-hover rounded w-3/4"></div>
               </td>
             </tr>
             <tr
               v-else-if="devices.length === 0"
             >
-              <td colspan="11" class="px-4 py-12 text-center text-slate-500">
+              <td colspan="11" class="px-4 py-12 text-center text-ink-faint">
                 暂无设备数据
               </td>
             </tr>
             <tr
               v-for="device in devices"
               :key="device.id"
-              class="hover:bg-slate-800/30 transition-colors"
+              class="hover:bg-hover/30 transition-colors"
               :class="{ 'bg-red-900/20': selectedIds.includes(device.id) }"
             >
               <td class="px-4 py-3">
@@ -171,10 +179,10 @@
                   {{ device.name }}
                 </router-link>
               </td>
-              <td class="px-4 py-3 text-slate-300 font-mono text-sm">{{ device.ip }}</td>
-              <td class="px-4 py-3 text-slate-300">{{ device.vendor }}</td>
-              <td class="px-4 py-3 text-slate-300">{{ device.model || '-' }}</td>
-              <td class="px-4 py-3 text-slate-300">{{ deviceTypeLabel(device.device_type) }}</td>
+              <td class="px-4 py-3 text-ink-muted font-mono text-sm">{{ device.ip }}</td>
+              <td class="px-4 py-3 text-ink-muted">{{ device.vendor }}</td>
+              <td class="px-4 py-3 text-ink-muted">{{ device.model || '-' }}</td>
+              <td class="px-4 py-3 text-ink-muted">{{ deviceTypeLabel(device.device_type) }}</td>
               <td class="px-4 py-3">
                 <span :class="statusBadgeClass(device.status)" class="px-2 py-1 rounded-full text-xs font-medium">
                   {{ statusLabel(device.status) }}
@@ -182,46 +190,46 @@
               </td>
               <td class="px-4 py-3">
                 <div class="flex items-center gap-2">
-                  <div class="w-12 bg-slate-700 rounded-full h-1.5">
+                  <div class="w-12 bg-hover rounded-full h-1.5">
                     <div
                       class="h-1.5 rounded-full transition-all"
                       :class="cpuBarColor(device.cpu_usage)"
                       :style="{ width: (device.cpu_usage ?? 0) + '%' }"
                     ></div>
                   </div>
-                  <span class="text-sm text-slate-300">{{ device.cpu_usage ?? '-' }}%</span>
+                  <span class="text-sm text-ink-muted">{{ device.cpu_usage ?? '-' }}%</span>
                 </div>
               </td>
               <td class="px-4 py-3">
                 <div class="flex items-center gap-2">
-                  <div class="w-12 bg-slate-700 rounded-full h-1.5">
+                  <div class="w-12 bg-hover rounded-full h-1.5">
                     <div
                       class="h-1.5 rounded-full transition-all"
                       :class="memBarColor(device.memory_usage)"
                       :style="{ width: (device.memory_usage ?? 0) + '%' }"
                     ></div>
                   </div>
-                  <span class="text-sm text-slate-300">{{ device.memory_usage ?? '-' }}%</span>
+                  <span class="text-sm text-ink-muted">{{ device.memory_usage ?? '-' }}%</span>
                 </div>
               </td>
-              <td class="px-4 py-3 text-sm text-slate-400">{{ formatTime(device.last_seen) }}</td>
+              <td class="px-4 py-3 text-sm text-ink-muted">{{ formatTime(device.last_seen) }}</td>
               <td class="px-4 py-3">
                 <div class="flex items-center gap-2">
                   <router-link
                     :to="`/devices/${device.id}`"
-                    class="px-2 py-1 text-xs bg-slate-700 hover:bg-slate-600 rounded text-slate-300 transition-colors"
+                    class="px-2 py-1 text-xs bg-surface-2 hover:bg-line-strong rounded text-ink-muted dark:bg-hover/40 dark:hover:bg-hover dark:text-ink-faint transition-colors"
                   >
                     编辑
                   </router-link>
                   <button
-                    class="px-2 py-1 text-xs bg-cyan-900/50 hover:bg-cyan-800 rounded text-cyan-300 transition-colors"
+                    class="px-2 py-1 text-xs bg-cyan-100 hover:bg-cyan-200 rounded text-cyan-700 disabled:opacity-50 dark:bg-cyan-900/50 dark:hover:bg-cyan-800 dark:text-cyan-300 transition-colors"
                     :disabled="syncingIds.includes(device.id)"
                     @click="syncOne(device)"
                   >
                     {{ syncingIds.includes(device.id) ? '同步中…' : '同步' }}
                   </button>
                   <button
-                    class="px-2 py-1 text-xs bg-red-900/50 hover:bg-red-800 rounded text-red-300 transition-colors"
+                    class="px-2 py-1 text-xs bg-red-100 hover:bg-red-200 rounded text-red-700 dark:bg-red-900/50 dark:hover:bg-red-800 dark:text-red-300 transition-colors"
                     @click="confirmDelete(device)"
                   >
                     删除
@@ -235,21 +243,21 @@
     </div>
 
     <!-- Pagination -->
-    <div v-if="total > 0" class="flex items-center justify-between mt-4 text-sm text-slate-400">
+    <div v-if="total > 0" class="flex items-center justify-between mt-4 text-sm text-ink-muted">
       <span>共 {{ total }} 台设备（上限 {{ MAX_DEVICES }} 台，剩余 {{ Math.max(0, MAX_DEVICES - total) }} 台可添加）</span>
       <div class="flex items-center gap-1">
         <button
-          class="px-3 py-1 rounded bg-slate-800 hover:bg-slate-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+          class="px-3 py-1 rounded bg-surface-2 hover:bg-hover disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
           :disabled="page <= 1"
           @click="page--; fetchDevices()"
         >
           上一页
         </button>
-        <span class="px-3 py-1 text-slate-300">
+        <span class="px-3 py-1 text-ink-muted">
           第 {{ page }} / {{ totalPages }} 页
         </span>
         <button
-          class="px-3 py-1 rounded bg-slate-800 hover:bg-slate-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+          class="px-3 py-1 rounded bg-surface-2 hover:bg-hover disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
           :disabled="page >= totalPages"
           @click="page++; fetchDevices()"
         >
@@ -260,7 +268,7 @@
         <span>每页</span>
         <select
           v-model="pageSize"
-          class="px-2 py-1 bg-slate-800 border border-slate-700 rounded text-slate-300 focus:outline-none focus:border-blue-500"
+          class="px-2 py-1 bg-surface-2 border border-line rounded text-ink-muted focus:outline-none focus:border-blue-500"
           @change="page = 1; fetchDevices()"
         >
           <option :value="10">10</option>
@@ -276,9 +284,9 @@
       v-if="deleteTarget"
       class="fixed inset-0 z-50 flex items-center justify-center bg-black/60"
     >
-      <div class="bg-slate-900 border border-slate-700 rounded-xl p-6 w-96 shadow-2xl">
-        <h3 class="text-lg font-semibold text-slate-100 mb-2">确认删除</h3>
-        <p class="text-slate-400 mb-6">
+      <div class="bg-surface border border-line rounded-xl p-6 w-96 shadow-2xl">
+        <h3 class="text-lg font-semibold text-ink-strong mb-2">确认删除</h3>
+        <p class="text-ink-muted mb-6">
           确定要删除设备 <span class="text-white font-medium">{{ deleteTarget.name }}</span> 吗？此操作不可撤销。
         </p>
         <div class="flex justify-end gap-3">
@@ -304,11 +312,11 @@
       v-if="showBatchDelete"
       class="fixed inset-0 z-50 flex items-center justify-center bg-black/60"
     >
-      <div class="bg-slate-900 border border-slate-700 rounded-xl p-6 w-[480px] shadow-2xl">
-        <h3 class="text-lg font-semibold text-slate-100 mb-3">批量删除设备</h3>
-        <p class="text-slate-400 mb-4">
+      <div class="bg-surface border border-line rounded-xl p-6 w-[480px] shadow-2xl">
+        <h3 class="text-lg font-semibold text-ink-strong mb-3">批量删除设备</h3>
+        <p class="text-ink-muted mb-4">
           将删除 <span class="text-red-400 font-semibold">{{ batchDeleteTargets.length }}</span> 台设备：
-          <span class="text-slate-300">{{ batchDeleteNames }}</span>
+          <span class="text-ink-muted">{{ batchDeleteNames }}</span>
         </p>
         <p class="text-red-500/90 text-sm mb-6">此操作不可撤销，请确认。</p>
         <div class="flex justify-end gap-3">
@@ -335,21 +343,21 @@
       class="fixed inset-0 z-50 flex items-center justify-center bg-black/60"
       @click.self="showAddDialog = false"
     >
-      <div class="bg-slate-900 border border-slate-700 rounded-xl p-6 w-[640px] max-h-[85vh] overflow-auto shadow-2xl">
-        <h3 class="text-lg font-semibold text-slate-100 mb-4">添加设备</h3>
+      <div class="bg-surface border border-line rounded-xl p-6 w-[640px] max-h-[85vh] overflow-auto shadow-2xl">
+        <h3 class="text-lg font-semibold text-ink-strong mb-4">添加设备</h3>
 
         <!-- Mode tabs -->
         <div class="flex gap-2 mb-4">
           <button
             class="px-4 py-2 rounded-lg text-sm font-medium transition-colors"
-            :class="addMode === 'single' ? 'bg-blue-600 text-white' : 'bg-slate-800 text-slate-400 hover:bg-slate-700'"
+            :class="addMode === 'single' ? 'bg-blue-600 text-white' : 'bg-surface-2 text-ink-muted hover:bg-hover'"
             @click="addMode = 'single'"
           >
             单独添加
           </button>
           <button
             class="px-4 py-2 rounded-lg text-sm font-medium transition-colors"
-            :class="addMode === 'batch' ? 'bg-blue-600 text-white' : 'bg-slate-800 text-slate-400 hover:bg-slate-700'"
+            :class="addMode === 'batch' ? 'bg-blue-600 text-white' : 'bg-surface-2 text-ink-muted hover:bg-hover'"
             @click="addMode = 'batch'"
           >
             批量发现
@@ -360,16 +368,16 @@
         <div v-if="addMode === 'single'" class="space-y-3">
           <div class="grid grid-cols-2 gap-3">
             <div>
-              <label class="block text-sm text-slate-400 mb-1">设备名称 *</label>
-              <input v-model="singleForm.name" type="text" class="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded-lg text-slate-100 focus:outline-none focus:border-blue-500" placeholder="如: SW4">
+              <label class="block text-sm text-ink-muted mb-1">设备名称 *</label>
+              <input v-model="singleForm.name" type="text" class="w-full px-3 py-2 bg-surface-2 border border-line rounded-lg text-ink-strong focus:outline-none focus:border-blue-500" placeholder="如: SW4">
             </div>
             <div>
-              <label class="block text-sm text-slate-400 mb-1">IP 地址 *</label>
-              <input v-model="singleForm.ip" type="text" class="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded-lg text-slate-100 focus:outline-none focus:border-blue-500" placeholder="如: 192.168.11.20">
+              <label class="block text-sm text-ink-muted mb-1">IP 地址 *</label>
+              <input v-model="singleForm.ip" type="text" class="w-full px-3 py-2 bg-surface-2 border border-line rounded-lg text-ink-strong focus:outline-none focus:border-blue-500" placeholder="如: 192.168.11.20">
             </div>
             <div>
-              <label class="block text-sm text-slate-400 mb-1">厂商</label>
-              <select v-model="singleForm.vendor" class="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded-lg text-slate-100 focus:outline-none focus:border-blue-500">
+              <label class="block text-sm text-ink-muted mb-1">厂商</label>
+              <select v-model="singleForm.vendor" class="w-full px-3 py-2 bg-surface-2 border border-line rounded-lg text-ink-strong focus:outline-none focus:border-blue-500">
                 <option value="">未知</option>
                 <option value="华为">华为</option>
                 <option value="H3C">H3C</option>
@@ -379,8 +387,8 @@
               </select>
             </div>
             <div>
-              <label class="block text-sm text-slate-400 mb-1">设备类型</label>
-              <select v-model="singleForm.device_type" class="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded-lg text-slate-100 focus:outline-none focus:border-blue-500">
+              <label class="block text-sm text-ink-muted mb-1">设备类型</label>
+              <select v-model="singleForm.device_type" class="w-full px-3 py-2 bg-surface-2 border border-line rounded-lg text-ink-strong focus:outline-none focus:border-blue-500">
                 <option value="">未知</option>
                 <option value="router">路由器</option>
                 <option value="switch">交换机</option>
@@ -390,49 +398,49 @@
               </select>
             </div>
             <div>
-              <label class="block text-sm text-slate-400 mb-1">SNMP 团体字</label>
-              <input v-model="singleForm.snmp_community" type="text" class="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded-lg text-slate-100 focus:outline-none focus:border-blue-500" placeholder="aiops">
+              <label class="block text-sm text-ink-muted mb-1">SNMP 团体字</label>
+              <input v-model="singleForm.snmp_community" type="text" class="w-full px-3 py-2 bg-surface-2 border border-line rounded-lg text-ink-strong focus:outline-none focus:border-blue-500" placeholder="aiops">
             </div>
             <div>
-              <label class="block text-sm text-slate-400 mb-1">SNMP 版本</label>
-              <select v-model="singleForm.snmp_version" class="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded-lg text-slate-100 focus:outline-none focus:border-blue-500">
+              <label class="block text-sm text-ink-muted mb-1">SNMP 版本</label>
+              <select v-model="singleForm.snmp_version" class="w-full px-3 py-2 bg-surface-2 border border-line rounded-lg text-ink-strong focus:outline-none focus:border-blue-500">
                 <option value="v2c">v2c</option>
                 <option value="v3">v3</option>
                 <option value="v1">v1</option>
               </select>
             </div>
             <div>
-              <label class="block text-sm text-slate-400 mb-1">型号</label>
-              <input v-model="singleForm.model" type="text" class="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded-lg text-slate-100 focus:outline-none focus:border-blue-500" placeholder="如: S5700-28C-HI">
+              <label class="block text-sm text-ink-muted mb-1">型号</label>
+              <input v-model="singleForm.model" type="text" class="w-full px-3 py-2 bg-surface-2 border border-line rounded-lg text-ink-strong focus:outline-none focus:border-blue-500" placeholder="如: S5700-28C-HI">
             </div>
             <div>
-              <label class="block text-sm text-slate-400 mb-1">位置</label>
-              <input v-model="singleForm.location" type="text" class="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded-lg text-slate-100 focus:outline-none focus:border-blue-500" placeholder="如: 机房A-机柜3">
+              <label class="block text-sm text-ink-muted mb-1">位置</label>
+              <input v-model="singleForm.location" type="text" class="w-full px-3 py-2 bg-surface-2 border border-line rounded-lg text-ink-strong focus:outline-none focus:border-blue-500" placeholder="如: 机房A-机柜3">
             </div>
           </div>
 
           <!-- 远程管理配置 -->
-          <div class="border-t border-slate-700 pt-3 mt-3">
-            <div class="text-sm text-slate-400 mb-2 font-medium">远程管理配置</div>
+          <div class="border-t border-line pt-3 mt-3">
+            <div class="text-sm text-ink-muted mb-2 font-medium">远程管理配置</div>
             <div class="grid grid-cols-2 gap-3">
               <div>
-                <label class="block text-sm text-slate-400 mb-1">管理协议</label>
-                <select v-model="singleForm.mgmt_protocol" @change="onProtocolChange(singleForm)" class="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded-lg text-slate-100 focus:outline-none focus:border-blue-500">
+                <label class="block text-sm text-ink-muted mb-1">管理协议</label>
+                <select v-model="singleForm.mgmt_protocol" @change="onProtocolChange(singleForm)" class="w-full px-3 py-2 bg-surface-2 border border-line rounded-lg text-ink-strong focus:outline-none focus:border-blue-500">
                   <option value="ssh">SSH</option>
                   <option value="telnet">Telnet</option>
                 </select>
               </div>
               <div>
-                <label class="block text-sm text-slate-400 mb-1">端口</label>
-                <input v-model.number="singleForm.mgmt_port" type="number" class="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded-lg text-slate-100 focus:outline-none focus:border-blue-500" placeholder="22">
+                <label class="block text-sm text-ink-muted mb-1">端口</label>
+                <input v-model.number="singleForm.mgmt_port" type="number" class="w-full px-3 py-2 bg-surface-2 border border-line rounded-lg text-ink-strong focus:outline-none focus:border-blue-500" placeholder="22">
               </div>
               <div>
-                <label class="block text-sm text-slate-400 mb-1">用户名</label>
-                <input v-model="singleForm.mgmt_username" type="text" class="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded-lg text-slate-100 focus:outline-none focus:border-blue-500" placeholder="如: admin">
+                <label class="block text-sm text-ink-muted mb-1">用户名</label>
+                <input v-model="singleForm.mgmt_username" type="text" class="w-full px-3 py-2 bg-surface-2 border border-line rounded-lg text-ink-strong focus:outline-none focus:border-blue-500" placeholder="如: admin">
               </div>
               <div>
-                <label class="block text-sm text-slate-400 mb-1">密码</label>
-                <input v-model="singleForm.mgmt_password" type="password" class="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded-lg text-slate-100 focus:outline-none focus:border-blue-500" placeholder="输入管理密码">
+                <label class="block text-sm text-ink-muted mb-1">密码</label>
+                <input v-model="singleForm.mgmt_password" type="password" class="w-full px-3 py-2 bg-surface-2 border border-line rounded-lg text-ink-strong focus:outline-none focus:border-blue-500" placeholder="输入管理密码">
               </div>
             </div>
           </div>
@@ -445,18 +453,18 @@
         <!-- Batch Discovery Mode -->
         <div v-if="addMode === 'batch'" class="space-y-3">
           <div>
-            <label class="block text-sm text-slate-400 mb-1">IP 列表（每行一个IP或用逗号分隔）</label>
+            <label class="block text-sm text-ink-muted mb-1">IP 列表（每行一个IP或用逗号分隔）</label>
             <textarea
               v-model="batchIpList"
               rows="5"
-              class="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded-lg text-slate-100 focus:outline-none focus:border-blue-500 font-mono text-sm"
+              class="w-full px-3 py-2 bg-surface-2 border border-line rounded-lg text-ink-strong focus:outline-none focus:border-blue-500 font-mono text-sm"
               placeholder="192.168.11.10&#10;192.168.11.20&#10;192.168.11.30"
             ></textarea>
           </div>
           <div class="flex gap-3 items-end">
             <div class="flex-1">
-              <label class="block text-sm text-slate-400 mb-1">SNMP 团体字</label>
-              <input v-model="batchCommunity" type="text" class="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded-lg text-slate-100 focus:outline-none focus:border-blue-500" placeholder="aiops">
+              <label class="block text-sm text-ink-muted mb-1">SNMP 团体字</label>
+              <input v-model="batchCommunity" type="text" class="w-full px-3 py-2 bg-surface-2 border border-line rounded-lg text-ink-strong focus:outline-none focus:border-blue-500" placeholder="aiops">
             </div>
             <button
               class="px-4 py-2 bg-cyan-600 hover:bg-cyan-700 rounded-lg text-white font-medium text-sm transition-colors whitespace-nowrap"
@@ -468,27 +476,27 @@
           </div>
 
           <!-- 远程管理凭据（批量添加时统一设置） -->
-          <div class="border-t border-slate-700 pt-3">
-            <div class="text-sm text-slate-400 mb-2 font-medium">远程管理凭据（应用于所有发现的设备）</div>
+          <div class="border-t border-line pt-3">
+            <div class="text-sm text-ink-muted mb-2 font-medium">远程管理凭据（应用于所有发现的设备）</div>
             <div class="grid grid-cols-4 gap-3">
               <div>
-                <label class="block text-sm text-slate-400 mb-1">管理协议</label>
-                <select v-model="batchMgmt.protocol" @change="onProtocolChange(batchMgmt)" class="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded-lg text-slate-100 focus:outline-none focus:border-blue-500">
+                <label class="block text-sm text-ink-muted mb-1">管理协议</label>
+                <select v-model="batchMgmt.protocol" @change="onProtocolChange(batchMgmt)" class="w-full px-3 py-2 bg-surface-2 border border-line rounded-lg text-ink-strong focus:outline-none focus:border-blue-500">
                   <option value="ssh">SSH</option>
                   <option value="telnet">Telnet</option>
                 </select>
               </div>
               <div>
-                <label class="block text-sm text-slate-400 mb-1">端口</label>
-                <input v-model.number="batchMgmt.port" type="number" class="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded-lg text-slate-100 focus:outline-none focus:border-blue-500" placeholder="22">
+                <label class="block text-sm text-ink-muted mb-1">端口</label>
+                <input v-model.number="batchMgmt.port" type="number" class="w-full px-3 py-2 bg-surface-2 border border-line rounded-lg text-ink-strong focus:outline-none focus:border-blue-500" placeholder="22">
               </div>
               <div>
-                <label class="block text-sm text-slate-400 mb-1">用户名</label>
-                <input v-model="batchMgmt.username" type="text" class="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded-lg text-slate-100 focus:outline-none focus:border-blue-500" placeholder="如: admin">
+                <label class="block text-sm text-ink-muted mb-1">用户名</label>
+                <input v-model="batchMgmt.username" type="text" class="w-full px-3 py-2 bg-surface-2 border border-line rounded-lg text-ink-strong focus:outline-none focus:border-blue-500" placeholder="如: admin">
               </div>
               <div>
-                <label class="block text-sm text-slate-400 mb-1">密码</label>
-                <input v-model="batchMgmt.password" type="password" class="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded-lg text-slate-100 focus:outline-none focus:border-blue-500" placeholder="输入管理密码">
+                <label class="block text-sm text-ink-muted mb-1">密码</label>
+                <input v-model="batchMgmt.password" type="password" class="w-full px-3 py-2 bg-surface-2 border border-line rounded-lg text-ink-strong focus:outline-none focus:border-blue-500" placeholder="输入管理密码">
               </div>
             </div>
           </div>
@@ -496,12 +504,12 @@
           <!-- Discovery Results -->
           <div v-if="discoveredDevices.length > 0" class="mt-4">
             <div class="flex items-center justify-between mb-2">
-              <span class="text-sm text-slate-400">
+              <span class="text-sm text-ink-muted">
                 发现 {{ discoveredDevices.length }} 台设备
                 <span v-if="discoveredManagedCount > 0" class="text-yellow-400 ml-2">（{{ discoveredManagedCount }} 台已纳管，不显示）</span>
               </span>
               <div class="flex gap-2">
-                <button class="px-3 py-1 text-xs bg-slate-700 hover:bg-slate-600 rounded text-slate-300" @click="selectAllDiscovered">全选</button>
+                <button class="px-3 py-1 text-xs bg-hover hover:bg-line-strong rounded text-ink-muted" @click="selectAllDiscovered">全选</button>
                 <button
                   class="btn btn-primary btn-sm"
                   :disabled="selectedDiscovered.length === 0"
@@ -514,7 +522,7 @@
 
             <!-- Vendor filter for discovered devices -->
             <div class="flex gap-2 mb-2">
-              <select v-model="discoveryVendorFilter" class="px-3 py-1.5 bg-slate-800 border border-slate-700 rounded-lg text-slate-100 text-sm focus:outline-none focus:border-blue-500">
+              <select v-model="discoveryVendorFilter" class="px-3 py-1.5 bg-surface-2 border border-line rounded-lg text-ink-strong text-sm focus:outline-none focus:border-blue-500">
                 <option value="">全部厂商</option>
                 <option value="华为">华为</option>
                 <option value="H3C">H3C</option>
@@ -525,10 +533,10 @@
               </select>
             </div>
 
-            <div class="bg-slate-800/50 rounded-lg border border-slate-700 max-h-64 overflow-auto">
+            <div class="bg-surface-2/50 rounded-lg border border-line max-h-64 overflow-auto">
               <table class="w-full">
                 <thead>
-                  <tr class="text-left text-xs text-slate-400 border-b border-slate-700">
+                  <tr class="text-left text-xs text-ink-muted border-b border-line">
                     <th class="px-3 py-2 w-8"></th>
                     <th class="px-3 py-2">IP</th>
                     <th class="px-3 py-2">名称</th>
@@ -541,25 +549,25 @@
                   <tr
                     v-for="d in filteredDiscovered"
                     :key="d.ip"
-                    class="border-b border-slate-800 text-sm hover:bg-slate-800/30"
+                    class="border-b border-line text-sm hover:bg-hover/30"
                   >
                     <td class="px-3 py-2">
                       <input type="checkbox" :value="d.ip" v-model="selectedDiscovered" class="checkbox">
                     </td>
-                    <td class="px-3 py-2 font-mono text-slate-300">{{ d.ip }}</td>
-                    <td class="px-3 py-2 text-slate-300">{{ d.name || '-' }}</td>
-                    <td class="px-3 py-2 text-slate-300">{{ d.vendor || '-' }}</td>
-                    <td class="px-3 py-2 text-slate-400">{{ d.model || '-' }}</td>
-                    <td class="px-3 py-2 text-slate-400">{{ deviceTypeMap[d.device_type] || d.device_type || '-' }}</td>
+                    <td class="px-3 py-2 font-mono text-ink-muted">{{ d.ip }}</td>
+                    <td class="px-3 py-2 text-ink-muted">{{ d.name || '-' }}</td>
+                    <td class="px-3 py-2 text-ink-muted">{{ d.vendor || '-' }}</td>
+                    <td class="px-3 py-2 text-ink-muted">{{ d.model || '-' }}</td>
+                    <td class="px-3 py-2 text-ink-muted">{{ deviceTypeMap[d.device_type] || d.device_type || '-' }}</td>
                   </tr>
                   <tr v-if="filteredDiscovered.length === 0">
-                    <td colspan="6" class="px-3 py-6 text-center text-slate-500 text-sm">无可添加的设备</td>
+                    <td colspan="6" class="px-3 py-6 text-center text-ink-faint text-sm">无可添加的设备</td>
                   </tr>
                 </tbody>
               </table>
             </div>
           </div>
-          <div v-if="discoveryDone && discoveredDevices.length === 0" class="text-center text-slate-500 py-6">
+          <div v-if="discoveryDone && discoveredDevices.length === 0" class="text-center text-ink-faint py-6">
             未发现任何设备，请检查 IP 和 SNMP 配置
           </div>
         </div>
@@ -570,7 +578,7 @@
 
 <script setup>
 import { ref, reactive, computed, onMounted } from 'vue'
-import { getDevices, deleteDevice, batchDeleteDevices, createDevice, discoverDevices, batchCreateDevices, syncDevice, exportDevices } from '../api/index.js'
+import { getDevices, deleteDevice, batchDeleteDevices, createDevice, discoverDevices, batchCreateDevices, syncDevice, syncAllDevices, exportDevices } from '../api/index.js'
 
 const searchKeyword = ref('')
 const filterVendor = ref('')
@@ -716,23 +724,23 @@ function deviceTypeLabel(type) {
 
 function statusBadgeClass(status) {
   const map = {
-    online: 'bg-green-900/50 text-green-400 border border-green-700',
-    warning: 'bg-yellow-900/50 text-yellow-400 border border-yellow-700',
-    offline: 'bg-red-900/50 text-red-400 border border-red-700',
-    unknown: 'bg-slate-700/50 text-slate-400 border border-slate-600',
+    online: 'bg-green-100 text-green-700 border border-green-200 dark:bg-green-900/50 dark:text-green-400 dark:border-green-700',
+    warning: 'bg-amber-100 text-amber-700 border border-amber-200 dark:bg-yellow-900/50 dark:text-yellow-400 dark:border-yellow-700',
+    offline: 'bg-red-100 text-red-700 border border-red-200 dark:bg-red-900/50 dark:text-red-400 dark:border-red-700',
+    unknown: 'bg-hover/50 text-ink-muted border border-line-strong',
   }
   return map[status] || map.unknown
 }
 
 function cpuBarColor(usage) {
-  if (usage == null) return 'bg-slate-500'
+  if (usage == null) return 'bg-ink-faint'
   if (usage >= 90) return 'bg-red-500'
   if (usage >= 70) return 'bg-yellow-500'
   return 'bg-green-500'
 }
 
 function memBarColor(usage) {
-  if (usage == null) return 'bg-slate-500'
+  if (usage == null) return 'bg-ink-faint'
   if (usage >= 90) return 'bg-red-500'
   if (usage >= 70) return 'bg-yellow-500'
   return 'bg-blue-500'
@@ -844,6 +852,36 @@ async function syncOne(device) {
     alert(`同步失败：${detail}`)
   } finally {
     syncingIds.value = syncingIds.value.filter(id => id !== device.id)
+  }
+}
+
+// 一键同步所有设备（后端并发 SNMP 重新发现，返回逐台结果）
+const syncingAll = ref(false)
+async function syncAll() {
+  if (syncingAll.value) return
+  if (total.value === 0) {
+    alert('当前没有设备可同步')
+    return
+  }
+  if (!confirm(`将同步全部 ${total.value} 台设备（从设备重新读取信息并覆盖现有记录），确定继续吗？`)) return
+  syncingAll.value = true
+  try {
+    const res = await syncAllDevices()
+    const failedList = (res.results || [])
+      .filter(r => !r.success)
+      .map(r => `${r.name || r.ip}：${r.detail || '未知错误'}`)
+    const msg = `一键同步完成：成功 ${res.success} 台，失败 ${res.failed} 台。`
+    if (failedList.length) {
+      alert(msg + '\n\n失败设备：\n' + failedList.slice(0, 15).join('\n') + (failedList.length > 15 ? `\n…共 ${failedList.length} 台` : ''))
+    } else {
+      alert(msg)
+    }
+    fetchDevices()
+  } catch (err) {
+    const detail = err.response?.data?.detail || err.message
+    alert(`一键同步失败：${detail}`)
+  } finally {
+    syncingAll.value = false
   }
 }
 

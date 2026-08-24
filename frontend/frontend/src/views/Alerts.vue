@@ -79,7 +79,7 @@ function severityColor(severity) {
     minor: 'bg-yellow-500',
     warning: 'bg-blue-500'
   }
-  return map[severity?.toLowerCase()] || 'bg-slate-500'
+  return map[severity?.toLowerCase()] || 'bg-ink-faint'
 }
 
 function severityTextColor(severity) {
@@ -89,7 +89,7 @@ function severityTextColor(severity) {
     minor: 'text-yellow-400',
     warning: 'text-blue-400'
   }
-  return map[severity?.toLowerCase()] || 'text-slate-400'
+  return map[severity?.toLowerCase()] || 'text-ink-muted'
 }
 
 function severityLabel(severity) {
@@ -201,9 +201,9 @@ onUnmounted(() => {
 </script>
 
 <template>
-  <div class="min-h-screen bg-slate-950 text-slate-100 animate-in">
+  <div class="min-h-screen bg-app text-ink-strong animate-in">
     <!-- Header -->
-    <div class="sticky top-0 z-10 bg-slate-950/95 backdrop-blur border-b border-slate-800 px-6 py-4">
+    <div class="sticky top-0 z-10 bg-app/95 backdrop-blur border-b border-line px-6 py-4">
       <div class="max-w-7xl mx-auto">
         <h1 class="text-xl font-bold">告警管理</h1>
       </div>
@@ -211,13 +211,13 @@ onUnmounted(() => {
 
     <div class="max-w-7xl mx-auto p-6 space-y-6">
       <!-- Filter Bar -->
-      <div class="bg-slate-900 border border-slate-800 rounded-xl p-4">
+      <div class="bg-surface border border-line rounded-xl p-4">
         <div class="flex flex-wrap items-center gap-4">
           <div class="flex items-center gap-2">
-            <label class="text-xs text-slate-500 font-medium">严重级别</label>
+            <label class="text-xs text-ink-faint font-medium">严重级别</label>
             <select
               v-model="severityFilter"
-              class="bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm text-slate-200
+              class="bg-surface-2 border border-line rounded-lg px-3 py-2 text-sm text-ink
                      focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 transition-colors"
             >
               <option value="">全部</option>
@@ -229,10 +229,10 @@ onUnmounted(() => {
           </div>
 
           <div class="flex items-center gap-2">
-            <label class="text-xs text-slate-500 font-medium">状态</label>
+            <label class="text-xs text-ink-faint font-medium">状态</label>
             <select
               v-model="statusFilter"
-              class="bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm text-slate-200
+              class="bg-surface-2 border border-line rounded-lg px-3 py-2 text-sm text-ink
                      focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 transition-colors"
             >
               <option value="">全部</option>
@@ -243,8 +243,8 @@ onUnmounted(() => {
 
           <button
             @click="resetFilters"
-            class="px-3 py-2 text-sm text-slate-400 hover:text-slate-200 bg-slate-800 hover:bg-slate-700
-                   rounded-lg border border-slate-700 transition-colors"
+            class="px-3 py-2 text-sm text-ink-muted hover:text-ink bg-surface-2 hover:bg-hover
+                   rounded-lg border border-line transition-colors"
           >
             重置筛选
           </button>
@@ -258,38 +258,38 @@ onUnmounted(() => {
             {{ clearing ? '清空中...' : '一键清空' }}
           </button>
 
-          <div class="ml-auto text-sm text-slate-500">
-            共 <span class="text-slate-300 font-medium">{{ total }}</span> 条告警
+          <div class="ml-auto text-sm text-ink-faint">
+            共 <span class="text-ink-muted font-medium">{{ total }}</span> 条告警
           </div>
         </div>
       </div>
 
       <!-- 语音告警设置（音效为主 + 可选语音播报） -->
-      <div class="bg-slate-900 border border-slate-800 rounded-xl p-4">
+      <div class="bg-surface border border-line rounded-xl p-4">
         <div class="flex flex-wrap items-center gap-x-5 gap-y-3">
           <div class="flex items-center gap-3">
-            <span class="text-xs text-slate-500 font-medium">🔊 语音告警</span>
+            <span class="text-xs text-ink-faint font-medium">🔊 语音告警</span>
             <button
               @click="toggleVoice"
               class="relative w-11 h-6 rounded-full transition-colors focus:outline-none"
-              :class="voiceCfg.enabled ? 'bg-cyan-600' : 'bg-slate-700'"
+              :class="voiceCfg.enabled ? 'bg-cyan-600' : 'bg-hover'"
             >
               <span
                 class="absolute top-0.5 w-5 h-5 rounded-full bg-white transition-all"
                 :class="voiceCfg.enabled ? 'left-[22px]' : 'left-0.5'"
               />
             </button>
-            <span class="text-sm" :class="voiceCfg.enabled ? 'text-cyan-400' : 'text-slate-500'">
+            <span class="text-sm" :class="voiceCfg.enabled ? 'text-cyan-400' : 'text-ink-faint'">
               {{ voiceCfg.enabled ? '已开启' : '已关闭' }}
             </span>
           </div>
 
           <div class="flex items-center gap-2">
-            <label class="text-xs text-slate-500 font-medium">播报级别</label>
+            <label class="text-xs text-ink-faint font-medium">播报级别</label>
             <select
               v-model="voiceCfg.level"
               @change="setVoiceLevel"
-              class="bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm text-slate-200
+              class="bg-surface-2 border border-line rounded-lg px-3 py-2 text-sm text-ink
                      focus:outline-none focus:border-cyan-500 focus:ring-1 focus:ring-cyan-500 transition-colors"
             >
               <option value="critical">仅严重</option>
@@ -299,11 +299,11 @@ onUnmounted(() => {
           </div>
 
           <div class="flex items-center gap-2">
-            <label class="text-xs text-slate-500 font-medium">播报方式</label>
+            <label class="text-xs text-ink-faint font-medium">播报方式</label>
             <select
               v-model="voiceCfg.mode"
               @change="setVoiceMode"
-              class="bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-sm text-slate-200
+              class="bg-surface-2 border border-line rounded-lg px-3 py-2 text-sm text-ink
                      focus:outline-none focus:border-cyan-500 focus:ring-1 focus:ring-cyan-500 transition-colors"
             >
               <option value="sound">提示音（推荐，离线可靠）</option>
@@ -313,28 +313,28 @@ onUnmounted(() => {
           </div>
 
           <div class="flex items-center gap-2">
-            <label class="text-xs text-slate-500 font-medium">音量</label>
+            <label class="text-xs text-ink-faint font-medium">音量</label>
             <input
               v-model.number="voiceCfg.volume"
               type="range" min="0" max="1" step="0.05"
               @change="setVoiceVolume"
               class="w-24 accent-cyan-500"
             />
-            <span class="text-xs text-slate-400 w-8">{{ Math.round((voiceCfg.volume || 0) * 100) }}%</span>
+            <span class="text-xs text-ink-muted w-8">{{ Math.round((voiceCfg.volume || 0) * 100) }}%</span>
           </div>
 
           <div class="flex items-center gap-2">
-            <label class="text-xs text-slate-500 font-medium">静音时段</label>
-            <select v-model.number="voiceCfg.muteStart" @change="setVoiceMute" class="bg-slate-800 border border-slate-700 rounded-lg px-2 py-2 text-sm text-slate-200">
+            <label class="text-xs text-ink-faint font-medium">静音时段</label>
+            <select v-model.number="voiceCfg.muteStart" @change="setVoiceMute" class="bg-surface-2 border border-line rounded-lg px-2 py-2 text-sm text-ink">
               <option :value="0">0时</option>
               <option v-for="h in [1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23]" :key="h" :value="h">{{ h }}时</option>
             </select>
-            <span class="text-slate-500 text-xs">至</span>
-            <select v-model.number="voiceCfg.muteEnd" @change="setVoiceMute" class="bg-slate-800 border border-slate-700 rounded-lg px-2 py-2 text-sm text-slate-200">
+            <span class="text-ink-faint text-xs">至</span>
+            <select v-model.number="voiceCfg.muteEnd" @change="setVoiceMute" class="bg-surface-2 border border-line rounded-lg px-2 py-2 text-sm text-ink">
               <option :value="0">0时</option>
               <option v-for="h in [1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23]" :key="h" :value="h">{{ h }}时</option>
             </select>
-            <span v-if="voiceCfg.muteStart === voiceCfg.muteEnd" class="text-xs text-slate-600">（相同则不静音）</span>
+            <span v-if="voiceCfg.muteStart === voiceCfg.muteEnd" class="text-xs text-ink-faint">（相同则不静音）</span>
           </div>
 
           <button
@@ -345,7 +345,7 @@ onUnmounted(() => {
             试听
           </button>
 
-          <span v-if="voiceTestMsg" class="text-xs text-slate-500 max-w-md truncate" :title="voiceTestMsg">
+          <span v-if="voiceTestMsg" class="text-xs text-ink-faint max-w-md truncate" :title="voiceTestMsg">
             {{ voiceTestMsg }}
           </span>
         </div>
@@ -355,15 +355,15 @@ onUnmounted(() => {
         v-if="showClearConfirm"
         class="fixed inset-0 z-50 flex items-center justify-center bg-black/60"
       >
-        <div class="bg-slate-900 border border-slate-700 rounded-xl p-6 w-96 shadow-2xl">
-          <h3 class="text-lg font-semibold text-slate-100 mb-2">确认清空</h3>
-          <p class="text-slate-400 mb-2">
+        <div class="bg-surface border border-line rounded-xl p-6 w-96 shadow-2xl">
+          <h3 class="text-lg font-semibold text-ink-strong mb-2">确认清空</h3>
+          <p class="text-ink-muted mb-2">
             确定要清空 <span class="text-red-400 font-semibold">{{ total }}</span> 条告警记录吗？
           </p>
           <p class="text-red-500/90 text-sm mb-6">此操作不可撤销，请确认。</p>
           <div class="flex justify-end gap-3">
             <button
-              class="px-4 py-2 bg-slate-700 hover:bg-slate-600 rounded-lg text-slate-300 transition-colors"
+              class="px-4 py-2 bg-hover hover:bg-line-strong rounded-lg text-ink-muted transition-colors"
               @click="showClearConfirm = false"
             >
               取消
@@ -380,25 +380,25 @@ onUnmounted(() => {
       </div>
 
       <!-- Loading -->
-      <div v-if="loading" class="bg-slate-900 border border-slate-800 rounded-xl overflow-hidden">
+      <div v-if="loading" class="bg-surface border border-line rounded-xl overflow-hidden">
         <div class="animate-pulse">
-          <div v-for="i in 8" :key="i" class="flex items-center gap-4 px-6 py-4 border-b border-slate-800/50">
-            <div class="h-5 w-16 bg-slate-800 rounded" />
-            <div class="h-5 w-24 bg-slate-800 rounded" />
-            <div class="h-5 w-32 bg-slate-800 rounded" />
-            <div class="h-5 flex-1 bg-slate-800 rounded" />
-            <div class="h-5 w-28 bg-slate-800 rounded" />
-            <div class="h-5 w-12 bg-slate-800 rounded" />
+          <div v-for="i in 8" :key="i" class="flex items-center gap-4 px-6 py-4 border-b border-line/50">
+            <div class="h-5 w-16 bg-surface-2 rounded" />
+            <div class="h-5 w-24 bg-surface-2 rounded" />
+            <div class="h-5 w-32 bg-surface-2 rounded" />
+            <div class="h-5 flex-1 bg-surface-2 rounded" />
+            <div class="h-5 w-28 bg-surface-2 rounded" />
+            <div class="h-5 w-12 bg-surface-2 rounded" />
           </div>
         </div>
       </div>
 
       <!-- Error -->
-      <div v-else-if="error" class="bg-slate-900 border border-slate-800 rounded-xl p-12 text-center">
+      <div v-else-if="error" class="bg-surface border border-line rounded-xl p-12 text-center">
         <div class="text-red-400 text-lg mb-4">{{ error }}</div>
         <button
           @click="fetchAlerts"
-          class="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-200 rounded-lg border border-slate-700 transition-colors"
+          class="px-4 py-2 bg-surface-2 hover:bg-hover text-ink rounded-lg border border-line transition-colors"
         >
           重试
         </button>
@@ -407,53 +407,53 @@ onUnmounted(() => {
       <!-- Empty -->
       <div
         v-else-if="alerts.length === 0"
-        class="bg-slate-900 border border-slate-800 rounded-xl p-16 text-center"
+        class="bg-surface border border-line rounded-xl p-16 text-center"
       >
-        <svg class="w-16 h-16 mx-auto mb-4 text-slate-700" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <svg class="w-16 h-16 mx-auto mb-4 text-ink-muted" fill="none" stroke="currentColor" viewBox="0 0 24 24">
           <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5"
                 d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
         </svg>
-        <p class="text-slate-500 text-lg mb-1">暂无告警记录</p>
-        <p class="text-slate-600 text-sm">
+        <p class="text-ink-faint text-lg mb-1">暂无告警记录</p>
+        <p class="text-ink-faint text-sm">
           {{ severityFilter || statusFilter ? '当前筛选条件下没有匹配的告警，尝试调整筛选条件' : '系统运行正常，没有告警产生' }}
         </p>
         <button
           v-if="severityFilter || statusFilter"
           @click="resetFilters"
-          class="mt-4 px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-lg transition-colors text-sm"
+          class="mt-4 px-4 py-2 bg-surface-2 hover:bg-hover text-ink-muted rounded-lg transition-colors text-sm"
         >
           清除筛选条件
         </button>
       </div>
 
       <!-- Alert Table -->
-      <div v-else class="bg-slate-900 border border-slate-800 rounded-xl overflow-hidden">
+      <div v-else class="bg-surface border border-line rounded-xl overflow-hidden">
         <div class="overflow-x-auto">
           <table class="w-full text-sm">
             <thead>
-              <tr class="border-b border-slate-800 bg-slate-900">
-                <th class="text-left py-3.5 px-4 text-slate-500 font-medium text-xs uppercase tracking-wider">
+              <tr class="border-b border-line bg-surface">
+                <th class="text-left py-3.5 px-4 text-ink-faint font-medium text-xs uppercase tracking-wider">
                   严重级别
                 </th>
-                <th class="text-left py-3.5 px-4 text-slate-500 font-medium text-xs uppercase tracking-wider">
+                <th class="text-left py-3.5 px-4 text-ink-faint font-medium text-xs uppercase tracking-wider">
                   设备名称
                 </th>
-                <th class="text-left py-3.5 px-4 text-slate-500 font-medium text-xs uppercase tracking-wider">
+                <th class="text-left py-3.5 px-4 text-ink-faint font-medium text-xs uppercase tracking-wider">
                   规则名称
                 </th>
-                <th class="text-left py-3.5 px-4 text-slate-500 font-medium text-xs uppercase tracking-wider">
+                <th class="text-left py-3.5 px-4 text-ink-faint font-medium text-xs uppercase tracking-wider">
                   告警信息
                 </th>
-                <th class="text-left py-3.5 px-4 text-slate-500 font-medium text-xs uppercase tracking-wider">
+                <th class="text-left py-3.5 px-4 text-ink-faint font-medium text-xs uppercase tracking-wider">
                   触发时间
                 </th>
-                <th class="text-left py-3.5 px-4 text-slate-500 font-medium text-xs uppercase tracking-wider">
+                <th class="text-left py-3.5 px-4 text-ink-faint font-medium text-xs uppercase tracking-wider">
                   解决时间
                 </th>
-                <th class="text-left py-3.5 px-4 text-slate-500 font-medium text-xs uppercase tracking-wider">
+                <th class="text-left py-3.5 px-4 text-ink-faint font-medium text-xs uppercase tracking-wider">
                   状态
                 </th>
-                <th class="text-left py-3.5 px-4 text-slate-500 font-medium text-xs uppercase tracking-wider">
+                <th class="text-left py-3.5 px-4 text-ink-faint font-medium text-xs uppercase tracking-wider">
                   操作
                 </th>
               </tr>
@@ -462,7 +462,7 @@ onUnmounted(() => {
               <tr
                 v-for="alert in alerts"
                 :key="alert.id"
-                class="border-b border-slate-800/50 hover:bg-slate-800/30 transition-colors"
+                class="border-b border-line/50 hover:bg-hover/30 transition-colors"
               >
                 <td class="py-3 px-4">
                   <span
@@ -472,17 +472,17 @@ onUnmounted(() => {
                     {{ severityLabel(alert.severity) }}
                   </span>
                 </td>
-                <td class="py-3 px-4 text-slate-200 font-medium">{{ alert.device_name || '-' }}</td>
-                <td class="py-3 px-4 text-slate-300">{{ alert.rule_name || '-' }}</td>
-                <td class="py-3 px-4 text-slate-400 max-w-sm">
+                <td class="py-3 px-4 text-ink font-medium">{{ alert.device_name || '-' }}</td>
+                <td class="py-3 px-4 text-ink-muted">{{ alert.rule_name || '-' }}</td>
+                <td class="py-3 px-4 text-ink-muted max-w-sm">
                   <span class="truncate block" :title="alert.message">
                     {{ alert.message || '-' }}
                   </span>
                 </td>
-                <td class="py-3 px-4 text-slate-400 whitespace-nowrap">
+                <td class="py-3 px-4 text-ink-muted whitespace-nowrap">
                   {{ formatDateTime(alert.triggered_at) }}
                 </td>
-                <td class="py-3 px-4 text-slate-400 whitespace-nowrap">
+                <td class="py-3 px-4 text-ink-muted whitespace-nowrap">
                   {{ formatDateTime(alert.resolved_at) }}
                 </td>
                 <td class="py-3 px-4">
@@ -514,9 +514,9 @@ onUnmounted(() => {
       <!-- Pagination -->
       <div
         v-if="alerts.length > 0 && totalPages > 1"
-        class="flex items-center justify-between bg-slate-900 border border-slate-800 rounded-xl px-6 py-4"
+        class="flex items-center justify-between bg-surface border border-line rounded-xl px-6 py-4"
       >
-        <div class="text-sm text-slate-500">
+        <div class="text-sm text-ink-faint">
           第 {{ (currentPage - 1) * pageSize + 1 }}-{{ Math.min(currentPage * pageSize, total) }} 条，共 {{ total }} 条
         </div>
 
@@ -526,7 +526,7 @@ onUnmounted(() => {
             :disabled="currentPage === 1"
             class="px-3 py-1.5 text-sm rounded-lg transition-colors
                    disabled:opacity-40 disabled:cursor-not-allowed
-                   text-slate-400 hover:text-slate-200 hover:bg-slate-800"
+                   text-ink-muted hover:text-ink hover:bg-hover"
           >
             <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7" />
@@ -534,14 +534,14 @@ onUnmounted(() => {
           </button>
 
           <template v-for="page in visiblePages" :key="page">
-            <span v-if="page === '...'" class="px-2 text-slate-600 text-sm">...</span>
+            <span v-if="page === '...'" class="px-2 text-ink-faint text-sm">...</span>
             <button
               v-else
               @click="goToPage(page)"
               class="w-8 h-8 text-sm rounded-lg transition-colors font-medium"
               :class="page === currentPage
                 ? 'bg-blue-600 text-white'
-                : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800'"
+                : 'text-ink-muted hover:text-ink hover:bg-hover'"
             >
               {{ page }}
             </button>
@@ -552,7 +552,7 @@ onUnmounted(() => {
             :disabled="currentPage === totalPages"
             class="px-3 py-1.5 text-sm rounded-lg transition-colors
                    disabled:opacity-40 disabled:cursor-not-allowed
-                   text-slate-400 hover:text-slate-200 hover:bg-slate-800"
+                   text-ink-muted hover:text-ink hover:bg-hover"
           >
             <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7" />

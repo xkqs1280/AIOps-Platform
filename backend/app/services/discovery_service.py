@@ -36,13 +36,45 @@ logger = logging.getLogger(__name__)
 _snmp_engine = SnmpEngine()
 _snmp_semaphore = asyncio.Semaphore(20)
 
+# CJK 统一表意文字区间（含扩展 A/B 常见设备中文名）
+_CJK_RE = re.compile(r"[\u4e00-\u9fff\u3400-\u4dbf]")
+# ASCII 控制字符（排除合法换行/回车/制表符）
+_CTRL_CHARS = "".join(chr(c) for c in range(32) if c not in (9, 10, 13))
+
+
+def _try_decode_cn(raw: bytes) -> str | None:
+    """尝试把字节流解码为中文文本。
+
+    设备（H3C/华为等）的 sysName、接口描述可能是 GBK/GB18030 或 UTF-8
+    编码的中文。按 net-snmp 惯例非 ASCII 会输出 Hex-STRING，但中文名
+    应当还原为可读文本。仅当解码结果同时满足：
+      - 包含至少一个 CJK 汉字
+      - 不含控制字符（换行/回车/制表符除外）
+    才接受；否则返回 None（由调用方转 Hex-STRING）。
+    """
+    for enc in ("utf-8", "gb18030", "gbk"):
+        try:
+            text = raw.decode(enc)
+        except UnicodeDecodeError:
+            continue
+        if not _CJK_RE.search(text):
+            continue
+        if any(c in _CTRL_CHARS for c in text):
+            continue
+        return text
+    return None
+
 
 def _value_to_str(val) -> str:
     """把 pysnmp/pyasn1 值对象转成字符串，兼容 net-snmp 文本格式的数值部分。
 
     - 数字类（Integer/Gauge/Counter/TimeTicks）→ 十进制数字（net-snmp 的
       `up(1)` 枚举文本会变成纯数字 `1`，下游已兼容两种形式）；
-    - OctetString 可打印 ASCII → 文本；不可打印 → 模拟 net-snmp Hex-STRING `xx xx`；
+    - OctetString 可打印 ASCII → 文本；
+    - OctetString 可解码为中文（GBK/GB18030/UTF-8）→ 中文文本；
+      H3C/华为等设备 sysName/接口描述可能是 GBK 编码的中文，若按
+      net-snmp 旧逻辑会误转成 Hex-STRING `xx xx` 存入数据库；
+    - 其余不可打印字节 → 模拟 net-snmp Hex-STRING `xx xx`；
     - noSuchInstance/noSuchObject → 空串（视为无值）。
     """
     if isinstance(val, (NoSuchInstance, NoSuchObject)):
@@ -52,6 +84,11 @@ def _value_to_str(val) -> str:
         # 允许 \t(9) \n(10) \r(13) 及可打印 ASCII 视为文本（net-snmp STRING 含换行也输出文本）
         if all(b in (9, 10, 13) or 32 <= b < 127 for b in raw):
             return val.prettyPrint()
+        # 尝试解码为中文：GBK/GB18030 是设备常见中文编码，其次 UTF-8。
+        # 仅当解码结果含 CJK 统一表意文字且无可疑控制字符时才接受，避免误判二进制。
+        decoded = _try_decode_cn(raw)
+        if decoded is not None:
+            return decoded
         # 含二进制：模拟 net-snmp Hex-STRING 输出
         return " ".join(f"{b:02X}" for b in raw)
     if isinstance(val, (Integer32, Counter32, Counter64, Gauge32, TimeTicks)):
@@ -280,10 +317,17 @@ async def collect_entity_components(ip: str, community: str = "aiops", timeout: 
     返回按 entPhysicalIndex 归类的列表：
     [{phys_index, name, descr, model_name, serial_number, hardware_rev,
       firmware_rev, software_rev, mfg_name}, ...]
+
+    10 列实体表**并发** walk（原串行单列最长 timeout*3 秒，慢设备会拖到
+    几十秒超时；并发后整体耗时 ≈ 最慢一列）。
     """
+    col_items = list(ENTITY_COMPONENT_COLUMNS.items())
+    rows_list = await asyncio.gather(*[
+        snmp_walk(ip, f"1.3.6.1.2.1.47.1.1.1.1.{col}", community, timeout=timeout)
+        for col, _ in col_items
+    ])
     by_index: dict[int, dict] = {}
-    for col, key in ENTITY_COMPONENT_COLUMNS.items():
-        rows = await snmp_walk(ip, f"1.3.6.1.2.1.47.1.1.1.1.{col}", community, timeout=timeout)
+    for (col, key), rows in zip(col_items, rows_list):
         for oid, val in rows:
             idx_str = oid.rsplit(".", 1)[-1]
             try:
