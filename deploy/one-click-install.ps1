@@ -263,10 +263,11 @@ if (Test-Path $serverExe) {
     Write-Host "=====================================================" -ForegroundColor Green
     Write-Host "   部署完成！" -ForegroundColor Green
     Write-Host "=====================================================" -ForegroundColor Green
-    Write-Host "   平台地址: http://localhost:8000" -ForegroundColor White
-    Write-Host "   局域网访问: http://本机IP:8000" -ForegroundColor White
+    Write-Host "   平台地址: https://localhost:8000" -ForegroundColor White
+    Write-Host "   局域网访问: https://本机IP:8000" -ForegroundColor White
     Write-Host "   管理员账号: admin / $adminPass （首次登录后请修改）" -ForegroundColor White
     Write-Host "   数据库: 用户 aiops（端口 5432，库 aiops）" -ForegroundColor White
+    Write-Host "   提示: 平台使用 HTTPS 自签名证书，浏览器首次访问会提示不受信任，点「继续前往」即可。" -ForegroundColor Gray
     Write-Host ""
     Write-Host "   停止服务: 双击 deploy\stop.bat" -ForegroundColor Gray
     Write-Host "   开机自启: 双击 deploy\register_autostart.bat" -ForegroundColor Gray
@@ -315,7 +316,7 @@ if (Test-Path $serverExe) {
     }
     Write-Host ""
 
-    Start-Process "http://localhost:8000"
+    Start-Process "https://localhost:8000"
 } else {
     Write-Host "[X] 未找到 AIOpsServer.exe，请确认部署包完整。" -ForegroundColor Red
 }

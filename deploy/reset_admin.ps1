@@ -124,7 +124,7 @@ if ($method -eq "A") {
         Remove-Item Env:\PGPASSWORD -ErrorAction SilentlyContinue
         Write-Host ""
         Write-Host "[OK] 已重置 admin 密码为: $adminPwd" -ForegroundColor Green
-        Write-Host "     请登录 http://localhost:8000 验证。（若平台在运行，可能需重启）" -ForegroundColor Green
+        Write-Host "     请登录 https://localhost:8000 验证。（若平台在运行，可能需重启）" -ForegroundColor Green
     } else {
         Remove-Item Env:\PGPASSWORD -ErrorAction SilentlyContinue
         Write-Host "[!] 无法生成密码哈希（未找到 Python 或 bcrypt 库）。" -ForegroundColor Yellow

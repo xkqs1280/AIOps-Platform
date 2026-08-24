@@ -136,7 +136,7 @@ if (-not (Test-Path $envFile)) {
         "CREDENTIAL_ENCRYPTION_KEY=$credentialKey",
         "BOOTSTRAP_ADMIN_USERNAME=admin",
         "BOOTSTRAP_ADMIN_PASSWORD=$adminPass",
-        "CORS_ORIGINS=http://localhost:8000,http://127.0.0.1:8000"
+        "CORS_ORIGINS=https://localhost:8000,https://127.0.0.1:8000"
     ) | Set-Content -Path $envFile -Encoding UTF8
     Write-Host "[OK] 已生成 backend\.env（管理员 admin / $adminPass，请妥善保存）" -ForegroundColor Green
 }
@@ -150,6 +150,6 @@ Write-Host "   部署完成！" -ForegroundColor Green
 Write-Host "========================================" -ForegroundColor Green
 Write-Host " 下一步："
 Write-Host "   1) 双击 start.bat 启动服务"
-Write-Host "   2) 浏览器访问 http://本机IP:8000"
+Write-Host "   2) 浏览器访问 https://本机IP:8000（自签名证书提示「继续前往」即可）"
 Write-Host "   3) 如需开机自启，运行 deploy\register_autostart.bat"
 Write-Host ""
