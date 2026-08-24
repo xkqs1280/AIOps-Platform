@@ -1,0 +1,10 @@
+@import "tailwindcss";
+
+* { -webkit-tap-highlight-color: transparent; }
+html, body { height: 100%; }
+body {
+  font-family: "PingFang SC", "Microsoft YaHei", system-ui, sans-serif;
+  background: #020617;
+  overscroll-behavior: none;
+}
+#app { height: 100%; }

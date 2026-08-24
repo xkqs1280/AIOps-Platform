@@ -1,0 +1,17 @@
+{% extends "base.html" %}
+{% block title %}AIOps 总览{% endblock %}
+{% block content %}
+<h1>运行总览</h1><p class="hint">数据直接读取现有 REST API；页面逻辑由 FastAPI 模板承载。</p>
+<section class="cards" id="overview"><p>正在加载…</p></section>
+<section class="panel"><h2>最近告警</h2><pre id="alerts">正在加载…</pre></section>
+<script>
+const api='/api/v1';
+async function load(){
+  try { const [o,a]=await Promise.all([fetch(api+'/dashboard/overview'),fetch(api+'/dashboard/recent-alerts')]);
+    const overview=await o.json(), alerts=await a.json();
+    document.querySelector('#overview').innerHTML=Object.entries(overview).map(([k,v])=>`<article><b>${k}</b><strong>${typeof v==='object'?JSON.stringify(v):v}</strong></article>`).join('');
+    document.querySelector('#alerts').textContent=JSON.stringify(alerts,null,2);
+  } catch(e) { document.querySelector('#overview').innerHTML='<p class="error">无法连接 API：'+e.message+'</p>'; }
+} load();
+</script>
+{% endblock %}

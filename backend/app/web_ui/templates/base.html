@@ -1,0 +1,13 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>{% block title %}AIOps{% endblock %}</title>
+  <link rel="stylesheet" href="/web-static/app.css">
+</head>
+<body>
+  <header><a class="brand" href="/">AIOps 运维平台</a><span>Python 服务端界面</span></header>
+  <div class="layout"><nav>{% for path, label in nav_items %}<a href="{{ path }}">{{ label }}</a>{% endfor %}</nav>
+  <main>{% block content %}{% endblock %}</main></div>
+</body>
+</html>
