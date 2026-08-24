@@ -75,7 +75,10 @@ npm run dev                               # 默认 5173，已配置代理到后�
 
 ### 3. 登录
 
-浏览器打开 `http://localhost:5173`，默认管理员账号 `admin`，初始密码见 `.env` 的 `BOOTSTRAP_ADMIN_PASSWORD`（首次启动自动创建），登录后请立即修改。
+- **开发环境**：浏览器打开 `http://localhost:5173`
+- **生产部署**：浏览器打开 `https://<服务器IP>:8000`（首次访问自签名证书提示"继续前往"即可）
+
+默认管理员账号 `admin`，初始密码见 `.env` 的 `BOOTSTRAP_ADMIN_PASSWORD`（首次启动自动创建），登录后请立即修改。
 
 ## 环境变量（.env.example）
 
@@ -89,8 +92,8 @@ npm run dev                               # 默认 5173，已配置代理到后�
 
 ## 生产部署
 
-- **Windows**：使用 `deploy/build_windows_exe.ps1` 构建单文件部署包（含前端、证书、升级脚本），解压后运行 `deploy/start.bat`。
-- **Linux**：`uvicorn app.main:app --host 0.0.0.0 --port 8000`（可加 `--ssl-*` 参数启用 HTTPS）。
+- **Windows**：使用 `deploy/build_windows_exe.ps1` 构建单文件部署包（含前端、证书、升级脚本），解压后运行 `deploy/start.bat`，浏览器打开 `https://<服务器IP>:8000`。
+- **Linux**：`uvicorn app.main:app --host 0.0.0.0 --port 8000`（可加 `--ssl-*` 参数启用 HTTPS），浏览器打开 `https://<服务器IP>:8000`（未启用 HTTPS 时用 `http://<服务器IP>:8000`）。
 
 ## 升级
 
