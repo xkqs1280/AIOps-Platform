@@ -1,0 +1,8 @@
+.git
+**/__pycache__
+**/*.pyc
+backend/.venv
+frontend/node_modules
+deploy/tools
+deploy/*.log
+backend/.env

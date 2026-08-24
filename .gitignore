@@ -1,0 +1,60 @@
+# ============================================================
+# AIOps 智能运维托管平台 - .gitignore
+# 安全红线：以下内容一旦泄露会造成严重安全事件，切勿提交
+# ============================================================
+
+# === 密钥 / 证书 / 凭据（绝不提交） ===
+*.pem
+*.key
+*.jks
+*.pfx
+*.crt
+**/vendor_keys/
+**/certs/
+*.jks
+
+# === 环境配置（保留 .env.example 模板） ===
+.env
+*.env
+!.env.example
+!**/.env.example
+
+# === 生产 / 构建产物 ===
+dist/
+dist_act*/
+build/
+upgrade/
+*.exe
+*.zip
+*.whl
+*.msi
+*.apk
+*.aab
+
+# === Python ===
+__pycache__/
+*.pyc
+*.pyo
+*.egg-info/
+.venv/
+venv/
+.pytest_cache/
+
+# === Node / 前端 ===
+node_modules/
+npm-debug.log*
+yarn-error.log*
+frontend/dist/
+frontend/mobile_dist/
+
+# === IDE / 系统 ===
+.idea/
+.vscode/
+*.swp
+.DS_Store
+Thumbs.db
+
+# === 记忆 / 私人 / 日志 ===
+.workbuddy/
+*.log
+sign_err.txt

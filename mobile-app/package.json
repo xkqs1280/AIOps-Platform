@@ -1,0 +1,20 @@
+{
+  "name": "aiops-mobile",
+  "version": "4.0.0",
+  "description": "",
+  "main": "index.js",
+  "scripts": {
+    "mobile:build": "vite build --config ../frontend/frontend/mobile/vite.config.js",
+    "cap:sync": "cap sync android",
+    "cap:build": "cap sync android && cd android && gradlew.bat assembleRelease",
+    "cap:open": "cap open android"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "@capacitor/android": "^8.5.0",
+    "@capacitor/cli": "^8.5.0",
+    "@capacitor/core": "^8.5.0"
+  }
+}

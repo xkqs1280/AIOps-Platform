@@ -1,0 +1,5 @@
+{
+  "appId": "com.aiops.mobile",
+  "appName": "AIOps 智能运维",
+  "webDir": "../frontend/mobile_dist"
+}

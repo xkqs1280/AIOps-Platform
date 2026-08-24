@@ -1,0 +1,11 @@
+{% extends "base.html" %}
+{% block title %}{{ title }} · AIOps{% endblock %}
+{% block content %}
+<h1>{{ title }}</h1><p class="hint">接口：<code>/api/v1{{ endpoint }}</code></p>
+<div class="toolbar"><button id="refresh">刷新</button></div><pre class="panel" id="data">正在加载…</pre>
+<script>
+const output=document.querySelector('#data');
+async function load(){ output.textContent='正在加载…'; try { const r=await fetch('/api/v1{{ endpoint }}'); const body=await r.json(); output.textContent=JSON.stringify(body,null,2); if(!r.ok) output.className='panel error'; } catch(e) { output.textContent='请求失败：'+e.message; output.className='panel error'; } }
+document.querySelector('#refresh').onclick=load; load();
+</script>
+{% endblock %}

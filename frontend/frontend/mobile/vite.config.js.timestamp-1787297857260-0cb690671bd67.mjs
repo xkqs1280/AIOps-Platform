@@ -1,0 +1,18 @@
+// vite.config.js
+import { defineConfig } from "file:///D:/WorkBuddy/codex/AIOps/frontend/frontend/node_modules/vite/dist/node/index.js";
+import vue from "file:///D:/WorkBuddy/codex/AIOps/frontend/frontend/node_modules/@vitejs/plugin-vue/dist/index.mjs";
+import tailwindcss from "file:///D:/WorkBuddy/codex/AIOps/frontend/frontend/node_modules/@tailwindcss/vite/dist/index.mjs";
+var __vite_injected_original_dirname = "D:\\WorkBuddy\\codex\\AIOps\\frontend\\frontend\\mobile";
+var vite_config_default = defineConfig({
+  root: __vite_injected_original_dirname,
+  plugins: [vue(), tailwindcss()],
+  base: "./",
+  build: {
+    outDir: "../../mobile_dist",
+    emptyOutDir: true
+  }
+});
+export {
+  vite_config_default as default
+};
+//# sourceMappingURL=data:application/json;base64,ewogICJ2ZXJzaW9uIjogMywKICAic291cmNlcyI6IFsidml0ZS5jb25maWcuanMiXSwKICAic291cmNlc0NvbnRlbnQiOiBbImNvbnN0IF9fdml0ZV9pbmplY3RlZF9vcmlnaW5hbF9kaXJuYW1lID0gXCJEOlxcXFxXb3JrQnVkZHlcXFxcY29kZXhcXFxcQUlPcHNcXFxcZnJvbnRlbmRcXFxcZnJvbnRlbmRcXFxcbW9iaWxlXCI7Y29uc3QgX192aXRlX2luamVjdGVkX29yaWdpbmFsX2ZpbGVuYW1lID0gXCJEOlxcXFxXb3JrQnVkZHlcXFxcY29kZXhcXFxcQUlPcHNcXFxcZnJvbnRlbmRcXFxcZnJvbnRlbmRcXFxcbW9iaWxlXFxcXHZpdGUuY29uZmlnLmpzXCI7Y29uc3QgX192aXRlX2luamVjdGVkX29yaWdpbmFsX2ltcG9ydF9tZXRhX3VybCA9IFwiZmlsZTovLy9EOi9Xb3JrQnVkZHkvY29kZXgvQUlPcHMvZnJvbnRlbmQvZnJvbnRlbmQvbW9iaWxlL3ZpdGUuY29uZmlnLmpzXCI7aW1wb3J0IHsgZGVmaW5lQ29uZmlnIH0gZnJvbSAndml0ZSdcbmltcG9ydCB2dWUgZnJvbSAnQHZpdGVqcy9wbHVnaW4tdnVlJ1xuaW1wb3J0IHRhaWx3aW5kY3NzIGZyb20gJ0B0YWlsd2luZGNzcy92aXRlJ1xuXG5leHBvcnQgZGVmYXVsdCBkZWZpbmVDb25maWcoe1xuICByb290OiBfX2Rpcm5hbWUsXG4gIHBsdWdpbnM6IFt2dWUoKSwgdGFpbHdpbmRjc3MoKV0sXG4gIGJhc2U6ICcuLycsXG4gIGJ1aWxkOiB7XG4gICAgb3V0RGlyOiAnLi4vLi4vbW9iaWxlX2Rpc3QnLFxuICAgIGVtcHR5T3V0RGlyOiB0cnVlLFxuICB9LFxufSlcbiJdLAogICJtYXBwaW5ncyI6ICI7QUFBbVYsU0FBUyxvQkFBb0I7QUFDaFgsT0FBTyxTQUFTO0FBQ2hCLE9BQU8saUJBQWlCO0FBRnhCLElBQU0sbUNBQW1DO0FBSXpDLElBQU8sc0JBQVEsYUFBYTtBQUFBLEVBQzFCLE1BQU07QUFBQSxFQUNOLFNBQVMsQ0FBQyxJQUFJLEdBQUcsWUFBWSxDQUFDO0FBQUEsRUFDOUIsTUFBTTtBQUFBLEVBQ04sT0FBTztBQUFBLElBQ0wsUUFBUTtBQUFBLElBQ1IsYUFBYTtBQUFBLEVBQ2Y7QUFDRixDQUFDOyIsCiAgIm5hbWVzIjogW10KfQo=
