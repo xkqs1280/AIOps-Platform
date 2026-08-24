@@ -45,7 +45,7 @@ AIOps/
 │     └─ mobile/            # 移动端源码（Capacitor）
 ├─ mobile-app/              # Android 工程（可选，由 mobile/ 构建）
 ├─ deploy/                  # 部署脚本（start/stop/升级/自启）
-├─ tools/                   # 辅助工具（升级包制作/授权生成等）
+├─ tools/                   # 辅助工具（升级包制作/部署打包等）
 └─ .env.example             # 环境变量模板
 ```
 
@@ -99,7 +99,7 @@ npm run dev                               # 默认 5173，已配置代理到后�
 
 平台内置「系统设置 → 系统升级」：上传厂商签名升级包（`tools/build_upgrade_package.py` 制作）→ 自动备份程序/配置/数据库快照 → 替换 → 重启 → 健康自检 → 失败自动回滚。数据（PostgreSQL）与 `.env` 加密密钥全程保留。
 
-> 升级包校验使用 RSA-SHA256 签名，签名私钥由厂商保管（不在本仓库内），可自行用 `tools/generate_license.py` 生成自己的密钥对替换。
+> 升级包校验使用 RSA-SHA256 签名，签名私钥由厂商保管（不在本仓库内）。
 
 ## 许可证
 
