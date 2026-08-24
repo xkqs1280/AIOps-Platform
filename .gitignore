@@ -15,8 +15,11 @@
 
 # === 授权生成工具（绝不提交：可生成有效激活码） ===
 tools/generate_license.py
+tools/activation_tool.py
+tools/activation_records.json
 tools/*license*
 tools/*_license*
+tools/activation*
 
 # === 环境配置（保留 .env.example 模板） ===
 .env
