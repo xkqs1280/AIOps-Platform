@@ -48,6 +48,9 @@ venv/
 # === Node / 前端 ===
 node_modules/
 npm-debug.log*
+frontend/*bak*/
+frontend/dist_bak*/
+frontend/frontend_bak*/
 yarn-error.log*
 frontend/dist/
 frontend/mobile_dist/
