@@ -164,6 +164,7 @@ onMounted(async () => {
     fontSize: 14,
     cursorBlink: true,
     scrollback: 5000,
+    rightClickSelectsWord: true, // 右键选择单词
     theme: {
       background: '#0f172a',
       foreground: '#e2e8f0',
@@ -175,6 +176,34 @@ onMounted(async () => {
   terminal.loadAddon(fitAddon)
   terminal.open(termRef.value)
   fitAddon.fit()
+
+  // 复制 / 粘贴支持（xterm 默认不绑定快捷键）：
+  // - Ctrl+Shift+C：复制选中文本
+  // - Ctrl+C：有选中时复制；无选中时仍发送中断信号给设备
+  // - Ctrl+Shift+V：粘贴剪贴板内容
+  terminal.attachCustomKeyEventHandler((event) => {
+    const mod = event.ctrlKey || event.metaKey
+    if (mod && event.key.toLowerCase() === 'c') {
+      if (terminal.hasSelection()) {
+        navigator.clipboard.writeText(terminal.getSelection()).catch(() => {})
+        event.preventDefault()
+        return false // 拦截，不发送给设备
+      }
+      return true // 无选中：Ctrl+C 仍作为中断信号发送
+    }
+    if (mod && event.shiftKey && event.key.toLowerCase() === 'v') {
+      navigator.clipboard.readText().then((text) => {
+        if (text) terminal.paste(text)
+      }).catch(() => {})
+      event.preventDefault()
+      return false
+    }
+    return true
+  })
+  // 点击终端时清除选区，避免误触发复制
+  terminal.textarea.addEventListener('mouseup', () => {
+    setTimeout(() => { if (!terminal.hasSelection()) terminal.clearSelection() }, 10)
+  })
 
   terminal.onData((data) => {
     if (ws && ws.readyState === WebSocket.OPEN) {
