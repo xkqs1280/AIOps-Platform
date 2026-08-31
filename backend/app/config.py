@@ -135,6 +135,10 @@ class Settings(BaseSettings):
     # 不设硬编码默认值，避免公开密钥被伪造 JWT。
     SECRET_KEY: str = Field(default_factory=lambda: secrets.token_hex(32))
     API_PREFIX: str = "/api/v1"
+    # 是否开放 API 文档（/docs、/redoc、/openapi.json）。生产环境默认关闭，
+    # 避免泄露 90+ API 端点结构（含设备管理/配置备份/SNMP 凭据字段 schema）辅助攻击面分析。
+    # 开发调试时可在 .env 中显式开启：API_DOCS_ENABLED=true
+    API_DOCS_ENABLED: bool = False
     # Comma-separated browser origins. Mobile App / H5 通过 Bearer token 跨域访问，
     # 不携带 cookie 凭据，默认允许全部来源（allow_credentials=False 保证安全）。
     # 如需收紧可改为逗号分隔的显式来源列表。

@@ -20,6 +20,12 @@ const routes = [
     meta: { title: '设备管理' },
   },
   {
+    path: '/devices/:id/terminal',
+    name: 'DeviceTerminal',
+    component: () => import('../views/DeviceTerminal.vue'),
+    meta: { title: '设备 CLI 终端' },
+  },
+  {
     path: '/devices/:id',
     name: 'DeviceDetail',
     component: () => import('../views/DeviceDetail.vue'),
