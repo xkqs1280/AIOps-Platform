@@ -17,6 +17,7 @@ export default defineConfig({
         target: 'https://localhost:8000',
         changeOrigin: true,
         secure: false, // 后端为自签名 HTTPS，允许代理绕过证书校验
+        ws: true,      // 支持 WebSocket 转发（设备 CLI 终端）
       },
     },
   },

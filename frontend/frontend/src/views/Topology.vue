@@ -7,13 +7,22 @@
           <h1 class="text-2xl font-bold text-ink-strong">网络拓扑可视化</h1>
           <p class="mt-1 text-sm text-ink-muted">实时网络设备拓扑与链路状态</p>
         </div>
-        <button
-          @click="refreshTopology"
-          :disabled="loading"
-          class="rounded-lg border border-line bg-surface-2 px-4 py-2 text-sm font-medium text-ink-muted transition-colors hover:bg-hover disabled:opacity-50"
-        >
-          {{ loading ? '加载中...' : '刷新' }}
-        </button>
+        <div class="flex items-center gap-2">
+          <button
+            @click="legendCollapsed = !legendCollapsed"
+            class="rounded-lg border border-line bg-surface-2 px-4 py-2 text-sm font-medium text-ink-muted transition-colors hover:bg-hover"
+            :title="legendCollapsed ? '展开图例' : '隐藏图例'"
+          >
+            {{ legendCollapsed ? '◀ 展开图例' : '▶ 收起图例' }}
+          </button>
+          <button
+            @click="refreshTopology"
+            :disabled="loading"
+            class="rounded-lg border border-line bg-surface-2 px-4 py-2 text-sm font-medium text-ink-muted transition-colors hover:bg-hover disabled:opacity-50"
+          >
+            {{ loading ? '加载中...' : '刷新' }}
+          </button>
+        </div>
       </div>
     </div>
 
@@ -45,8 +54,12 @@
         </div>
       </div>
 
-      <!-- Side Panel: Legend -->
-      <div class="w-72 border-l border-line bg-surface/50 p-4">
+      <!-- Side Panel: Legend（可向右折叠隐藏，不挡拓扑展示） -->
+      <div
+        class="shrink-0 overflow-hidden border-l border-line bg-surface/50 transition-all duration-300"
+        :style="{ width: legendCollapsed ? '0px' : '288px' }"
+      >
+        <div class="w-72 p-4">
         <h3 class="mb-3 text-sm font-semibold text-ink-muted">图例</h3>
 
         <!-- Node Type Legend（设备类型图例已移除，类型已直接应用于节点图形） -->
@@ -145,6 +158,7 @@
           </div>
           <div v-else class="mt-3 text-xs text-ink-faint">暂无自定义连线</div>
         </div>
+        </div>
       </div>
     </div>
   </div>
@@ -169,6 +183,7 @@ function esc(s) {
 const chartRef = ref(null)
 const loading = ref(false)
 const hasData = ref(false)
+const legendCollapsed = ref(false) // 右侧图例栏折叠状态
 let chartInstance = null
 let resizeObserver = null
 

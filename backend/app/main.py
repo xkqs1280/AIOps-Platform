@@ -25,6 +25,7 @@ from app.routers import traps
 from app.routers import metrics
 from app.routers import inspections
 from app.routers import business_monitor
+from app.routers import terminal
 from app.routers import license
 from app.routers import auth
 from app.routers import settings as settings_router
@@ -150,6 +151,10 @@ app = FastAPI(
     description="网络及安全设备 7×24 智能监控与故障预测平台",
     version=APP_VERSION,
     lifespan=lifespan,
+    # 生产环境关闭 API 文档，避免 /openapi.json 匿名泄露端点结构（安全基线）
+    docs_url="/docs" if settings.API_DOCS_ENABLED else None,
+    redoc_url="/redoc" if settings.API_DOCS_ENABLED else None,
+    openapi_url="/openapi.json" if settings.API_DOCS_ENABLED else None,
 )
 
 app.add_middleware(
@@ -185,6 +190,9 @@ async def add_security_headers(request: Request, call_next):
             authorization = request.headers.get("Authorization", "")
             if authorization.startswith("Bearer "):
                 token = authorization[7:]
+            # WebSocket 客户端（如设备 CLI 终端）可能无法携带 cookie，支持 query 参数
+            if not token:
+                token = request.query_params.get("token")
             if not token:
                 return JSONResponse({"detail": "请先登录"}, status_code=401)
             try:
@@ -219,6 +227,7 @@ async def add_security_headers(request: Request, call_next):
 
 # 注册路由
 app.include_router(devices.router, prefix=settings.API_PREFIX)
+app.include_router(terminal.router, prefix=settings.API_PREFIX)
 app.include_router(alerts.router, prefix=settings.API_PREFIX)
 app.include_router(alert_rules.router, prefix=settings.API_PREFIX)
 app.include_router(topology.router, prefix=settings.API_PREFIX)
