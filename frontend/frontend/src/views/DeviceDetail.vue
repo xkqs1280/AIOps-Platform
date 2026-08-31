@@ -280,6 +280,10 @@ function formatRate(bps) {
 
 // 从设备 SNMP 重新发现并同步信息（覆盖名称/型号/厂商等），解决设备改名后平台不更新
 const syncing = ref(false)
+function openTerminal() {
+  router.push(`/devices/${deviceId.value}/terminal`)
+}
+
 async function syncInfo() {
   if (syncing.value) return
   syncing.value = true
@@ -398,6 +402,13 @@ watch(deviceId, () => {
             </span>
           </div>
           <div class="flex items-center gap-2">
+            <button
+              v-if="!isEditing"
+              @click="openTerminal"
+              class="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg transition-colors font-medium text-sm"
+            >
+              ⌘ CLI 终端
+            </button>
             <button
               v-if="!isEditing"
               @click="syncInfo"
