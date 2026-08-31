@@ -178,18 +178,18 @@ onMounted(async () => {
   fitAddon.fit()
 
   // 复制 / 粘贴支持（xterm 默认不绑定快捷键）：
+  // - Ctrl+C：仅作为复制快捷键，永远不向设备发送中断信号
+  //   （设备中断请通过命令行输入 quit / exit 等命令实现）
   // - Ctrl+Shift+C：复制选中文本
-  // - Ctrl+C：有选中时复制；无选中时仍发送中断信号给设备
   // - Ctrl+Shift+V：粘贴剪贴板内容
   terminal.attachCustomKeyEventHandler((event) => {
     const mod = event.ctrlKey || event.metaKey
     if (mod && event.key.toLowerCase() === 'c') {
       if (terminal.hasSelection()) {
         navigator.clipboard.writeText(terminal.getSelection()).catch(() => {})
-        event.preventDefault()
-        return false // 拦截，不发送给设备
       }
-      return true // 无选中：Ctrl+C 仍作为中断信号发送
+      event.preventDefault()
+      return false // 始终拦截，不发送给设备
     }
     if (mod && event.shiftKey && event.key.toLowerCase() === 'v') {
       navigator.clipboard.readText().then((text) => {
