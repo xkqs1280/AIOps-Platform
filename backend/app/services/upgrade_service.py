@@ -164,6 +164,38 @@ def verify_signature(manifest: dict) -> bool:
         return False
 
 
+def _verify_file_hashes(staging: Path, manifest: dict) -> None:
+    """校验升级包内文件与 manifest 的 sha256 清单完全一致（全文件完整性校验）。
+
+    背景：签名只覆盖 manifest.json，此前包内 AIOpsServer.exe / frontend/dist /
+    upgrade_apply.ps1 / backend/app 等落地文件不在签名覆盖范围，攻击者或供应链
+    篡改包内文件（保持 manifest 不变）即可通过校验，升级脚本以系统权限执行
+    → RCE + 持久化。修复：manifest 携带 files = {相对路径: sha256}（该清单已
+    随 manifest 一起被签名保护），此处逐文件比对，任何不匹配或清单外文件一律拒绝。
+    """
+    import hashlib
+
+    files = manifest.get("files")
+    if not isinstance(files, dict) or not files:
+        raise ValueError("升级包缺少文件完整性清单（files），请使用 4.3.4+ 打包工具重新打包")
+
+    for rel, expect in files.items():
+        p = staging / rel
+        if not p.is_file():
+            raise ValueError(f"升级包缺少清单内文件: {rel}")
+        h = hashlib.sha256(p.read_bytes()).hexdigest()
+        if h != str(expect).lower():
+            raise ValueError(f"升级包文件校验失败（可能被篡改）: {rel}")
+
+    # 反向校验：包内所有文件必须都在清单内，防夹带未授权文件随升级落地
+    allowed = set(files) | {"manifest.json"}
+    for p in sorted(staging.rglob("*")):
+        if p.is_file():
+            rel = p.relative_to(staging).as_posix()
+            if rel not in allowed:
+                raise ValueError(f"升级包包含未列入清单的文件: {rel}")
+
+
 def validate_package(zip_path: Path) -> dict:
     """校验升级包并解压到 staging，返回 manifest；失败抛异常（message 为原因）。"""
     root = get_upgrade_root()
@@ -173,10 +205,10 @@ def validate_package(zip_path: Path) -> dict:
     staging.mkdir(parents=True, exist_ok=True)
 
     with zipfile.ZipFile(zip_path, "r") as zf:
-        # zip-slip 防护：拒绝路径穿越
+        # zip-slip 防护：拒绝路径穿越（is_relative_to 严格判断，避免前缀字符串绕过）
         for name in zf.namelist():
             resolved = (staging / name).resolve()
-            if not str(resolved).startswith(str(staging.resolve())):
+            if not resolved.is_relative_to(staging.resolve()):
                 raise ValueError("升级包包含非法路径")
         zf.extractall(staging)
 
@@ -187,6 +219,9 @@ def validate_package(zip_path: Path) -> dict:
     manifest = json.loads(manifest_file.read_text(encoding="utf-8"))
     if not verify_signature(manifest):
         raise ValueError("升级包签名校验失败（包可能被篡改或非官方包）")
+
+    # 全文件 sha256 完整性校验：签名覆盖 files 清单，清单覆盖所有落地文件
+    _verify_file_hashes(staging, manifest)
 
     ver = str(manifest.get("version", "")).strip()
     if not ver:

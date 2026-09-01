@@ -18,7 +18,12 @@ from app.schemas.inspection import (
     InspectionTaskDetailResponse,
     InspectionTaskListResponse,
 )
-from app.services.h3c_inspection_service import create_inspection_task, _get_report_dir, _run_single_device_inspection
+from app.services.h3c_inspection_service import (
+    create_inspection_task,
+    _get_report_dir,
+    _run_single_device_inspection,
+    _spawn_bg_task,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -153,7 +158,8 @@ async def retry_device_inspection(
         # 无需等 30 分钟任务超时。
         await _regenerate_reports(task_id)
 
-    asyncio.create_task(_retry())
+    # 后台重跑任务保存强引用（防 GC 回收），完成后自动移除
+    _spawn_bg_task(_retry())
     return {
         "status": "restarted",
         "device_id": device_id,

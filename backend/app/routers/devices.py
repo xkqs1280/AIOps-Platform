@@ -25,7 +25,7 @@ from app.schemas.device import (
 )
 from app.services.discovery_service import discover_device, collect_entity_components, pick_chassis_serial
 from app.services.credential_service import protect_device_secrets, reveal_secret
-from app.routers.auth import current_user
+from app.routers.auth import admin_only, current_user
 from app.services.audit_service import record_audit, get_client_ip
 
 router = APIRouter(prefix="/devices", tags=["设备管理"])
@@ -326,7 +326,7 @@ async def delete_device(device_id: int, actor: dict = Depends(current_user), db:
 
 
 @router.post("/batch-delete", response_model=DeviceListResponse)
-async def batch_delete_devices(data: BatchDeviceDeleteRequest, db: AsyncSession = Depends(get_db), user: dict = Depends(current_user)):
+async def batch_delete_devices(data: BatchDeviceDeleteRequest, db: AsyncSession = Depends(get_db), user: dict = Depends(admin_only)):
     """批量删除设备。
 
     支持两种模式：
@@ -336,9 +336,10 @@ async def batch_delete_devices(data: BatchDeviceDeleteRequest, db: AsyncSession 
     删除前先清理外键关联数据（alerts / security_events / compliance_checks /
     topology_links 为 NO ACTION 约束，直接删设备会触发 NotNullViolation），
     否则返回 422 并提示。
+
+    权限：admin_only —— 与单台删除（DELETE /devices/{id} 需 admin）保持一致，
+    修复此前 operator 可通过 POST /devices/batch-delete 绕过 admin 限制的越权面。
     """
-    if data.delete_all and user["role"] != "admin":
-        raise HTTPException(status_code=403, detail="清空全部设备需要管理员权限")
     if data.delete_all:
         result = await db.execute(select(Device).order_by(Device.id))
     else:

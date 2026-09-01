@@ -70,3 +70,7 @@ Thumbs.db
 .workbuddy/
 *.log
 sign_err.txt
+
+# === 内部审计 / 分析文档（含漏洞细节，不推公开仓库） ===
+审计报告*.md
+*_audit_report*.md

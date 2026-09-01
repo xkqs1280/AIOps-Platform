@@ -80,7 +80,31 @@ LONG_OUTPUT_COMMANDS = {    "display logbuffer reverse",
 PARALLEL_SESSIONS = 4
 # 单个巡检任务内并发采集的设备数。实测 5 台并发（20 个连接）会挤占防火墙等
 # vty 数量少的设备，导致命令输出丢失；取 2 兼顾速度与可靠性。
-MAX_PARALLEL_DEVICES = 2
+# 2026-08-31 调整：大批量巡检（90 台）时并发 2 过慢，30 分钟总超时会导致大量
+# 排队设备被取消且无结果记录，提高并发并保留排队补记录机制。
+MAX_PARALLEL_DEVICES = int(os.environ.get("AIOPS_INSPECT_CONCURRENCY", "10"))
+# 全局巡检任务并发信号量（跨任务共享）：多个巡检任务同时运行时，叠加的在采设备数
+# 不得超过该值，防止数百协程 + 数十条 SSH 连接压垮设备 vty 或耗尽连接资源。
+GLOBAL_INSPECT_CONCURRENCY = int(os.environ.get("AIOPS_INSPECT_GLOBAL_CONCURRENCY", "10"))
+GLOBAL_SEMAPHORE = asyncio.Semaphore(GLOBAL_INSPECT_CONCURRENCY)
+# 单台设备采集输出总量上限（MB）：display interface / counters / logbuffer 等命令
+# 聚合输出可能极大，超出部分截断保存，防止单任务向 DB 写入数 GB。
+MAX_RAW_OUTPUT_TOTAL = int(os.environ.get("AIOPS_INSPECT_MAX_OUTPUT_MB", "50")) * 1024 * 1024
+# parsed_data 中 logbuffer_raw（日志原文）单独上限（MB）
+MAX_LOGBUFFER_RAW = int(os.environ.get("AIOPS_INSPECT_MAX_LOGBUFFER_MB", "10")) * 1024 * 1024
+
+# 后台巡检任务强引用集合：asyncio.create_task 返回值若不保存，任务可能在完成前
+# 被 GC 静默回收（任务永久停在 pending/running，无异常无日志）。保存引用并在
+# 任务结束时自动移除，杜绝"排队设备永不执行"。
+_bg_tasks: set[asyncio.Task] = set()
+
+
+def _spawn_bg_task(coro) -> asyncio.Task:
+    """启动后台任务并保存强引用，防止被 GC 回收。"""
+    task = asyncio.create_task(coro)
+    _bg_tasks.add(task)
+    task.add_done_callback(_bg_tasks.discard)
+    return task
 # 输出体积极大的命令：单独分片，避免其长输出阻塞其他命令，显著缩短单设备总耗时
 HEAVY_COMMANDS = {
     "display interface",
@@ -104,7 +128,7 @@ async def _execute_command(
     command: str,
     timeout: int = 30,
     command_timeout: int = 60,
-    max_bytes: int = 8 * 1024 * 1024,
+    max_bytes: int = 20 * 1024 * 1024,
 ) -> str:
     """在已建立的 SSH 会话中执行单条命令并读取输出。
 
@@ -226,7 +250,8 @@ async def collect_device_output(
         outputs = []
         for cmd in commands:
             try:
-                cmd_timeout = 120 if cmd in LONG_OUTPUT_COMMANDS else 60
+                # 2026-08-31 调整：长输出命令 120s→300s
+                cmd_timeout = 300 if cmd in LONG_OUTPUT_COMMANDS else 60
                 out = await run_command(
                     ip, ssh_user, ssh_pass, cmd,
                     port=port or 23, timeout=cmd_timeout,
@@ -279,7 +304,8 @@ async def collect_device_output(
             outputs = []
             for cmd in cmds:
                 # Some commands produce large output, give them more time
-                cmd_timeout = 120 if cmd in LONG_OUTPUT_COMMANDS else 60
+                # 2026-08-31 调整：长输出命令 120s→300s（OLT 的 display interface/counters 输出极大）
+                cmd_timeout = 300 if cmd in LONG_OUTPUT_COMMANDS else 60
                 try:
                     out = await _execute_command(writer, reader, cmd, timeout=30, command_timeout=cmd_timeout)
                     outputs.append(out)
@@ -383,6 +409,14 @@ async def _run_single_device_inspection(
         if not raw_output or len(raw_output) < 100:
             raise ValueError("采集输出过短，可能 SSH 会话未正常建立")
 
+        # 单设备输出总量上限：超出截断保存（防 DB 写入数 GB）
+        if len(raw_output) > MAX_RAW_OUTPUT_TOTAL:
+            logger.warning(
+                f"设备 {device.ip} 采集输出 {len(raw_output)} 字节超过上限 "
+                f"{MAX_RAW_OUTPUT_TOTAL}，已截断保存"
+            )
+            raw_output = raw_output[:MAX_RAW_OUTPUT_TOTAL]
+
         # Build simulated raw file content and parse
         file_content = _build_raw_file_content(device, raw_output)
         device_data = parse_raw_file(
@@ -392,6 +426,10 @@ async def _run_single_device_inspection(
         # Ensure identifier fields align with platform device
         device_data["Sys_ip"] = device.ip
         device_data["Sys_name"] = device.name
+
+        # parsed_data 中 logbuffer_raw 为日志原文，单独限制体积避免 JSON 列膨胀
+        if isinstance(device_data.get("logbuffer_raw"), str) and len(device_data["logbuffer_raw"]) > MAX_LOGBUFFER_RAW:
+            device_data["logbuffer_raw"] = device_data["logbuffer_raw"][:MAX_LOGBUFFER_RAW] + "\n[logbuffer 超限截断]"
 
         dev_result.raw_output = raw_output
         dev_result.parsed_data = device_data
@@ -435,15 +473,63 @@ async def run_inspection_task(db: AsyncSession, task_id: int):
     # 并以信号量限制同时采集的设备数，既提速又避免压垮设备或耗尽连接。
     semaphore = asyncio.Semaphore(MAX_PARALLEL_DEVICES)
 
-    async def limited_inspect(device: Device):
-        async with semaphore:
-            from app.database import async_session
-            async with async_session() as dev_db:
-                return await _run_single_device_inspection(dev_db, task, device, result_dir)
+    # 单台设备巡检的最长耗时。超过则取消该设备（释放信号量让后续设备继续），
+    # 避免单台卡死设备占着并发名额拖垮整个队列。
+    # 2026-08-31 调整：180s → 300s（OLT/核心设备 display interface 等输出巨大，180s 偏紧）
+    DEVICE_TIMEOUT = 900  # 15 分钟（秒）
 
-    # 总超时：30 分钟。个别设备卡死（SSH 挂起/无响应）时不能让整个任务无限等待，
+    async def limited_inspect(device: Device):
+        # 全局并发限制（跨任务）：多任务叠加时也控制总在采设备数
+        async with GLOBAL_SEMAPHORE:
+            async with semaphore:
+                from app.database import async_session
+                async with async_session() as dev_db:
+                    try:
+                        return await asyncio.wait_for(
+                            _run_single_device_inspection(dev_db, task, device, result_dir),
+                            timeout=DEVICE_TIMEOUT,
+                        )
+                    except asyncio.TimeoutError:
+                        # 单设备超时：wait_for 已取消 _run_single_device_inspection 协程，
+                        # 该协程可能已 commit 一条 running 行。先回滚未提交状态，再查询
+                        # 已有行：存在则更新为 failed（复用行，保证 1 设备 1 条记录），
+                        # 不存在才新建 —— 修复此前重复插入导致 retry 500 的问题。
+                        try:
+                            await dev_db.rollback()
+                        except Exception:
+                            pass
+                        existing = (
+                            await dev_db.execute(
+                                select(InspectionDeviceResult).where(
+                                    InspectionDeviceResult.task_id == task.id,
+                                    InspectionDeviceResult.device_id == device.id,
+                                )
+                            )
+                        ).scalar_one_or_none()
+                        if existing is not None:
+                            existing.status = "failed"
+                            existing.error_message = f"单设备巡检超时（>{DEVICE_TIMEOUT}s），已跳过，请重新执行该设备"
+                            existing.completed_at = datetime.now(timezone.utc)
+                            dev_result = existing
+                        else:
+                            dev_result = InspectionDeviceResult(
+                                task_id=task.id,
+                                device_id=device.id,
+                                device_name=device.name,
+                                device_ip=device.ip,
+                                status="failed",
+                                error_message=f"单设备巡检超时（>{DEVICE_TIMEOUT}s），已跳过，请重新执行该设备",
+                                completed_at=datetime.now(timezone.utc),
+                            )
+                            dev_db.add(dev_result)
+                        await dev_db.commit()
+                        return dev_result
+
+    # 总超时：120 分钟。个别设备卡死（SSH 挂起/无响应）时不能让整个任务无限等待，
     # 超时后已完成部分仍按成功比例决定是否出报告。
-    TASK_TIMEOUT = 30 * 60  # 30 分钟（秒）
+    # 2026-08-31 调整：60 → 120 分钟（OLT/核心设备单台采集需 7-17 分钟，配合
+    # DEVICE_TIMEOUT=900s 让慢设备有充足时间跑完）。
+    TASK_TIMEOUT = 120 * 60  # 120 分钟（秒）
 
     collector_tasks = [asyncio.create_task(limited_inspect(d)) for d in devices]
     done, pending = await asyncio.wait(
@@ -480,6 +566,50 @@ async def run_inspection_task(db: AsyncSession, task_id: int):
 
     if stuck_count:
         task.failed_count += stuck_count
+
+    # ── 补全未执行设备的失败记录 ──
+    # 并发队列超时被取消的设备，其协程可能尚未进入 _run_single_device_inspection，
+    # 因而没有任何 InspectionDeviceResult 行，导致详情页"缺设备"且看不到原因。
+    # 这里对任务名下没有任何结果记录的设备补建 failed 行，保证 1 台设备 1 条记录。
+    existing_result = await db.execute(
+        select(InspectionDeviceResult.device_id).where(InspectionDeviceResult.task_id == task.id)
+    )
+    existing_ids = {r for (r,) in existing_result.all()}
+    missing_ids = [d.id for d in devices if d.id not in existing_ids]
+    if missing_ids:
+        for dev in [d for d in devices if d.id in missing_ids]:
+            db.add(InspectionDeviceResult(
+                task_id=task.id,
+                device_id=dev.id,
+                device_name=dev.name,
+                device_ip=dev.ip,
+                status="failed",
+                error_message="设备未执行（巡检任务超时或排队未轮询到），请重新执行该设备",
+                completed_at=datetime.now(timezone.utc),
+            ))
+        await db.commit()
+        logger.warning(
+            f"Inspection task {task_id}: 为 {len(missing_ids)} 台未执行设备补建失败记录"
+        )
+
+    # 协程被取消时 CancelledError 不被 except Exception 捕获，卡死设备可能停留在
+    # running 状态；统一标记为超时失败，避免详情页永久显示"执行中"。
+    stuck_rows = await db.execute(
+        select(InspectionDeviceResult).where(
+            InspectionDeviceResult.task_id == task.id,
+            InspectionDeviceResult.status == "running",
+        )
+    )
+    stuck_list = stuck_rows.scalars().all()
+    if stuck_list:
+        for row in stuck_list:
+            row.status = "failed"
+            row.error_message = row.error_message or "设备巡检超时被中止，请重新执行该设备"
+            row.completed_at = datetime.now(timezone.utc)
+        await db.commit()
+
+    # 失败数 = 总数 - 成功数（含补记录与卡死设备，语义准确）
+    task.failed_count = max(0, task.total_devices - task.success_count)
 
     success_ratio = task.success_count / task.total_devices if task.total_devices else 0
 
@@ -531,8 +661,8 @@ async def create_inspection_task(db: AsyncSession, name: str, device_ids: list[i
     await db.commit()
     await db.refresh(task)
 
-    # Fire and forget background execution
-    asyncio.create_task(_run_task_with_db(task.id))
+    # Fire and forget background execution（保存强引用，防任务被 GC 静默回收）
+    _spawn_bg_task(_run_task_with_db(task.id))
     return task
 
 

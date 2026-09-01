@@ -6,6 +6,7 @@ from sqlalchemy.orm import selectinload
 from app.database import get_db
 from app.models.device import Device
 from app.models.config_backup import ConfigBackup, BackupSchedule
+from app.routers.auth import operator_or_admin
 from app.schemas.config_backup import (
     ConfigBackupResponse, ConfigBackupDetail, ConfigBackupListResponse,
     DiffResponse,
@@ -47,8 +48,12 @@ async def list_backups(
 
 
 @router.get("/{backup_id}", response_model=ConfigBackupDetail)
-async def get_backup(backup_id: int, db: AsyncSession = Depends(get_db)):
-    """获取单条备份记录（含配置内容）"""
+async def get_backup(backup_id: int, user: dict = Depends(operator_or_admin), db: AsyncSession = Depends(get_db)):
+    """获取单条备份记录（含配置内容）。
+
+    配置内容含 enable 密码 / VPN 密钥 / ACL 等高敏信息，
+    仅 operator 及以上角色可读（viewer 只读角色无权）。
+    """
     result = await db.execute(select(ConfigBackup).where(ConfigBackup.id == backup_id))
     backup = result.scalar_one_or_none()
     if not backup:
@@ -57,8 +62,8 @@ async def get_backup(backup_id: int, db: AsyncSession = Depends(get_db)):
 
 
 @router.post("/manual/{device_id}", response_model=ConfigBackupResponse)
-async def trigger_manual_backup(device_id: int, db: AsyncSession = Depends(get_db)):
-    """手动触发设备配置备份"""
+async def trigger_manual_backup(device_id: int, user: dict = Depends(operator_or_admin), db: AsyncSession = Depends(get_db)):
+    """手动触发设备配置备份（operator 及以上）。"""
     result = await db.execute(select(Device).where(Device.id == device_id))
     device = result.scalar_one_or_none()
     if not device:
@@ -73,8 +78,8 @@ async def trigger_manual_backup(device_id: int, db: AsyncSession = Depends(get_d
 
 
 @router.post("/manual-all")
-async def trigger_backup_all(db: AsyncSession = Depends(get_db)):
-    """手动触发全部设备配置备份"""
+async def trigger_backup_all(user: dict = Depends(operator_or_admin), db: AsyncSession = Depends(get_db)):
+    """手动触发全部设备配置备份（operator 及以上；全量触发，限制高权限角色）。"""
     result = await db.execute(select(Device))
     all_devices = result.scalars().all()
 
@@ -105,8 +110,8 @@ async def trigger_backup_all(db: AsyncSession = Depends(get_db)):
 
 
 @router.delete("/{backup_id}")
-async def delete_backup(backup_id: int, db: AsyncSession = Depends(get_db)):
-    """删除备份记录"""
+async def delete_backup(backup_id: int, user: dict = Depends(operator_or_admin), db: AsyncSession = Depends(get_db)):
+    """删除备份记录（HTTP 中间件已要求 admin，此处显式防御纵深）。"""
     result = await db.execute(select(ConfigBackup).where(ConfigBackup.id == backup_id))
     backup = result.scalar_one_or_none()
     if not backup:
@@ -118,8 +123,8 @@ async def delete_backup(backup_id: int, db: AsyncSession = Depends(get_db)):
 
 
 @router.get("/compare/{backup_id1}/{backup_id2}", response_model=DiffResponse)
-async def compare_backups(backup_id1: int, backup_id2: int, db: AsyncSession = Depends(get_db)):
-    """对比两个备份版本的配置差异"""
+async def compare_backups(backup_id1: int, backup_id2: int, user: dict = Depends(operator_or_admin), db: AsyncSession = Depends(get_db)):
+    """对比两个备份版本的配置差异（配置内容高敏，仅 operator 及以上）。"""
     result1 = await db.execute(select(ConfigBackup).where(ConfigBackup.id == backup_id1))
     backup1 = result1.scalar_one_or_none()
     if not backup1:
@@ -159,8 +164,8 @@ async def list_schedules(
 
 
 @router.post("/schedules", response_model=BackupScheduleResponse)
-async def create_schedule(data: BackupScheduleCreate, db: AsyncSession = Depends(get_db)):
-    """创建备份计划"""
+async def create_schedule(data: BackupScheduleCreate, user: dict = Depends(operator_or_admin), db: AsyncSession = Depends(get_db)):
+    """创建备份计划（operator 及以上）。"""
     # Validate: either is_all_devices or device_id must be set
     if not data.is_all_devices and not data.device_id:
         raise HTTPException(status_code=422, detail="请选择设备或全部设备")
@@ -208,8 +213,8 @@ async def create_schedule(data: BackupScheduleCreate, db: AsyncSession = Depends
 
 
 @router.put("/schedules/{schedule_id}", response_model=BackupScheduleResponse)
-async def update_schedule(schedule_id: int, data: BackupScheduleUpdate, db: AsyncSession = Depends(get_db)):
-    """更新备份计划"""
+async def update_schedule(schedule_id: int, data: BackupScheduleUpdate, user: dict = Depends(operator_or_admin), db: AsyncSession = Depends(get_db)):
+    """更新备份计划（operator 及以上）。"""
     result = await db.execute(
         select(BackupSchedule).options(selectinload(BackupSchedule.device)).where(BackupSchedule.id == schedule_id)
     )
@@ -233,8 +238,8 @@ async def update_schedule(schedule_id: int, data: BackupScheduleUpdate, db: Asyn
 
 
 @router.delete("/schedules/{schedule_id}")
-async def delete_schedule(schedule_id: int, db: AsyncSession = Depends(get_db)):
-    """删除备份计划"""
+async def delete_schedule(schedule_id: int, user: dict = Depends(operator_or_admin), db: AsyncSession = Depends(get_db)):
+    """删除备份计划（HTTP 中间件已要求 admin，此处显式防御纵深）。"""
     result = await db.execute(select(BackupSchedule).where(BackupSchedule.id == schedule_id))
     schedule = result.scalar_one_or_none()
     if not schedule:

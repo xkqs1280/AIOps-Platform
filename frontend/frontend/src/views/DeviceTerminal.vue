@@ -181,7 +181,7 @@ onMounted(async () => {
   // - Ctrl+C：仅作为复制快捷键，永远不向设备发送中断信号
   //   （设备中断请通过命令行输入 quit / exit 等命令实现）
   // - Ctrl+Shift+C：复制选中文本
-  // - Ctrl+Shift+V：粘贴剪贴板内容
+  // - Ctrl+V / Ctrl+Shift+V：粘贴剪贴板内容，仅做粘贴用
   terminal.attachCustomKeyEventHandler((event) => {
     const mod = event.ctrlKey || event.metaKey
     if (mod && event.key.toLowerCase() === 'c') {
@@ -191,12 +191,12 @@ onMounted(async () => {
       event.preventDefault()
       return false // 始终拦截，不发送给设备
     }
-    if (mod && event.shiftKey && event.key.toLowerCase() === 'v') {
+    if (mod && event.key.toLowerCase() === 'v') {
       navigator.clipboard.readText().then((text) => {
         if (text) terminal.paste(text)
       }).catch(() => {})
       event.preventDefault()
-      return false
+      return false // 仅做粘贴，不发送给设备
     }
     return true
   })
