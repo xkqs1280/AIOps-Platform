@@ -1,6 +1,6 @@
 from datetime import datetime
 
-from sqlalchemy import String, DateTime, Integer, Text, func, ForeignKey, JSON
+from sqlalchemy import String, DateTime, Integer, Text, func, ForeignKey, JSON, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.database import Base
@@ -32,6 +32,11 @@ class InspectionTask(Base):
 class InspectionDeviceResult(Base):
     """巡检任务中每台设备的结果"""
     __tablename__ = "inspection_device_results"
+    # 同一任务内每台设备唯一一行结果：防止并发/超时路径重复插入记录
+    # （历史重复行由 migrations 4.3.4 清理后建索引）
+    __table_args__ = (
+        UniqueConstraint("task_id", "device_id", name="uq_inspection_result_task_device"),
+    )
 
     id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
     task_id: Mapped[int] = mapped_column(ForeignKey("inspection_tasks.id", ondelete="CASCADE"), nullable=False)

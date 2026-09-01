@@ -311,6 +311,12 @@ try {
         New-Item -ItemType Directory -Force -Path (Join-Path $AppRoot "deploy") | Out-Null
         Copy-Item (Join-Path $Staging "deploy\upgrade_apply.ps1") (Join-Path $AppRoot "deploy\upgrade_apply.ps1") -Force
     }
+    # Sync autostart wrapper (kills stale instances, retries ONCE, then gives up)
+    # to prevent the AIOpsServer.exe process pile-up after reboot.
+    if ($Staging -and (Test-Path (Join-Path $Staging "deploy\autostart.bat"))) {
+        New-Item -ItemType Directory -Force -Path (Join-Path $AppRoot "deploy") | Out-Null
+        Copy-Item (Join-Path $Staging "deploy\autostart.bat") (Join-Path $AppRoot "deploy\autostart.bat") -Force
+    }
     # Source deployment: replace backend/app python source
     if ($IsSource -and $Staging -and (Test-Path (Join-Path $Staging "backend\app"))) {
         $srcDst = Join-Path $AppRoot "backend\app"

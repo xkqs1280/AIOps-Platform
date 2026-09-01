@@ -7,7 +7,7 @@ from app.config import settings
 from app.database import get_db
 from app.models.user import User
 from app.services.auth_service import ROLES, create_access_token, decode_access_token, hash_password, require_password_strength, verify_password
-from app.services.rate_limit import limit_login, record_login_failure
+from app.services.rate_limit import limit_login, record_login_failure, check_username_locked
 from app.services.audit_service import record_audit, get_client_ip
 
 router = APIRouter(prefix="/auth", tags=["认证与用户"])
@@ -57,9 +57,18 @@ def admin_only(user: dict = Depends(current_user)) -> dict:
     return user
 
 
+def operator_or_admin(user: dict = Depends(current_user)) -> dict:
+    """操作员及以上（operator / admin）。用于高敏数据读取与写操作。"""
+    if user["role"] not in ("operator", "admin"):
+        raise HTTPException(status_code=403, detail="需要操作员或管理员权限")
+    return user
+
+
 @router.post("/login")
 async def login(body: LoginRequest, request: Request, response: Response, db: AsyncSession = Depends(get_db)):
     client = await limit_login(request)
+    # 用户名维度锁定检查：防轮换 IP 对单一账号无限爆破（IP 限流可被绕过）
+    check_username_locked(body.username)
     user = (await db.execute(select(User).where(User.username == body.username))).scalar_one_or_none()
     if not user or not user.is_active or not verify_password(body.password, user.password_hash):
         record_login_failure(client, body.username)

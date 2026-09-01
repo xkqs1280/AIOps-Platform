@@ -37,6 +37,20 @@ def _prune(dq: deque, window: float) -> None:
         dq.popleft()
 
 
+def check_username_locked(username: str | None) -> None:
+    """登录前检查：该用户名最近是否失败过多（防轮换 IP 爆破单一账号）。
+
+    与 IP 维度锁定互补：IP 锁定拦不住攻击者换 IP，用户名锁定保证
+    针对同一个账号的连续失败尝试（无论来自哪个 IP）超过 FAIL_MAX 即锁定。
+    """
+    if not username:
+        return
+    dq = _username_fail[username.lower()]
+    _prune(dq, FAIL_WINDOW)
+    if len(dq) >= FAIL_MAX:
+        raise HTTPException(status_code=429, detail="该账号失败次数过多，已临时锁定，请 10 分钟后再试")
+
+
 async def limit_login(request: Request) -> str:
     """登录前限流检查：返回客户端 IP。超限抛 429。"""
     client = request.client.host if request.client else "unknown"

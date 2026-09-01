@@ -16,6 +16,7 @@
 import asyncio
 import json
 import logging
+import os
 
 from fastapi import APIRouter, Depends, WebSocket, WebSocketDisconnect
 from sqlalchemy import select
@@ -31,6 +32,11 @@ from app.services.terminal_service import DeviceTerminal
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/devices", tags=["设备终端"])
+
+# 每个用户同时最多打开的终端会话数（防单个账号抢占设备 vty / 资源滥用）
+MAX_TERMINAL_SESSIONS_PER_USER = int(os.environ.get("AIOPS_TERMINAL_MAX_SESSIONS", "5"))
+# 用户 -> 当前活动终端会话数（事件循环单线程内增减，无并发竞争）
+_active_sessions: dict[str, int] = {}
 
 
 @router.websocket("/{device_id}/terminal")
@@ -66,10 +72,32 @@ async def device_terminal_ws(
         await websocket.close(code=4001, reason="未认证")
         return
 
+    # 角色校验：viewer（只读角色）无权对设备执行 CLI 命令。
+    # WebSocket 升级请求不走 HTTP 中间件的写方法拦截，必须在此显式拦截。
+    if actor.get("role") == "viewer":
+        await websocket.close(code=4003, reason="只读角色无权使用设备终端")
+        return
+
+    # per-user 终端会话数上限（防单个账号开启大量会话压垮设备 vty）
+    username_key = actor.get("sub") or "?"
+    cur = _active_sessions.get(username_key, 0)
+    if cur >= MAX_TERMINAL_SESSIONS_PER_USER:
+        await websocket.close(code=4003, reason=f"终端会话数已达上限（{MAX_TERMINAL_SESSIONS_PER_USER}），请先关闭其他终端")
+        return
+    _active_sessions[username_key] = cur + 1
+
+    def _release_session():
+        remaining = _active_sessions.get(username_key, 0) - 1
+        if remaining <= 0:
+            _active_sessions.pop(username_key, None)
+        else:
+            _active_sessions[username_key] = remaining
+
     # 加载设备
     result = await db.execute(select(Device).where(Device.id == device_id))
     device = result.scalar_one_or_none()
     if not device:
+        _release_session()
         await websocket.close(code=4004, reason="设备不存在")
         return
 
@@ -77,6 +105,7 @@ async def device_terminal_ws(
     username = reveal_secret(device.mgmt_username) or ""
     password = reveal_secret(device.mgmt_password) or ""
     if not username or not password:
+        _release_session()
         await websocket.close(code=4003, reason="设备未配置管理账号或密码")
         return
 
@@ -106,10 +135,12 @@ async def device_terminal_ws(
     try:
         await terminal.connect(timeout=25)
     except asyncio.TimeoutError:
+        _release_session()
         await websocket.send_text(json.dumps({"type": "error", "message": "连接设备超时"}, ensure_ascii=False))
         await websocket.close()
         return
     except Exception as e:
+        _release_session()
         await websocket.send_text(json.dumps({"type": "error", "message": f"连接失败: {e}"}, ensure_ascii=False))
         await websocket.close()
         return
@@ -164,6 +195,8 @@ async def device_terminal_ws(
             await asyncio.gather(read_task, pump_task, return_exceptions=True)
         except Exception:
             pass
+        # 释放 per-user 会话计数
+        _release_session()
         # 审计：会话结束
         try:
             await record_audit(

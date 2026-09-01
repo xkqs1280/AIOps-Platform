@@ -20,11 +20,16 @@ logger = logging.getLogger(__name__)
 # 迁移字典：{目标版本: [SQL, ...]}，按 parse_version 升序执行。
 # 新增迁移时在末尾追加新版本键，不要修改已发布的版本键内容（线上已执行过）。
 MIGRATIONS: dict[str, list[str]] = {
-    # 示例（4.1.0 以后有表结构变更时追加）：
-    # "4.1.0": [
-    #     "ALTER TABLE devices ADD COLUMN IF NOT EXISTS vendor VARCHAR(64)",
-    #     "CREATE INDEX IF NOT EXISTS ix_devices_vendor ON devices(vendor)",
-    # ],
+    # 4.3.4：巡检结果行唯一约束。先清理历史重复行（保留 id 最小的那一行），
+    # 再建唯一索引，防止并发/超时路径对同一设备重复插入结果导致 retry 500。
+    "4.3.4": [
+        """
+        DELETE FROM inspection_device_results a
+        USING inspection_device_results b
+        WHERE a.id < b.id AND a.task_id = b.task_id AND a.device_id = b.device_id
+        """,
+        "CREATE UNIQUE INDEX IF NOT EXISTS uq_inspection_result_task_device ON inspection_device_results(task_id, device_id)",
+    ],
 }
 
 _MIGRATION_ORDER = sorted(MIGRATIONS.keys())
