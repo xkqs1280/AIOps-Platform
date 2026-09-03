@@ -83,7 +83,7 @@
         <span v-if="message" class="text-sm" :class="messageOk ? 'text-green-400' : 'text-red-400'">{{ message }}</span>
       </div>
       <p class="text-[11px] text-ink-faint mt-4">
-        授权规则：测试版功能全开，有效期 3 个月，到期后平台锁定（仅授权页可用）；全功能版永久授权，不限制。
+        授权规则：首次部署自动激活试用版（功能全开），有效期 3 个月，到期后平台锁定（仅授权页可用），需激活码续期或升级全功能版（永久授权，不限制）。
       </p>
     </div>
   </div>
@@ -119,7 +119,7 @@ const statusBadge = computed(() => {
 const versionText = computed(() => {
   const s = status.value
   if (!s.activated) return '—'
-  return s.version === 'full' ? '全功能版' : '测试版'
+  return s.version === 'full' ? '全功能版' : '试用版'
 })
 
 const expireText = computed(() => {
