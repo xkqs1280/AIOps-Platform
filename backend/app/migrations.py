@@ -30,6 +30,14 @@ MIGRATIONS: dict[str, list[str]] = {
         """,
         "CREATE UNIQUE INDEX IF NOT EXISTS uq_inspection_result_task_device ON inspection_device_results(task_id, device_id)",
     ],
+    # 4.3.5：授权模式调整（首次部署自动激活 3 个月试用 + 时间回拨检测）。
+    #  - source：授权来源（manual=厂商激活码 / auto=自动试用），存量行默认 manual；
+    #  - last_seen_at：时间回拨检测锚点（历史观测最大时间），存量行置当前时间。
+    "4.3.5": [
+        "ALTER TABLE license_info ADD COLUMN IF NOT EXISTS source VARCHAR(16) NOT NULL DEFAULT 'manual'",
+        "ALTER TABLE license_info ADD COLUMN IF NOT EXISTS last_seen_at TIMESTAMP WITH TIME ZONE",
+        "UPDATE license_info SET last_seen_at = COALESCE(last_seen_at, activated_at) WHERE last_seen_at IS NULL",
+    ],
 }
 
 _MIGRATION_ORDER = sorted(MIGRATIONS.keys())

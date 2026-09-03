@@ -1,10 +1,17 @@
-"""平台授权服务 — 机器指纹 / 激活码验签 / 授权状态 / 到期锁定
+"""平台授权服务 — 机器指纹 / 激活码验签 / 授权状态 / 到期锁定 / 自动试用 / 时间回拨检测
 
 授权模型（离线激活码，RSA 签名）：
   激活码 = base64url(JSON) + "." + base64url(RSA-SHA256(JSON))
   JSON 字段: {"ver": "trial"|"full", "ed": "YYYY-MM-DD"|"", "fp": 机器指纹, "sn": 序列号}
   - trial 测试版：3 个月（生成时自动计算），到期后锁定平台
   - full  全功能版：永久
+
+自动试用（v4.3.5 起）：
+  - 首次部署（license_info 空表）自动激活 3 个月试用，无需厂商参与；
+    记录 source='auto'，license_code 标记为 "AUTO-TRIAL"（不走 RSA 签名，本地自产）。
+  - 已激活/已录入过授权的存量机器不受影响（表非空不触发）。
+  - 时间回拨检测：last_seen_at 锚点只进不退（GREATEST），当前时间比锚点落后
+    超过 CLOCK_ROLLBACK_TOLERANCE 判定被回拨 → 临时锁定授权页，校时后自动恢复。
 
 安全：
   - 平台只内置公钥验签，私钥仅厂商持有（tools/generate_license.py）
@@ -18,12 +25,12 @@ import logging
 import sys
 import time
 import uuid
-from datetime import datetime, date, timezone
+from datetime import datetime, date, timedelta, timezone
 
 from cryptography.exceptions import InvalidSignature
 from cryptography.hazmat.primitives import hashes, serialization
 from cryptography.hazmat.primitives.asymmetric import padding
-from sqlalchemy import select
+from sqlalchemy import select, text
 
 from app.config import settings
 
@@ -44,6 +51,11 @@ kL9vKIllOi/DaZEKvm9CMOUrWxilkGWwdQMFom56U2vaeZnJP8qdMa3jabvIICyF
 # 授权状态缓存（激活/到期判定以 DB 为准，缓存仅用于减少每请求 DB 查询）
 _CACHE: dict = {"ts": 0.0, "status": None}
 CACHE_TTL = 60  # 秒
+
+# 自动试用期（天）：首次部署自动激活的试用时长
+TRIAL_DAYS = 90
+# 时间回拨容差（秒）：当前时间比历史锚点（last_seen_at）落后超过该值 → 判定被回拨
+CLOCK_ROLLBACK_TOLERANCE = 24 * 3600
 
 
 def get_machine_fingerprint() -> str:
@@ -100,8 +112,86 @@ def _decode_license_code(code: str) -> dict | None:
     return payload
 
 
+async def _load_license_row():
+    """读取最新授权行，并在同事务内推进时间回拨锚点。
+
+    锚点语义（last_seen_at）：历史观测到的最大服务器时间。
+    用 SQL GREATEST(COALESCE(last_seen_at, now), now) 保证只进不退——
+    即使本次请求时间被拨回，锚点也不会被拉低，检测持续有效。
+    写库频率受外层状态缓存（60s TTL）约束，约每分钟最多一次 UPDATE。
+    """
+    from app.database import async_session
+    from app.models.license import LicenseInfo
+
+    now_dt = datetime.now(timezone.utc)
+    async with async_session() as session:
+        r = await session.execute(
+            select(LicenseInfo).order_by(LicenseInfo.id.desc()).limit(1)
+        )
+        row = r.scalar_one_or_none()
+        if row is not None:
+            await session.execute(
+                text(
+                    "UPDATE license_info SET last_seen_at = "
+                    "GREATEST(COALESCE(last_seen_at, :now), :now) WHERE id = :rid"
+                ),
+                {"now": now_dt, "rid": row.id},
+            )
+            await session.commit()
+            # 重新读取，使内存行携带推进后的锚点（含历史最大值）
+            r2 = await session.execute(select(LicenseInfo).where(LicenseInfo.id == row.id))
+            row = r2.scalar_one_or_none()
+        return row
+
+
+async def _auto_init_trial() -> bool:
+    """首次部署自动激活试用版：license_info 空表时写入一条 3 个月试用记录。
+
+    幂等：写入前复查表是否已空；单进程 uvicorn 下无竞态，
+    复查是为了防多 worker / 升级重启瞬间的并发双写。
+    """
+    from app.database import async_session
+    from app.models.license import LicenseInfo
+
+    now_dt = datetime.now(timezone.utc)
+    async with async_session() as session:
+        r = await session.execute(select(LicenseInfo).limit(1))
+        if r.scalar_one_or_none() is not None:
+            return False
+        row = LicenseInfo(
+            version="trial",
+            source="auto",
+            license_code="AUTO-TRIAL",
+            fingerprint=get_machine_fingerprint(),
+            activated_at=now_dt,
+            expires_at=now_dt + timedelta(days=TRIAL_DAYS),
+            last_seen_at=now_dt,
+            is_active=True,
+        )
+        session.add(row)
+        await session.commit()
+    logger.info(
+        "授权模式：首次部署自动激活试用版 %d 天，到期 %s",
+        TRIAL_DAYS,
+        (now_dt + timedelta(days=TRIAL_DAYS)).isoformat(),
+    )
+    return True
+
+
+def _to_utc(dt) -> datetime:
+    """naive datetime 视为 UTC，保证比较安全。"""
+    return dt if dt.tzinfo else dt.replace(tzinfo=timezone.utc)
+
+
 async def get_license_status(db=None):
-    """返回当前授权状态（供授权页 / 中间件 / 登录页使用）。"""
+    """返回当前授权状态（供授权页 / 中间件 / 登录页使用）。
+
+    v4.3.5 行为：
+      - LICENSE_ENABLED=False → 不启用授权限制；
+      - license_info 空表 → 自动激活 3 个月试用（source='auto'），不锁定；
+      - 非永久授权 → 时间回拨检测（被回拨 → 临时锁定，不入缓存，校时自愈）；
+      - 试用到期 → 锁定（仅授权页可用），需厂商 full 激活码解锁。
+    """
     now = time.time()
     cached = _CACHE.get("status")
     if cached and now - _CACHE["ts"] < CACHE_TTL:
@@ -122,70 +212,96 @@ async def get_license_status(db=None):
         _CACHE["status"], _CACHE["ts"] = status, now
         return status
 
-    # 读 DB（缓存未命中时）
-    from app.database import async_session
-    from app.models.license import LicenseInfo
-
-    async def _load():
-        async with async_session() as session:
-            r = await session.execute(
-                select(LicenseInfo).order_by(LicenseInfo.id.desc()).limit(1)
-            )
-            return r.scalar_one_or_none()
-
-    license_row = await _load()
+    # 读 DB（顺带推进回拨锚点）
+    license_row = await _load_license_row()
 
     if license_row is None:
-        status = {
-            "enabled": True,
-            "activated": False,
-            "locked": True,
-            "version": None,
-            "permanent": False,
-            "expires_at": None,
-            "days_left": None,
-            "reason": "未激活",
-            "fingerprint": get_machine_fingerprint(),
-        }
-    else:
-        permanent = license_row.version == "full" or license_row.expires_at is None
-        expires = license_row.expires_at
-        if permanent:
+        # ---- 首次部署：自动激活 3 个月试用（空表自动写入，无需厂商参与）----
+        try:
+            await _auto_init_trial()
+        except Exception:
+            logger.exception("授权初始化失败：自动激活试用版写入异常")
+        license_row = await _load_license_row()
+        if license_row is None:
             status = {
                 "enabled": True,
-                "activated": True,
-                "locked": False,
-                "version": license_row.version,
-                "permanent": True,
+                "activated": False,
+                "locked": True,
+                "version": None,
+                "permanent": False,
                 "expires_at": None,
                 "days_left": None,
-                "reason": "全功能版（永久）",
+                "reason": "授权初始化失败（数据库异常），请检查系统日志",
                 "fingerprint": get_machine_fingerprint(),
             }
-        else:
-            expire_dt = expires if expires.tzinfo else expires.replace(tzinfo=timezone.utc)
-            now_dt = datetime.now(timezone.utc)
-            days_left = (expire_dt - now_dt).days
-            locked = expire_dt < now_dt
-            status = {
-                "enabled": True,
-                "activated": True,
-                "locked": locked,
-                "version": license_row.version,
-                "permanent": False,
-                "expires_at": expire_dt.isoformat(),
-                "days_left": days_left,
-                "reason": "授权已到期，平台已锁定" if locked else "测试版（3 个月）",
-                "fingerprint": get_machine_fingerprint(),
-            }
+            _CACHE["status"], _CACHE["ts"] = status, now
+            return status
+
+    permanent = license_row.version == "full" or license_row.expires_at is None
+    fp = get_machine_fingerprint()
+    if permanent:
+        status = {
+            "enabled": True,
+            "activated": True,
+            "locked": False,
+            "version": license_row.version,
+            "permanent": True,
+            "expires_at": None,
+            "days_left": None,
+            "reason": "全功能版（永久）",
+            "fingerprint": fp,
+        }
+        _CACHE["status"], _CACHE["ts"] = status, now
+        return status
+
+    # ---- 试用期（非永久）：时间回拨检测 + 到期判定 ----
+    expire_dt = _to_utc(license_row.expires_at)
+    now_dt = datetime.now(timezone.utc)
+
+    # 时间回拨检测：当前时间比历史锚点落后超过容差 → 判定被回拨
+    seen = license_row.last_seen_at
+    rolled_back = (
+        seen is not None
+        and now_dt < _to_utc(seen) - timedelta(seconds=CLOCK_ROLLBACK_TOLERANCE)
+    )
+    if rolled_back:
+        # 临时锁定：不入缓存 → 每次请求实时判定，服务器时间校准后自动恢复
+        return {
+            "enabled": True,
+            "activated": True,
+            "locked": True,
+            "version": license_row.version,
+            "permanent": False,
+            "expires_at": expire_dt.isoformat(),
+            "days_left": (expire_dt - now_dt).days,
+            "reason": "检测到系统时间异常回拨，请校准服务器时间（校准后自动恢复）",
+            "fingerprint": fp,
+        }
+
+    days_left = (expire_dt - now_dt).days
+    locked = expire_dt < now_dt
+    reason = (
+        "授权已到期，平台已锁定"
+        if locked
+        else ("试用版（自动激活）" if license_row.source == "auto" else "试用版（3 个月）")
+    )
+    status = {
+        "enabled": True,
+        "activated": True,
+        "locked": locked,
+        "version": license_row.version,
+        "permanent": False,
+        "expires_at": expire_dt.isoformat(),
+        "days_left": days_left,
+        "reason": reason,
+        "fingerprint": fp,
+    }
     _CACHE["status"], _CACHE["ts"] = status, now
     return status
 
 
 async def activate_license(license_code: str) -> dict:
     """激活：验签 → 指纹比对 → 写入 DB。返回 (ok, message, status)。"""
-    from datetime import timedelta
-
     from app.database import async_session
     from app.models.license import LicenseInfo
 
@@ -206,13 +322,16 @@ async def activate_license(license_code: str) -> dict:
         except (ValueError, TypeError):
             return {"ok": False, "message": "激活码到期日期无效"}
 
+    now_dt = datetime.now(timezone.utc)
     async with async_session() as session:
         row = LicenseInfo(
             version=ver,
+            source="manual",
             license_code=license_code.strip(),
             fingerprint=local_fp,
-            activated_at=datetime.now(timezone.utc),
+            activated_at=now_dt,
             expires_at=expires_at,
+            last_seen_at=now_dt,
             is_active=True,
         )
         session.add(row)
