@@ -115,7 +115,7 @@ AIOps/
 ### 前置
 - Python 3.13+
 - Node.js 18+
-- PostgreSQL 16+（默认库 `aiops` / 用户 `aiops` / 密码 `aiops123`，可用 `.env` 覆盖）
+- PostgreSQL 16+（连接信息通过 `.env` 配置，见下文环境变量说明）
 
 ### 1. 后端
 
