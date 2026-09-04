@@ -1,6 +1,13 @@
-"""设备可达性检测服务 - 每5秒SNMP探测设备存活状态，连续3次无响应判定离线"""
+"""设备可达性检测服务 - 每5秒探测设备存活状态（SNMP + ping 双重探测），连续3次双失败判定离线。
+
+离线判定策略：
+  - SNMP 正常 → 在线；
+  - SNMP 无响应但 ping 可达 → 网络通、仅 SNMP 异常，标 warning 不计离线；
+  - SNMP 与 ping 均无响应 → 计入失败，连续 3 次双失败判定离线。
+"""
 import asyncio
 import logging
+import sys
 from datetime import datetime, timezone, timedelta
 
 from sqlalchemy import select
@@ -41,6 +48,26 @@ OFFLINE_RULE_NAME = "设备不可达"
 _failure_counts: dict[int, int] = {}
 
 
+async def _ping_ok(ip: str) -> bool:
+    """异步 ping 探测（跨平台），收到 TTL 响应即视为可达。
+
+    - Windows: `ping -n <count> -w <ms>`（Linux 的 -n/-w 语义不同，需区分）
+    - Linux:   `ping -c <count> -W <sec>`
+    """
+    if sys.platform == "win32":
+        cmd = ["ping", "-n", "2", "-w", "2000", ip]
+    else:
+        cmd = ["ping", "-c", "2", "-W", "2", ip]
+    try:
+        proc = await asyncio.create_subprocess_exec(
+            *cmd, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE,
+        )
+        out, _ = await asyncio.wait_for(proc.communicate(), timeout=10)
+        return out.decode("utf-8", errors="replace").upper().count("TTL=") > 0
+    except Exception:
+        return False
+
+
 async def _check_single_device(db: AsyncSession, device: Device):
     """探测单台设备并更新状态，必要时生成/恢复离线告警"""
     community = reveal_secret(device.snmp_community) or "aiops"
@@ -58,7 +85,22 @@ async def _check_single_device(db: AsyncSession, device: Device):
         # 告警不一致，若仅依赖 was_offline 转换则 active 告警永远不会被恢复。
         await _resolve_offline_alerts(db, device)
     else:
-        # 探测失败：递增计数器
+        # SNMP 无响应 → ping 二次确认：双失败才计入离线判定
+        if await _ping_ok(device.ip):
+            # ping 可达：网络通，仅 SNMP 异常（如 community 错误/UDP 被禁/agent 停止）。
+            # 不计离线失败、不生成离线告警，标 warning 提示采集异常。
+            _failure_counts[device.id] = 0
+            if device.status != "warning":
+                logger.info(
+                    f"Device {device.name}({device.ip}) -> warning "
+                    f"(ping ok but SNMP no response)"
+                )
+            device.status = "warning"
+            device.last_seen = datetime.now(timezone.utc)
+            # 网络已可达，此前若存在离线告警（如旧逻辑误判）应恢复
+            await _resolve_offline_alerts(db, device)
+            return
+
         current = _failure_counts.get(device.id, 0) + 1
         _failure_counts[device.id] = current
 
@@ -115,7 +157,7 @@ async def _ensure_offline_alert(db: AsyncSession, device: Device):
         severity="critical",
         message=(
             f"设备 {device.name}({device.ip}) 不可达："
-            f"SNMP 已连续 {MAX_FAILURES} 次无响应，判定为离线"
+            f"SNMP 与 ping 均连续 {MAX_FAILURES} 次无响应，判定为离线"
         ),
         status="active",
         triggered_at=datetime.now(timezone.utc),
@@ -133,7 +175,7 @@ async def _ensure_offline_alert(db: AsyncSession, device: Device):
                 f"设备名称：{device.name}\n"
                 f"IP 地址：{device.ip}\n"
                 f"严重级别：严重\n"
-                f"告警内容：设备不可达，SNMP 已连续 {MAX_FAILURES} 次无响应，判定为离线\n\n"
+                f"告警内容：设备不可达，SNMP 与 ping 均连续 {MAX_FAILURES} 次无响应，判定为离线\n\n"
                 f"—— AIOps 智能运维托管平台"
             ),
             dedup_key=f"offline:{device.id}",
@@ -209,7 +251,7 @@ async def health_check_loop():
     """后台健康检测循环 - 每5秒执行一轮"""
     # 启动后等待10秒，确保DB就绪
     await asyncio.sleep(10)
-    logger.info("Device health check service started (interval=5s, max_failures=3)")
+    logger.info("Device health check service started (interval=5s, probe=snmp+ping, max_failures=3)")
 
     while True:
         try:

@@ -118,6 +118,12 @@ const routes = [
         meta: { title: '显示设置' },
       },
       {
+        path: 'ai',
+        name: 'AiSettings',
+        component: () => import('../views/AiSettings.vue'),
+        meta: { title: 'AI 辅助' },
+      },
+      {
         path: 'audit-logs',
         name: 'AuditLogs',
         component: () => import('../views/AuditLogs.vue'),

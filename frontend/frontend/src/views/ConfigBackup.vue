@@ -105,6 +105,7 @@
                 <td class="px-4 py-3">
                   <div class="flex gap-2">
                     <button v-if="b.status === 'success'" class="text-cyan-400 hover:text-cyan-300 text-xs" @click="viewConfig(b.id)">查看</button>
+                    <button v-if="b.status === 'success'" class="text-cyan-400 hover:text-cyan-300 text-xs" @click="openAi(b.id)">AI 分析</button>
                     <button v-if="b.status !== 'success' && b.error_message" class="text-orange-400 hover:text-orange-300 text-xs" @click="showError(b)">原因</button>
                     <button class="text-red-400 hover:text-red-300 text-xs" @click="deleteBackup(b.id)">删除</button>
                   </div>
@@ -356,10 +357,14 @@
       </div>
     </div>
   </div>
+
+  <!-- AI 差异分析面板 -->
+  <AiPanel v-model:open="aiOpen" title="AI 配置差异分析" :path="aiPath" />
 </template>
 
 <script setup>
 import { ref, computed, onMounted } from 'vue'
+import AiPanel from '../components/AiPanel.vue'
 
 const API = '/api/v1'
 
@@ -632,5 +637,13 @@ async function deleteSchedule(id) {
   if (!confirm('确认删除此备份计划？')) return
   await fetch(`${API}/config-backups/schedules/${id}`, { method: 'DELETE' })
   await loadSchedules()
+}
+
+// AI 配置差异分析
+const aiOpen = ref(false)
+const aiPath = ref('')
+function openAi(backupId) {
+  aiPath.value = `/ai/explain/backup/${backupId}`
+  aiOpen.value = true
 }
 </script>

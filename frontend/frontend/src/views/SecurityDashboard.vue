@@ -8,6 +8,10 @@
       </div>
       <div class="flex items-center gap-2">
         <span class="text-xs text-ink-faint">自动刷新: 15s</span>
+        <button
+          @click="aiOpen = true"
+          class="px-3 py-1.5 text-xs rounded-lg bg-violet-500/10 text-violet-400 border border-violet-500/20 hover:bg-violet-500/20 transition-colors"
+        >AI 运维日报</button>
       </div>
     </div>
 
@@ -58,6 +62,9 @@
       </div>
     </div>
   </div>
+
+  <!-- AI 运维日报面板 -->
+  <AiPanel v-model:open="aiOpen" title="AI 运维日报" path="/ai/report/daily" />
 </template>
 
 <script setup>
@@ -65,6 +72,9 @@ import { chartTheme } from '../utils/chartTheme'
 const cc = chartTheme()
 import { ref, computed, onMounted, onUnmounted, nextTick } from 'vue'
 import * as echarts from 'echarts'
+import AiPanel from '../components/AiPanel.vue'
+
+const aiOpen = ref(false)
 
 const API_BASE = '/api/v1'
 

@@ -81,6 +81,9 @@
     >
       <router-view />
     </main>
+
+    <!-- 全局 AI 助手（悬浮球 + 抽屉） -->
+    <AiAssistant />
   </div>
 </template>
 
@@ -110,9 +113,11 @@ import {
   SunIcon,
   MoonIcon,
   SwatchIcon,
+  SparklesIcon,
 } from '@heroicons/vue/24/outline'
 import { playAlert, playRecovered, unlock } from './utils/voiceAlert'
 import { getThemeMode, applyTheme as applyThemeUtil, switchTheme } from './utils/theme.js'
+import AiAssistant from './components/AiAssistant.vue'
 
 const route = useRoute()
 const versionText = ref('4.0')
@@ -131,6 +136,7 @@ const mainNav = [
 ]
 
 const settingsNav = [
+  { path: '/settings/ai', label: 'AI 辅助', icon: SparklesIcon },
   { path: '/settings/mail', label: '邮件告警', icon: EnvelopeIcon },
   { path: '/settings/alert-rules', label: '告警规则', icon: BellIcon },
   { path: '/settings/account', label: '账号管理', icon: UserIcon },
