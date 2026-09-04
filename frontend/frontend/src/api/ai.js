@@ -76,6 +76,7 @@ export async function aiStream(path, body, handlers = {}) {
           handlers.onError && handlers.onError(obj.error)
           return
         }
+        if (obj.cached && handlers.onCached) handlers.onCached()
         if (obj.t) handlers.onDelta && handlers.onDelta(obj.t)
       } catch { /* 跳过坏帧 */ }
     }

@@ -1,6 +1,9 @@
 # AIOps 智能运维托管平台
 
-面向网络与安全设备的 7×24 智能监控与运维平台。单机一体化部署，支持设备台账、实时监控、智能告警、网络拓扑、配置备份、合规巡检、安全态势、移动 APP 与一键升级。
+[![Release](https://img.shields.io/github/v/release/xkqs1280/AIOps-Platform)](https://github.com/xkqs1280/AIOps-Platform/releases)
+[![License](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
+
+面向网络与安全设备的 7×24 智能监控与运维平台。单机一体化部署，支持设备台账、实时监控、智能告警、网络拓扑、配置备份、合规巡检、安全态势、AI 辅助运维、移动 APP 与一键升级。
 
 设备一多，靠人盯班就是一场灾难：告警刷屏看不过来、配置改动没记录、巡检报告熬夜手写、故障定位全凭经验。AIOps 平台专门解决这些问题——一套系统管住「看得见、报得准、查得快、备得上」。以下全部为平台真实运行界面截图。
 
@@ -55,6 +58,14 @@
 设备配置定时/手动备份，配置变化留痕，故障时可随时回滚比对——「谁改了配置」不再是悬案。
 
 ![配置备份：定时计划 + 手动备份 + 历史记录](docs/screenshots/09-backup.png)
+
+### 09 AI 辅助运维：接入大模型，告警有人解读、报告有人代写（v4.4.0 新增）
+
+OpenAI 兼容协议一键接入（Ollama 本地 / 内网网关 / 云端 API 均可），告警 AI 解读、配置差异分析、巡检 AI 总结、AI 运维日报（领导汇报版）、CLI 命令助手、全局悬浮助手六大场景；内置 RAG 知识库（向量 + 关键词混合检索），运维经验文档上传即可被检索引用。SSE 流式输出、结果缓存 24h、API Key 加密存储、敏感凭据自动脱敏——设备密码与 SNMP 团体字永不进入 AI prompt。
+
+![AI 辅助设置：模型接入 + RAG 知识库 + 调用审计](docs/screenshots/10-ai-settings.png)
+
+![AI 告警解读：根因分析 + 处置建议 + 风险提示](docs/screenshots/11-ai-alert.png)
 
 ### 更多能力
 
@@ -163,6 +174,10 @@ npm run dev                               # 默认 5173，已配置代理到后�
 平台内置「系统设置 → 系统升级」：上传厂商签名升级包（`tools/build_upgrade_package.py` 制作）→ 自动备份程序/配置/数据库快照 → 替换 → 重启 → 健康自检 → 失败自动回滚。数据（PostgreSQL）与 `.env` 加密密钥全程保留。
 
 > 升级包校验使用 RSA-SHA256 签名，签名私钥由厂商保管（不在本仓库内）。
+
+## 版本发布
+
+已发布版本与升级包见 [Releases](https://github.com/xkqs1280/AIOps-Platform/releases)，每个版本的 `aiops-upgrade-vX.Y.Z.zip` 可直接在平台「系统设置 → 系统升级」中上传使用。
 
 ## 许可证
 
