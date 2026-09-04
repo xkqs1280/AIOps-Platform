@@ -74,10 +74,26 @@ async def _cached_sse(scene: str, cache_key: str, user: str, target: str,
     """带缓存的场景解读：命中直接推送，未命中流式生成后写缓存。"""
     cached = await svc.cache_get(db, cache_key)
     if cached is not None:
+        # 命中路径直接输出帧，绝不经过 _sse_response 二次包装
+        #（wrapper 会把 delta 再包一层 data: 帧，导致客户端收到原始帧文本）。
+        t0 = time.monotonic()
+
         async def one_shot():
             yield f"data: {json.dumps({'t': cached, 'cached': True}, ensure_ascii=False)}\n\n"
+            duration = int((time.monotonic() - t0) * 1000)
+            try:
+                async with async_session() as s2:
+                    await svc.log_ai(db=s2, user=user, scene=scene, target=target,
+                                     model="", ok=True, duration_ms=duration, error=None)
+            except Exception:
+                pass
             yield "data: [DONE]\n\n"
-        return await _sse_response(scene, user, target, one_shot(), db=db)
+
+        return StreamingResponse(
+            one_shot(),
+            media_type="text/event-stream",
+            headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no", "Connection": "keep-alive"},
+        )
 
     async def _gen():
         async with svc._ai_semaphore:

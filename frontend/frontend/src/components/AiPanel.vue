@@ -73,10 +73,10 @@ async function run() {
   await aiStream(props.path, props.body, {
     onDelta(t) {
       if (my !== seq) return
-      if (t.cached) cached.value = true
       content.value += t
       nextTick(() => { if (bodyRef.value) bodyRef.value.scrollTop = bodyRef.value.scrollHeight })
     },
+    onCached() { if (my === seq) cached.value = true },
     onError(e) { if (my === seq) error.value = e },
     onDone() { if (my === seq) loading.value = false },
   })
