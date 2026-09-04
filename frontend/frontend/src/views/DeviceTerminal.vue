@@ -46,6 +46,12 @@
         >
           ↻ 重连
         </button>
+        <button
+          @click="cliOpen = !cliOpen"
+          class="rounded-lg px-3 py-1.5 text-xs font-medium transition-colors bg-violet-500/10 text-violet-400 border border-violet-500/20 hover:bg-violet-500/20"
+        >
+          ✦ AI 助手
+        </button>
       </div>
     </div>
 
@@ -58,6 +64,38 @@
       >
         {{ closeMsg }}
       </div>
+
+      <!-- AI 命令助手侧板 -->
+      <transition name="slide">
+        <div v-if="cliOpen" class="absolute top-0 right-0 h-full w-[480px] max-w-full bg-surface border-l border-line flex flex-col shadow-2xl">
+          <div class="flex items-center justify-between px-4 py-3 border-b border-line shrink-0">
+            <span class="text-sm font-semibold text-ink flex items-center gap-1.5">
+              <span class="text-violet-400">✦</span>AI 命令助手
+            </span>
+            <button @click="cliOpen = false" class="text-ink-faint hover:text-ink text-sm px-1.5">✕</button>
+          </div>
+          <div class="flex-1 overflow-y-auto p-4">
+            <div v-if="!cliOut && !cliStreaming" class="text-xs text-ink-faint space-y-2">
+              <p>描述你想完成的操作，AI 按该设备厂商语法给出命令建议。</p>
+              <p>示例：配置 GE1/0/1 端口镜像到 GE1/0/24、查看 CPU 占用最高的进程、备份当前配置。</p>
+            </div>
+            <AiMarkdown v-else :text="cliOut + (cliStreaming ? ' ▍' : '')" />
+            <div v-if="cliError" class="mt-2 text-xs text-red-400">{{ cliError }}</div>
+          </div>
+          <div class="border-t border-line p-3 flex items-end gap-2 shrink-0">
+            <textarea
+              v-model="cliQ" rows="2" placeholder="例如：查看端口 GE1/0/1 的流量统计"
+              class="flex-1 resize-none px-3 py-2 rounded-lg bg-surface-2 border border-line text-xs text-ink outline-none focus:border-violet-500"
+              :disabled="cliStreaming" @keydown.enter.exact.prevent="askCli"
+            ></textarea>
+            <button
+              @click="askCli" :disabled="cliStreaming || !cliQ.trim()"
+              class="px-3 py-2 rounded-lg bg-violet-600 text-white text-xs font-medium disabled:opacity-40 shrink-0"
+            >生成</button>
+          </div>
+          <p class="text-[10px] text-ink-faint px-3 pb-2">命令仅供参考，请在终端人工确认后执行</p>
+        </div>
+      </transition>
     </div>
   </div>
 </template>
@@ -69,6 +107,28 @@ import { Terminal } from 'xterm'
 import { FitAddon } from '@xterm/addon-fit'
 import 'xterm/css/xterm.css'
 import { getDevice } from '../api/index.js'
+import { aiStream } from '../api/ai.js'
+import AiMarkdown from '../components/AiMarkdown.vue'
+
+// AI 命令助手
+const cliOpen = ref(false)
+const cliQ = ref('')
+const cliOut = ref('')
+const cliError = ref('')
+const cliStreaming = ref(false)
+
+function askCli() {
+  const q = cliQ.value.trim()
+  if (!q || cliStreaming.value) return
+  cliStreaming.value = true
+  cliOut.value = ''
+  cliError.value = ''
+  aiStream('/ai/cli/advice', { device_id: Number(deviceId), question: q }, {
+    onDelta(t) { cliOut.value += t },
+    onError(e) { cliError.value = e; cliStreaming.value = false },
+    onDone() { cliStreaming.value = false },
+  })
+}
 
 const route = useRoute()
 const deviceId = route.params.id
@@ -239,3 +299,8 @@ onBeforeUnmount(() => {
   }
 })
 </script>
+
+<style scoped>
+.slide-enter-active, .slide-leave-active { transition: transform 0.2s ease; }
+.slide-enter-from, .slide-leave-to { transform: translateX(100%); }
+</style>

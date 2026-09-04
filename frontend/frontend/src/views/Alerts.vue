@@ -2,6 +2,15 @@
 import { ref, computed, onMounted, onUnmounted, watch } from 'vue'
 import { getAlerts, deleteAlert, clearAlerts, getMe } from '../api/index.js'
 import { getConfig, setConfig, unlock, test } from '../utils/voiceAlert'
+import AiPanel from '../components/AiPanel.vue'
+
+// AI 告警解读
+const aiOpen = ref(false)
+const aiPath = ref('')
+function openAi(alert) {
+  aiPath.value = `/ai/explain/alert/${alert.id}`
+  aiOpen.value = true
+}
 
 const alerts = ref([])
 const total = ref(0)
@@ -498,12 +507,20 @@ onUnmounted(() => {
                   </span>
                 </td>
                 <td class="py-3 px-4">
-                  <button
-                    @click="removeAlert(alert)"
-                    class="px-2.5 py-1 text-xs rounded bg-red-500/10 text-red-400 border border-red-500/20 hover:bg-red-500/20 transition-colors"
-                  >
-                    删除
-                  </button>
+                  <div class="flex items-center gap-1.5">
+                    <button
+                      @click="openAi(alert)"
+                      class="px-2.5 py-1 text-xs rounded bg-cyan-500/10 text-cyan-400 border border-cyan-500/20 hover:bg-cyan-500/20 transition-colors"
+                    >
+                      AI 解读
+                    </button>
+                    <button
+                      @click="removeAlert(alert)"
+                      class="px-2.5 py-1 text-xs rounded bg-red-500/10 text-red-400 border border-red-500/20 hover:bg-red-500/20 transition-colors"
+                    >
+                      删除
+                    </button>
+                  </div>
                 </td>
               </tr>
             </tbody>
@@ -562,4 +579,7 @@ onUnmounted(() => {
       </div>
     </div>
   </div>
+
+  <!-- AI 解读面板 -->
+  <AiPanel v-model:open="aiOpen" title="AI 告警解读" :path="aiPath" />
 </template>

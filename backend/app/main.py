@@ -29,6 +29,7 @@ from app.routers import terminal
 from app.routers import license
 from app.routers import auth
 from app.routers import settings as settings_router
+from app.routers import ai as ai_router
 from app.routers import system
 
 logger = logging.getLogger(__name__)
@@ -247,6 +248,7 @@ app.include_router(business_monitor.router, prefix=settings.API_PREFIX)
 app.include_router(license.router, prefix=settings.API_PREFIX)
 app.include_router(auth.router, prefix=settings.API_PREFIX)
 app.include_router(settings_router.router, prefix=settings.API_PREFIX)
+app.include_router(ai_router.router, prefix=settings.API_PREFIX)
 app.include_router(system.router, prefix=settings.API_PREFIX)
 
 
@@ -260,7 +262,7 @@ async def login_page():
     """返回 SPA（前端 Login.vue）实现「登录即解锁语音」。无前端产物时回退内置登录页。"""
     _idx = _os.path.join(_DIST_DIR, "index.html")
     if _os.path.isfile(_idx):
-        return FileResponse(_idx)
+        return FileResponse(_idx, headers=_NO_CACHE_HEADERS)
     return HTMLResponse(LEGACY_LOGIN_HTML)
 
 
@@ -272,6 +274,10 @@ LEGACY_LOGIN_HTML = """<!doctype html><html lang='zh-CN'><meta charset='utf-8'><
 # 使 Windows 一键部署包可单进程、单端口运行（http://IP:8000）；不影响常规前后端分离部署。
 import os as _os
 from fastapi.responses import FileResponse, JSONResponse
+
+# SPA 入口 index.html 禁止缓存（assets 带 hash 可长缓存）：
+# 否则浏览器启发式缓存旧 index.html，前端发版后用户看到的仍是旧版本。
+_NO_CACHE_HEADERS = {"Cache-Control": "no-cache, no-store, must-revalidate", "Pragma": "no-cache"}
 
 
 def _resolve_dist_dir() -> str:
@@ -329,7 +335,7 @@ async def _mobile_static(full_path: str = ""):
         return FileResponse(candidate)
     index = _os.path.join(_MOBILE_DIST_DIR, "index.html")
     if _os.path.isfile(index):
-        return FileResponse(index)
+        return FileResponse(index, headers=_NO_CACHE_HEADERS)
     return JSONResponse({"detail": "Not Found"}, status_code=404)
 
 
@@ -349,7 +355,7 @@ async def root(request: Request):
             return response
     _idx = _os.path.join(_DIST_DIR, "index.html")
     if _os.path.isfile(_idx):
-        return FileResponse(_idx)
+        return FileResponse(_idx, headers=_NO_CACHE_HEADERS)
     return {"status": "ok", "service": "AIOps Platform", "version": APP_VERSION}
 
 
@@ -369,5 +375,5 @@ async def _spa_static(full_path: str):
         return FileResponse(candidate)
     index = _os.path.join(_DIST_DIR, "index.html")
     if _os.path.isfile(index):
-        return FileResponse(index)
+        return FileResponse(index, headers=_NO_CACHE_HEADERS)
     return JSONResponse({"detail": "Not Found"}, status_code=404)

@@ -55,6 +55,11 @@
                 >详情</button>
                 <button
                   v-if="task.status === 'completed'"
+                  @click="openAi(task)"
+                  class="px-2.5 py-1 text-xs rounded bg-violet-500/10 text-violet-400 border border-violet-500/20 hover:bg-violet-500/20"
+                >AI 总结</button>
+                <button
+                  v-if="task.status === 'completed'"
                   @click="downloadFile(task.id, 'excel')"
                   class="px-2.5 py-1 text-xs rounded bg-green-500/10 text-green-400 border border-green-500/20 hover:bg-green-500/20"
                 >Excel</button>
@@ -179,11 +184,23 @@
       </div>
     </div>
   </div>
+
+  <!-- AI 巡检总结面板 -->
+  <AiPanel v-model:open="aiOpen" title="AI 巡检总结" :path="aiPath" />
 </template>
 
 <script setup>
 import { ref, computed, onMounted, onUnmounted } from 'vue'
 import { getDevices, getInspectionTasks, createInspectionTask } from '../api'
+import AiPanel from '../components/AiPanel.vue'
+
+// AI 巡检总结
+const aiOpen = ref(false)
+const aiPath = ref('')
+function openAi(task) {
+  aiPath.value = `/ai/summary/inspection/${task.id}`
+  aiOpen.value = true
+}
 
 const API_BASE = '/api/v1'
 
