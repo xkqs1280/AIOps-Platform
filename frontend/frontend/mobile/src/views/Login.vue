@@ -73,6 +73,15 @@
       </div>
 
       <p v-if="error" class="text-center text-xs text-red-400">{{ error }}</p>
+
+      <!-- 原生端: HTTPS 自签证书场景, 一键引导安装平台根证书 -->
+      <button
+        v-if="isNative"
+        @click="installCa"
+        class="mx-auto mt-1 block text-[11px] text-ink-faint underline decoration-dotted underline-offset-2 active:text-cyan-400"
+      >
+        HTTPS 连不上? 点此安装平台根证书
+      </button>
     </div>
 
     <p class="mt-8 text-center text-[10px] text-ink-faint">支持接入任意已部署的 AIOps 平台服务器</p>
@@ -81,12 +90,14 @@
 
 <script setup>
 import { ref, onMounted } from 'vue'
+import { Capacitor } from '@capacitor/core'
 import { useRouter } from 'vue-router'
 import { login } from '../api.js'
 import { getServer, setServer, setToken } from '../store.js'
 import { startAlertPolling } from '../notifications.js'
 
 const router = useRouter()
+const isNative = Capacitor.isNativePlatform()
 const ip = ref('')
 const port = ref(8000)
 const remembered = ref(true)
@@ -103,6 +114,17 @@ onMounted(() => {
     remembered.value = saved.remembered !== false
   }
 })
+
+async function installCa() {
+  error.value = ''
+  try {
+    const res = await Capacitor.Plugins.CaInstaller.installRootCertificate()
+    // 系统证书安装界面已唤起, 用户完成后返回
+    error.value = '已在系统中打开证书安装界面，请按提示完成安装'
+  } catch (e) {
+    error.value = '启动证书安装失败：' + (e?.message || '未知错误')
+  }
+}
 
 async function doLogin() {
   const serverIp = ip.value.trim()
