@@ -128,7 +128,11 @@ def log_state(message: str) -> dict:
 
 
 def get_status() -> dict:
-    """对外暴露的状态（脱敏：去掉内部字段）。"""
+    """对外暴露的状态（脱敏：去掉内部字段）。
+
+    读取前先做惰性过期：完成态超过 30 分钟自动清除（done → idle）。
+    """
+    _maybe_expire_done_state()
     s = load_state()
     return {
         "state": s["state"],
@@ -343,6 +347,57 @@ _ACTIVE_STATES = (STATE_UPLOADING, STATE_VALIDATING, STATE_BACKUP, STATE_APPLYIN
                   STATE_REPLACING, STATE_RESTARTING, STATE_VERIFYING)
 # 升级中间态超过该秒数仍未完成，视为"僵尸状态"（进程已死/中断），自动重置解锁
 _ZOMBIE_TIMEOUT_SECONDS = 300
+# 升级完成态（done/rolled_back）保留时长：超过 30 分钟自动清除，回到 idle，
+# 避免"升级完成"提示与旧日志在页面上无限期残留
+_DONE_STATE_TTL_SECONDS = 30 * 60
+
+
+def _completion_time(s: dict):
+    """完成态的时间锚点：优先 finished_at（python 侧写入），
+    否则退回状态文件 mtime（ps1/sh 写 done 的那次落盘即完成时刻，最可靠）。"""
+    from datetime import datetime
+
+    raw = s.get("finished_at")
+    if raw:
+        try:
+            return datetime.strptime(str(raw)[:19], "%Y-%m-%d %H:%M:%S")
+        except Exception:
+            pass
+    try:
+        return datetime.fromtimestamp(_state_file().stat().st_mtime)
+    except Exception:
+        return None
+
+
+def _maybe_expire_done_state() -> None:
+    """done/rolled_back 完成态保留超过 _DONE_STATE_TTL_SECONDS 后自动清除（惰性过期）。
+
+    在状态读取入口调用：任何一次查询发现完成态已超时，即复位为 idle（日志保留供回溯），
+    页面随后回到"空闲"，不再一直显示升级完成。终端状态不会阻止再次升级，清除无副作用。
+    """
+    s = load_state()
+    if s["state"] not in (STATE_DONE, STATE_ROLLED_BACK):
+        return
+    done_at = _completion_time(s)
+    if done_at is None:
+        return
+    from datetime import datetime
+
+    if (datetime.now() - done_at).total_seconds() < _DONE_STATE_TTL_SECONDS:
+        return
+    # 超时 → 复位为 idle；先追加一条日志（log_state 会读最新文件），保留升级记录
+    log_state("升级完成状态已自动清除（完成后保留 30 分钟）")
+    save_state(
+        state=STATE_IDLE,
+        progress=0,
+        message="",
+        from_version=APP_VERSION,
+        to_version=None,
+        started_at=None,
+        finished_at=None,
+        error=None,
+        rollback_available=False,
+    )
 
 
 def _is_zombie_state(s: dict) -> bool:
@@ -362,6 +417,7 @@ def _is_zombie_state(s: dict) -> bool:
 
 def can_upgrade() -> tuple:
     """是否可发起新升级（避免并发）。返回 (ok, reason)。"""
+    _maybe_expire_done_state()
     s = load_state()
     if s["state"] in _ACTIVE_STATES:
         if _is_zombie_state(s):

@@ -120,6 +120,9 @@ const busy = ref(false)
 const upgrading = ref(false)
 const errorMsg = ref('')
 let pollTimer = null
+// 升级完成态自动清除定时器：完成后 30 分钟复查一次（后端届时已复位为 idle，页面自动回到空闲）
+const DONE_CLEAR_DELAY = 30 * 60 * 1000
+let doneClearTimer = null
 
 const stateText = computed(() => {
   const map = {
@@ -161,9 +164,29 @@ async function pollStatus() {
       stopPoll()
       upgrading.value = false
       busy.value = false
+      if (status.value.state === 'done' || status.value.state === 'rolled_back') {
+        scheduleDoneClear() // 完成后 30 分钟自动复查并清除升级状态
+      } else {
+        clearDoneTimer()
+      }
     }
   } catch {
     // 服务重启期间接口可能暂时不可达，继续重试
+  }
+}
+
+function scheduleDoneClear() {
+  clearDoneTimer()
+  doneClearTimer = setTimeout(async () => {
+    doneClearTimer = null
+    await pollStatus()
+  }, DONE_CLEAR_DELAY)
+}
+
+function clearDoneTimer() {
+  if (doneClearTimer) {
+    clearTimeout(doneClearTimer)
+    doneClearTimer = null
   }
 }
 
@@ -177,6 +200,7 @@ function stopPoll() {
     clearInterval(pollTimer)
     pollTimer = null
   }
+  clearDoneTimer()
 }
 
 function onPick(e) {
