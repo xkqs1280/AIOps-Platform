@@ -114,9 +114,13 @@
     <!-- Row 3: h-52 -->
     <div class="grid grid-cols-12 gap-4 h-52">
       <!-- Bandwidth Utilization TOP10 -->
-      <div class="col-span-6 card card-lift p-4 flex flex-col">
+      <div class="col-span-6 card card-lift p-4 flex flex-col relative">
         <PanelTitle title="带宽利用率 TOP10" accent="green" />
         <div ref="bandwidthChartRef" class="flex-1 w-full"></div>
+        <div
+          v-if="bwPlaceholder"
+          class="absolute inset-0 top-8 flex items-center justify-center text-xs text-ink-faint pointer-events-none"
+        >{{ bwPlaceholder }}</div>
       </div>
 
       <!-- Device Lifecycle Reminders -->
@@ -185,7 +189,7 @@
 <script setup>
 import { chartTheme } from '../utils/chartTheme'
 const cc = chartTheme()
-import { ref, onMounted, onUnmounted, nextTick } from 'vue'
+import { ref, computed, onMounted, onUnmounted, nextTick } from 'vue'
 import * as echarts from 'echarts'
 import {
   getDashboardOverview,
@@ -347,10 +351,13 @@ async function fetchAllData() {
   }
 }
 
-// 带宽利用率 TOP10：真实 SNMP 采集较慢（约 10-25s），独立低频刷新，
-// 避免阻塞大屏每 10 秒的主数据刷新。
+// 带宽利用率 TOP10：后端带缓存（首次约 10-30s，之后秒回），
+// 独立低频刷新；防重入避免上一次未返回又叠加请求。
 let bandwidthTimer = null
+let bwFetching = false
 async function fetchBandwidth() {
+  if (bwFetching) return
+  bwFetching = true
   try {
     const bwRes = await getBandwidthRanking()
     bandwidthRanking.value = bwRes.data || []
@@ -358,8 +365,18 @@ async function fetchBandwidth() {
     renderBandwidthChart()
   } catch (err) {
     console.error('Bandwidth ranking fetch error:', err)
+  } finally {
+    bwFetching = false
   }
 }
+
+// 空态/全 0 占位提示：区分「采集中」「无数据」「链路空闲」
+const bwPlaceholder = computed(() => {
+  const d = bandwidthRanking.value
+  if (!d.length) return bwFetching ? '正在采集设备接口流量…' : '暂无数据（设备离线或 SNMP 不通）'
+  if (d.every((x) => !x.bandwidth_usage)) return '链路空闲：当前各接口利用率接近 0%'
+  return ''
+})
 
 // --- Chart Renderers ---
 function renderTypeChart() {
@@ -735,7 +752,7 @@ onMounted(async () => {
   startAlertScroll()
 
   refreshTimer = setInterval(fetchAllData, 10000)
-  bandwidthTimer = setInterval(fetchBandwidth, 30000)
+  bandwidthTimer = setInterval(fetchBandwidth, 15000)
   window.addEventListener('resize', handleResize)
 })
 

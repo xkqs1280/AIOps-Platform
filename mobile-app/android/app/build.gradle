@@ -7,8 +7,8 @@ android {
         applicationId "com.aiops.mobile"
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
-        versionCode 1
-        versionName "1.0"
+        versionCode 2
+        versionName "4.4.0"
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
         aaptOptions {
              // Files and dirs to omit from the packaged assets dir, modified to accommodate modern web apps.
@@ -16,12 +16,38 @@ android {
             ignoreAssetsPattern = '!.svn:!.git:!.ds_store:!*.scc:.*:!CVS:!thumbs.db:!picasa.ini:!*~'
         }
     }
-    buildTypes {
+// Signing config is loaded from an OPTIONAL, gitignored properties file
+// (mobile-app/aiops-signing.properties). Create it locally to sign release builds:
+//   storeFile=../aiops-release.jks
+//   storePassword=...
+//   keyAlias=...
+//   keyPassword=...
+// Without it, release builds produce an unsigned APK. Never commit real credentials.
+def signingProps = new Properties()
+def signingPropsFile = rootProject.file("../aiops-signing.properties")
+def hasSigning = signingPropsFile.exists()
+if (hasSigning) {
+    signingPropsFile.withInputStream { signingProps.load(it) }
+}
+signingConfigs {
+    if (hasSigning) {
         release {
-            minifyEnabled false
-            proguardFiles getDefaultProguardFile('proguard-android.txt'), 'proguard-rules.pro'
+            storeFile file(signingProps['storeFile'])
+            storePassword signingProps['storePassword']
+            keyAlias signingProps['keyAlias']
+            keyPassword signingProps['keyPassword']
         }
     }
+}
+buildTypes {
+    release {
+        if (hasSigning) {
+            signingConfig signingConfigs.release
+        }
+        minifyEnabled false
+        proguardFiles getDefaultProguardFile('proguard-android.txt'), 'proguard-rules.pro'
+    }
+}
 }
 
 repositories {
