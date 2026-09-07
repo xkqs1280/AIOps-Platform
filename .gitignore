@@ -7,11 +7,13 @@
 *.pem
 *.key
 *.jks
+aiops-signing.properties
 *.pfx
 *.crt
 **/vendor_keys/
 **/certs/
 *.jks
+aiops-signing.properties
 
 # === 授权生成工具（绝不提交：可生成有效激活码） ===
 tools/generate_license.py

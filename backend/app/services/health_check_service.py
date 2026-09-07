@@ -43,6 +43,7 @@ DEBOUNCE_MINUTES = 5
 
 # 离线告警规则名（与种子数据中的「设备不可达」告警规则保持一致）
 OFFLINE_RULE_NAME = "设备不可达"
+SNMP_RULE_NAME = "SNMP 采集异常"
 
 # 内存中的失败计数器: {device_id: fail_count}
 _failure_counts: dict[int, int] = {}
@@ -84,21 +85,23 @@ async def _check_single_device(db: AsyncSession, device: Device):
         # 原因：设备状态可能已被其他路径改为 online 或进程重启导致状态与
         # 告警不一致，若仅依赖 was_offline 转换则 active 告警永远不会被恢复。
         await _resolve_offline_alerts(db, device)
+        await _resolve_snmp_alerts(db, device)
     else:
         # SNMP 无响应 → ping 二次确认：双失败才计入离线判定
         if await _ping_ok(device.ip):
-            # ping 可达：网络通，仅 SNMP 异常（如 community 错误/UDP 被禁/agent 停止）。
-            # 不计离线失败、不生成离线告警，标 warning 提示采集异常。
+            # ping 可达：网络通、设备在线。SNMP 异常（community 错/UDP 被禁/
+            # agent 停止）不再覆盖在线状态，改用去重的 warning 告警表达。
             _failure_counts[device.id] = 0
-            if device.status != "warning":
+            if device.status != "online":
                 logger.info(
-                    f"Device {device.name}({device.ip}) -> warning "
-                    f"(ping ok but SNMP no response)"
+                    f"Device {device.name}({device.ip}) -> online "
+                    f"(ping ok, SNMP no response)"
                 )
-            device.status = "warning"
+            device.status = "online"
             device.last_seen = datetime.now(timezone.utc)
             # 网络已可达，此前若存在离线告警（如旧逻辑误判）应恢复
             await _resolve_offline_alerts(db, device)
+            await _ensure_snmp_alert(db, device)
             return
 
         current = _failure_counts.get(device.id, 0) + 1
@@ -115,14 +118,57 @@ async def _check_single_device(db: AsyncSession, device: Device):
                 # 状态刚转变为离线：生成不可达告警（自动去重）
                 await _ensure_offline_alert(db, device)
             device.status = "offline"
-        else:
-            # 1~2次失败：标记告警（降级状态）
-            if device.status == "online" or device.status == "unknown":
-                logger.info(
-                    f"Device {device.name}({device.ip}) -> warning "
-                    f"(failed {current}/{MAX_FAILURES})"
-                )
-                device.status = "warning"
+        # 1~2 次失败：可能是瞬时抖动，不降级状态（保持 online），
+        # 连续 3 次双失败才判定离线，避免状态闪烁
+
+
+async def _ensure_snmp_alert(db: AsyncSession, device: Device):
+    """ping 可达但 SNMP 无响应：生成去重的 warning 告警（状态保持在线）。
+
+    采集异常是告警信息，不覆盖设备在线状态；SNMP 恢复后由
+    _resolve_snmp_alerts 自动关闭。
+    """
+    existing = await db.execute(
+        select(Alert).where(
+            Alert.device_id == device.id,
+            Alert.rule_name == SNMP_RULE_NAME,
+            Alert.status == "active",
+        )
+    )
+    if existing.scalars().first() is not None:
+        return
+    alert = Alert(
+        device_id=device.id,
+        rule_name=SNMP_RULE_NAME,
+        severity="warning",
+        message=(
+            f"设备 {device.name}({device.ip}) ping 可达但 SNMP 无响应，"
+            f"请检查 community 配置 / UDP 161 放行 / SNMP agent 状态"
+        ),
+        status="active",
+        triggered_at=datetime.now(timezone.utc),
+    )
+    db.add(alert)
+    logger.warning(f"Created SNMP-unreachable alert for {device.name}({device.ip})")
+
+
+async def _resolve_snmp_alerts(db: AsyncSession, device: Device):
+    """SNMP 恢复响应后，关闭该设备所有 active 的 SNMP 采集异常告警"""
+    result = await db.execute(
+        select(Alert).where(
+            Alert.device_id == device.id,
+            Alert.rule_name == SNMP_RULE_NAME,
+            Alert.status == "active",
+        )
+    )
+    now = datetime.now(timezone.utc)
+    resolved = 0
+    for alert in result.scalars().all():
+        alert.status = "resolved"
+        alert.resolved_at = now
+        resolved += 1
+    if resolved:
+        logger.info(f"Resolved {resolved} SNMP alert(s) for {device.name}({device.ip})")
 
 
 async def _ensure_offline_alert(db: AsyncSession, device: Device):

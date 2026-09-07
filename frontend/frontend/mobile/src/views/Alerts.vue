@@ -30,18 +30,34 @@
             <p class="mt-0.5 text-xs text-ink-faint">{{ a.device_name || '' }}{{ a.device_ip ? ' (' + a.device_ip + ')' : '' }}</p>
             <p class="mt-0.5 text-xs text-ink-faint">{{ fmtTime(a.triggered_at || a.created_at) }}</p>
           </div>
-          <span class="shrink-0 rounded px-1.5 py-0.5 text-[10px]" :class="sevBadge(a.severity)">{{ sevLabel(a.severity) }}</span>
+          <div class="flex shrink-0 flex-col items-end gap-1.5">
+            <span class="rounded px-1.5 py-0.5 text-[10px]" :class="sevBadge(a.severity)">{{ sevLabel(a.severity) }}</span>
+            <button
+              @click="openAi(a)"
+              class="rounded border border-cyan-600/40 px-2 py-0.5 text-[10px] text-cyan-400 active:bg-cyan-500/10"
+            >AI 解读</button>
+          </div>
         </div>
       </div>
       <p v-if="hasMore" class="py-2 text-center text-xs text-ink-faint">上滑加载更多</p>
     </div>
     <div v-else class="py-16 text-center text-sm text-ink-faint">{{ loading ? '加载中...' : '暂无告警' }}</div>
+
+    <AiSheet v-model:open="aiOpen" title="AI 告警解读" :path="aiPath" />
   </div>
 </template>
 
 <script setup>
 import { ref, onMounted, onUnmounted } from 'vue'
 import { getAlerts, clearAlerts } from '../api.js'
+import AiSheet from '../components/AiSheet.vue'
+
+const aiOpen = ref(false)
+const aiPath = ref('')
+function openAi(a) {
+  aiPath.value = `/ai/explain/alert/${a.id}`
+  aiOpen.value = true
+}
 
 const alerts = ref([])
 const statusFilter = ref('')

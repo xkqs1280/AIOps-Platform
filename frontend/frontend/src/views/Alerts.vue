@@ -481,10 +481,10 @@ onUnmounted(() => {
                     {{ severityLabel(alert.severity) }}
                   </span>
                 </td>
-                <td class="py-3 px-4 text-ink font-medium">{{ alert.device_name || '-' }}</td>
-                <td class="py-3 px-4 text-ink-muted">{{ alert.rule_name || '-' }}</td>
-                <td class="py-3 px-4 text-ink-muted max-w-sm">
-                  <span class="truncate block" :title="alert.message">
+                <td class="py-3 px-4 text-ink font-medium min-w-28">{{ alert.device_name || '-' }}</td>
+                <td class="py-3 px-4 text-ink-muted min-w-36">{{ alert.rule_name || '-' }}</td>
+                <td class="py-3 px-4 text-ink-muted max-w-md">
+                  <span class="line-clamp-2 whitespace-normal" :title="alert.message">
                     {{ alert.message || '-' }}
                   </span>
                 </td>

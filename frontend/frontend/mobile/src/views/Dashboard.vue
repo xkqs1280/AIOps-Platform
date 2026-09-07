@@ -5,10 +5,15 @@
         <h1 class="text-lg font-bold text-ink-strong">监控概览</h1>
         <p class="text-xs text-ink-faint">{{ serverText }}</p>
       </div>
-      <button @click="load" class="rounded-lg border border-line px-3 py-1.5 text-xs text-ink-muted active:bg-surface-2">
-        刷新
-      </button>
+      <div class="flex gap-2">
+        <button @click="aiOpen = true" class="rounded-lg border border-cyan-600/40 bg-cyan-500/10 px-3 py-1.5 text-xs text-cyan-400 active:bg-cyan-500/20">AI 日报</button>
+        <button @click="load" class="rounded-lg border border-line px-3 py-1.5 text-xs text-ink-muted active:bg-surface-2">
+          刷新
+        </button>
+      </div>
     </header>
+
+    <AiSheet v-model:open="aiOpen" title="AI 运维日报" path="/ai/report/daily" />
 
     <!-- 统计卡片 -->
     <div class="mb-4 grid grid-cols-2 gap-3">
@@ -64,6 +69,9 @@
 import { ref, computed, onMounted } from 'vue'
 import { getDashboardOverview, getRecentAlerts } from '../api.js'
 import { getServer } from '../store.js'
+import AiSheet from '../components/AiSheet.vue'
+
+const aiOpen = ref(false)
 
 const stats = ref({})
 const recentAlerts = ref([])

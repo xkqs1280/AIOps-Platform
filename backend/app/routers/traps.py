@@ -308,8 +308,6 @@ async def receive_trap(
             triggered_at=now,
         )
         db.add(alert)
-        if device.status == "online":
-            device.status = "warning"
         logger.warning(f"Alert created: linkDown on {device.name} interface {iface}")
 
     elif trap_oid == LINK_UP_OID:
@@ -383,8 +381,6 @@ async def receive_trap(
             triggered_at=now,
         )
         db.add(alert)
-        if device.status == "online":
-            device.status = "warning"
         logger.warning(f"Alert created: temperature threshold on {device.name} {entity}")
 
     elif trap_oid == HW_VOLTAGE_LOW_OID:
@@ -398,8 +394,6 @@ async def receive_trap(
             triggered_at=now,
         )
         db.add(alert)
-        if device.status == "online":
-            device.status = "warning"
         logger.warning(f"Alert created: voltage low on {device.name} {entity}")
 
     elif trap_oid == HW_VOLTAGE_HIGH_OID:
@@ -413,8 +407,6 @@ async def receive_trap(
             triggered_at=now,
         )
         db.add(alert)
-        if device.status == "online":
-            device.status = "warning"
         logger.warning(f"Alert created: voltage high on {device.name} {entity}")
 
     elif trap_oid == HW_CPU_THRESHOLD_OID:
@@ -429,8 +421,6 @@ async def receive_trap(
             triggered_at=now,
         )
         db.add(alert)
-        if device.status == "online":
-            device.status = "warning"
         logger.warning(f"Alert created: CPU threshold on {device.name} {entity}")
 
     elif trap_oid == HW_MEM_THRESHOLD_OID:
@@ -445,8 +435,6 @@ async def receive_trap(
             triggered_at=now,
         )
         db.add(alert)
-        if device.status == "online":
-            device.status = "warning"
         logger.warning(f"Alert created: memory threshold on {device.name} {entity}")
 
     elif trap_oid == HW_CPU_NORMAL_OID:
@@ -474,8 +462,6 @@ async def receive_trap(
             triggered_at=now,
         )
         db.add(alert)
-        if device.status == "online":
-            device.status = "warning"
         logger.warning(f"Alert created: entity disabled on {device.name} {entity}")
 
     elif trap_oid == HW_OPER_ENABLED_OID:
@@ -503,8 +489,6 @@ async def receive_trap(
             triggered_at=now,
         )
         db.add(alert)
-        if device.status != "offline":
-            device.status = "warning"
         logger.warning(f"Alert created: board abnormal on {device.name} {entity}")
 
     elif trap_oid == HW_BOARD_NORMAL_OID:
@@ -532,8 +516,6 @@ async def receive_trap(
             triggered_at=now,
         )
         db.add(alert)
-        if device.status == "online":
-            device.status = "warning"
         logger.warning(f"Alert created: port abnormal on {device.name} {entity}")
 
     elif trap_oid == HW_PORT_NORMAL_OID:
@@ -564,7 +546,6 @@ async def receive_trap(
             triggered_at=now,
         )
         db.add(alert)
-        device.status = "offline"
         logger.warning(f"Alert created: device reload on {device.name}")
 
     elif trap_oid == HW_CLOCK_CHANGED_OID:
@@ -601,8 +582,6 @@ async def receive_trap(
             triggered_at=now,
         )
         db.add(alert)
-        if device.status == "online":
-            device.status = "warning"
         logger.warning(f"Alert created: slave switch fail on {device.name}")
 
     elif trap_oid == HW_CFG_FILE_ERROR_OID:
@@ -643,8 +622,6 @@ async def receive_trap(
             triggered_at=now,
         )
         db.add(alert)
-        if device.status == "online":
-            device.status = "warning"
         logger.warning(f"Alert created: stack link down on {device.name}")
 
     elif trap_oid == HW_STACK_LINK_UP_OID:
@@ -670,7 +647,6 @@ async def receive_trap(
             triggered_at=now,
         )
         db.add(alert)
-        device.status = "offline"
         logger.warning(f"Alert created: stack system restart on {device.name}")
 
     elif trap_oid == HW_STACK_MEMBER_LEAVE_OID:
@@ -683,8 +659,6 @@ async def receive_trap(
             triggered_at=now,
         )
         db.add(alert)
-        if device.status == "online":
-            device.status = "warning"
         logger.warning(f"Alert created: stack member leave on {device.name}")
 
     elif trap_oid == HW_STACK_SWITCHOVER_OID:
@@ -726,8 +700,6 @@ async def receive_trap(
             triggered_at=now,
         )
         db.add(alert)
-        if device.status == "online":
-            device.status = "warning"
         logger.warning(f"Alert created: ifFlowDown on {device.name} {iface}")
 
     elif trap_oid == HW_IF_FLOW_UP_OID:
