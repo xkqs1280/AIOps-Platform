@@ -77,6 +77,9 @@ const busy = ref(false)
 const upgrading = ref(false)
 const errorMsg = ref('')
 let pollTimer = null
+// 升级完成态自动清除定时器：完成后 30 分钟复查一次（后端届时已复位为 idle，页面自动回到空闲）
+const DONE_CLEAR_DELAY = 30 * 60 * 1000
+let doneClearTimer = null
 
 const stateText = computed(() => {
   const map = { idle: '空闲', uploading: '准备中', validating: '校验升级包', backup: '备份中', applying: '停止服务', replacing: '替换文件', restarting: '启动新版本', verifying: '健康检查', done: '升级完成', failed: '升级失败', rolled_back: '已回滚' }
@@ -132,15 +135,37 @@ async function pollStatus() {
       stopPoll()
       upgrading.value = false
       busy.value = false
+      if (status.value.state === 'done' || status.value.state === 'rolled_back') {
+        scheduleDoneClear() // 完成后 30 分钟自动复查并清除升级状态
+      } else {
+        clearDoneTimer()
+      }
     }
   } catch { /* 服务重启期间继续重试 */ }
 }
+
+function scheduleDoneClear() {
+  clearDoneTimer()
+  doneClearTimer = setTimeout(async () => {
+    doneClearTimer = null
+    await pollStatus()
+  }, DONE_CLEAR_DELAY)
+}
+
+function clearDoneTimer() {
+  if (doneClearTimer) {
+    clearTimeout(doneClearTimer)
+    doneClearTimer = null
+  }
+}
+
 function startPoll() {
   stopPoll()
   pollTimer = setInterval(pollStatus, 2500)
 }
 function stopPoll() {
   if (pollTimer) { clearInterval(pollTimer); pollTimer = null }
+  clearDoneTimer()
 }
 
 function reloadPage() {
