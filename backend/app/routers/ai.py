@@ -1,7 +1,6 @@
 # -*- coding: utf-8 -*-
 """AI 辅助 API 路由：助手对话（SSE）、告警解读、配置差异分析、巡检总结、
 CLI 命令建议、运维日报、知识库（RAG）、调用审计。"""
-import difflib
 import json
 import time
 from datetime import datetime, timezone
@@ -14,7 +13,6 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import async_session, get_db
 from app.models.alert import Alert
-from app.models.config_backup import ConfigBackup
 from app.models.device import Device
 from app.models.inspection import InspectionDeviceResult, InspectionTask
 from app.routers.auth import admin_only, current_user
@@ -198,42 +196,6 @@ async def explain_alert(alert_id: int, db: AsyncSession = Depends(get_db), actor
     key = f"alert:{alert_id}:{a.message[:60]}"
     return await _cached_sse("alert", key, actor.get("username", ""), f"alert#{alert_id}",
                              db, lambda: svc.build_alert_messages(ctx))
-
-
-# ---------------------------------------------------------------------------
-# 配置备份差异解读
-# ---------------------------------------------------------------------------
-
-@router.post("/explain/backup/{backup_id}")
-async def explain_backup(backup_id: int, db: AsyncSession = Depends(get_db), actor: dict = Depends(current_user)):
-    cur = (await db.execute(select(ConfigBackup).where(ConfigBackup.id == backup_id))).scalars().first()
-    if not cur:
-        raise HTTPException(404, "备份记录不存在")
-    d = await _require_device(db, cur.device_id)
-    prev = (await db.execute(
-        select(ConfigBackup).where(
-            ConfigBackup.device_id == cur.device_id, ConfigBackup.id < backup_id, ConfigBackup.status == "success"
-        ).order_by(ConfigBackup.id.desc()).limit(1)
-    )).scalars().first()
-    diff = "(无更早的成功备份，无法比较)"
-    if prev:
-        lines = list(difflib.unified_diff(
-            (prev.config_content or "").splitlines(), (cur.config_content or "").splitlines(),
-            fromfile=f"旧配置#{prev.id}", tofile=f"新配置#{cur.id}", lineterm="", n=2,
-        ))
-        diff = "\n".join(lines[:400]) or "（两次配置完全一致）"
-    # 配置差异含厂商敏感凭据（password cipher/hash/irreversible-cipher/VPN key/community
-    # 等），送外部 LLM 前必须经厂商语法脱敏（通用 sanitize 对配置语法无效）。
-    ctx = {"device": svc._device_brief(d), "diff": svc.sanitize_config(diff)}
-
-    # 含完整配置的场景默认不落 ai_cache：即便脱敏，LLM 应答可能复述配置片段，
-    # 缓存会使其以明文形态持久化（旧版 _cached_sse 的缺陷）。
-    async def _gen():
-        async with svc._ai_semaphore:
-            async for delta in svc.stream_chat(db, svc.build_backup_messages(ctx)):
-                yield delta
-    return await _sse_response("backup", actor.get("username", ""), f"backup#{backup_id}",
-                               _gen(), db=db)
 
 
 # ---------------------------------------------------------------------------

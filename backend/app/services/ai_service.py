@@ -351,16 +351,6 @@ def build_alert_messages(alert_ctx: dict) -> list[dict]:
     return [{"role": "system", "content": SYSTEM_BASE}, {"role": "user", "content": user}]
 
 
-def build_backup_messages(ctx: dict) -> list[dict]:
-    user = (
-        f"请分析该设备配置变更的差异，评估风险并给出建议。\n\n"
-        f"## 设备信息\n{ctx['device']}\n\n"
-        f"## 配置差异（unified diff，旧→新）\n```diff\n{ctx['diff']}\n```\n\n"
-        f"差异为空则说明两次配置一致，请直接说明。输出：变更要点 → 风险评估（高/中/低）→ 建议。"
-    )
-    return [{"role": "system", "content": SYSTEM_BASE}, {"role": "user", "content": user}]
-
-
 def build_inspection_messages(ctx: dict) -> list[dict]:
     user = (
         f"请总结以下巡检结果并生成中文结论。\n\n"
