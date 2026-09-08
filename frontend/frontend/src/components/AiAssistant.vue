@@ -47,8 +47,13 @@
                 ? 'bg-cyan-600 text-white rounded-br-md'
                 : 'bg-hover text-ink rounded-bl-md'"
             >
-              <AiMarkdown v-if="m.role === 'assistant'" :text="m.content + (m.loading ? ' ▍' : '')" />
-              <template v-else>{{ m.content }}</template>
+              <ThinkingBlock v-if="m.role === 'assistant' && m.thinking" :text="m.thinking" :active="m.loading && !m.content" />
+              <AiMarkdown v-if="m.role === 'assistant' && (m.content || (!m.thinking && m.loading))" :text="m.content + (m.content && m.loading ? ' ▍' : '')" />
+              <template v-if="m.role === 'user'">{{ m.content }}</template>
+              <div v-if="m.role === 'assistant' && !m.content && !m.thinking && m.loading" class="flex items-center gap-1.5 text-ink-faint text-[12px] py-0.5">
+                <span class="inline-block w-3 h-3 border-2 border-ink-faint border-t-transparent rounded-full animate-spin"></span>
+                模型思考中…
+              </div>
               <div v-if="m.error" class="text-red-400 text-[12px] mt-1">{{ m.error }}</div>
             </div>
           </div>
@@ -83,12 +88,13 @@ import { ref, nextTick } from 'vue'
 import { SparklesIcon, XMarkIcon } from '@heroicons/vue/24/outline'
 import { aiStream } from '../api/ai.js'
 import AiMarkdown from './AiMarkdown.vue'
+import ThinkingBlock from './ThinkingBlock.vue'
 
 const open = ref(false)
 const input = ref('')
 const streaming = ref(false)
 const listRef = ref(null)
-const messages = ref([]) // {role, content, loading?, error?}
+const messages = ref([]) // {role, content, thinking?, loading?, error?}
 
 const presets = [
   'CPU 告警的常见排查步骤是什么？',
@@ -158,7 +164,7 @@ function send() {
   input.value = ''
   streaming.value = true
   messages.value.push({ role: 'user', content: text })
-  const reply = { role: 'assistant', content: '', loading: true, error: '' }
+  const reply = { role: 'assistant', content: '', thinking: '', loading: true, error: '' }
   messages.value.push(reply)
   scrollBottom()
 
@@ -169,6 +175,10 @@ function send() {
     .map((m) => ({ role: m.role, content: m.content }))
 
   aiStream('/ai/chat', { messages: history }, {
+    onReasoning(r) {
+      reply.thinking += r
+      scrollBottom()
+    },
     onDelta(t) {
       reply.content += t
       scrollBottom()

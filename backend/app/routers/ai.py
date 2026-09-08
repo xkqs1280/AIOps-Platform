@@ -32,7 +32,13 @@ KB_SUFFIXES = (".txt", ".md", ".log", ".csv", ".conf", ".cfg")
 
 async def _sse_response(scene: str, user: str, target: str, agen, *, db: AsyncSession,
                         cache_key: str | None = None, model: str = ""):
-    """包装为 SSE 流；结束后写审计与可选缓存。"""
+    """包装为 SSE 流；结束后写审计与可选缓存。
+
+    agen 每个元素为 (kind, text)，kind ∈ {"reasoning","text"}：
+      - reasoning → 推送思考帧 {"r": text}（不落缓存，思考是过程产物）
+      - text → 推送正文帧 {"t": text}，并累积用于缓存/审计
+    兼容旧式纯文本生成器（自动按正文处理）。
+    """
     t0 = time.monotonic()
     parts: list[str] = []
 
@@ -41,8 +47,12 @@ async def _sse_response(scene: str, user: str, target: str, agen, *, db: AsyncSe
         ok, err = True, None
         try:
             async for delta in agen:
-                parts.append(delta)
-                yield f"data: {json.dumps({'t': delta}, ensure_ascii=False)}\n\n"
+                kind, text = ("text", delta) if isinstance(delta, str) else delta
+                if kind == "reasoning":
+                    yield f"data: {json.dumps({'r': text}, ensure_ascii=False)}\n\n"
+                else:
+                    parts.append(text)
+                    yield f"data: {json.dumps({'t': text}, ensure_ascii=False)}\n\n"
         except Exception as e:  # noqa: BLE001
             ok, err = False, str(e)[:300]
             yield f"data: {json.dumps({'error': err}, ensure_ascii=False)}\n\n"

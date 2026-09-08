@@ -17,7 +17,9 @@ http.interceptors.response.use(
  * 流式调用 AI 端点（POST + SSE 解析）。
  * @param {string} path 形如 /ai/chat
  * @param {object} body 请求体
- * @param {{onDelta?:Function,onError?:Function,onDone?:Function}} handlers
+ * @param {{onReasoning?:Function,onDelta?:Function,onCached?:Function,onError?:Function,onDone?:Function}} handlers
+ *   onReasoning(r)：模型思考过程增量（可选，不传则忽略思考帧）
+ *   onDelta(t)：正式回答增量
  */
 export async function aiStream(path, body, handlers = {}) {
   let res
@@ -77,6 +79,7 @@ export async function aiStream(path, body, handlers = {}) {
           return
         }
         if (obj.cached && handlers.onCached) handlers.onCached()
+        if (obj.r && handlers.onReasoning) handlers.onReasoning(obj.r)
         if (obj.t) handlers.onDelta && handlers.onDelta(obj.t)
       } catch { /* 跳过坏帧 */ }
     }

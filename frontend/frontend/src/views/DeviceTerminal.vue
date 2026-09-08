@@ -75,11 +75,26 @@
             <button @click="cliOpen = false" class="text-ink-faint hover:text-ink text-sm px-1.5">✕</button>
           </div>
           <div class="flex-1 overflow-y-auto p-4">
-            <div v-if="!cliOut && !cliStreaming" class="text-xs text-ink-faint space-y-2">
+            <div v-if="!cliOut && !cliThinking && !cliStreaming" class="text-xs text-ink-faint space-y-2">
               <p>描述你想完成的操作，AI 按该设备厂商语法给出命令建议。</p>
               <p>示例：配置 GE1/0/1 端口镜像到 GE1/0/24、查看 CPU 占用最高的进程、备份当前配置。</p>
             </div>
-            <AiMarkdown v-else :text="cliOut + (cliStreaming ? ' ▍' : '')" />
+            <div v-if="cliThinking" class="mb-2">
+              <div class="flex items-center gap-1.5 text-[11px] text-ink-faint mb-1">
+                <span v-if="!cliOut && cliStreaming" class="inline-block w-2.5 h-2.5 border-2 border-current border-t-transparent rounded-full animate-spin"></span>
+                {{ !cliOut && cliStreaming ? 'AI 思考中…' : '思考过程' }}
+              </div>
+              <div class="rounded-lg border border-line-strong/60 bg-hover/60 p-2.5 max-h-48 overflow-y-auto whitespace-pre-wrap break-words text-[11px] leading-relaxed text-ink-muted font-mono">
+                {{ cliThinking }}<span v-if="!cliOut && cliStreaming" class="inline-block w-[2px] h-3 bg-violet-500 align-middle animate-pulse ml-0.5"></span>
+              </div>
+            </div>
+            <div v-if="cliOut || (!cliThinking && cliStreaming)">
+              <AiMarkdown v-if="cliOut" :text="cliOut + (cliStreaming ? ' ▍' : '')" />
+              <div v-else class="flex items-center gap-1.5 text-[11px] text-ink-faint py-2">
+                <span class="inline-block w-3 h-3 border-2 border-current border-t-transparent rounded-full animate-spin"></span>
+                AI 思考中…
+              </div>
+            </div>
             <div v-if="cliError" class="mt-2 text-xs text-red-400">{{ cliError }}</div>
           </div>
           <div class="border-t border-line p-3 flex items-end gap-2 shrink-0">
@@ -114,6 +129,7 @@ import AiMarkdown from '../components/AiMarkdown.vue'
 const cliOpen = ref(false)
 const cliQ = ref('')
 const cliOut = ref('')
+const cliThinking = ref('')
 const cliError = ref('')
 const cliStreaming = ref(false)
 
@@ -122,8 +138,10 @@ function askCli() {
   if (!q || cliStreaming.value) return
   cliStreaming.value = true
   cliOut.value = ''
+  cliThinking.value = ''
   cliError.value = ''
   aiStream('/ai/cli/advice', { device_id: Number(deviceId), question: q }, {
+    onReasoning(r) { cliThinking.value += r },
     onDelta(t) { cliOut.value += t },
     onError(e) { cliError.value = e; cliStreaming.value = false },
     onDone() { cliStreaming.value = false },
