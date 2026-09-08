@@ -12,6 +12,7 @@ from sqlalchemy.orm import joinedload
 from app.database import get_db
 from app.models.device import Device
 from app.models.inspection import InspectionTask, InspectionDeviceResult
+from app.routers.auth import admin_only, current_user, operator_or_admin
 from app.schemas.inspection import (
     InspectionCreateRequest,
     InspectionTaskResponse,
@@ -35,8 +36,9 @@ async def list_inspection_tasks(
     page: int = Query(1, ge=1),
     page_size: int = Query(20, ge=1, le=100),
     db: AsyncSession = Depends(get_db),
+    _: dict = Depends(current_user),
 ):
-    """列出巡检任务。"""
+    """列出巡检任务（任何已登录角色可看任务元信息）。"""
     count_query = select(func.count(InspectionTask.id))
     total = (await db.execute(count_query)).scalar()
 
@@ -55,8 +57,12 @@ async def list_inspection_tasks(
 
 
 @router.get("/{task_id}", response_model=InspectionTaskDetailResponse)
-async def get_inspection_task(task_id: int, db: AsyncSession = Depends(get_db)):
-    """获取巡检任务详情，包含每台设备的结果。"""
+async def get_inspection_task(task_id: int, db: AsyncSession = Depends(get_db),
+                              _: dict = Depends(operator_or_admin)):
+    """获取巡检任务详情，包含每台设备的结果。
+
+    含设备级 CLI 采集解析明细，仅 operator/admin 可读（viewer 受限，P1-3）。
+    """
     result = await db.execute(
         select(InspectionTask)
         .where(InspectionTask.id == task_id)
@@ -73,8 +79,9 @@ async def retry_device_inspection(
     task_id: int,
     device_id: int,
     db: AsyncSession = Depends(get_db),
+    _: dict = Depends(operator_or_admin),
 ):
-    """重新执行单台设备的巡检（解决设备卡死）。
+    """重新执行单台设备的巡检（解决设备卡死）。仅 operator/admin。
 
     - failed / pending 可直接重跑；
     - running 且超过 10 分钟视为卡死，可重跑；
@@ -222,8 +229,9 @@ async def _regenerate_reports(task_id: int):
 
 
 @router.post("", response_model=InspectionTaskResponse, status_code=201)
-async def create_task(data: InspectionCreateRequest, db: AsyncSession = Depends(get_db)):
-    """创建巡检任务。
+async def create_task(data: InspectionCreateRequest, db: AsyncSession = Depends(get_db),
+                      _: dict = Depends(operator_or_admin)):
+    """创建巡检任务。仅 operator/admin。
 
     校验所有设备是否存在且厂商为 H3C，然后后台异步执行。
     """
@@ -243,8 +251,9 @@ async def create_task(data: InspectionCreateRequest, db: AsyncSession = Depends(
 
 
 @router.delete("/{task_id}", status_code=204)
-async def delete_inspection_task(task_id: int, db: AsyncSession = Depends(get_db)):
-    """删除巡检记录。
+async def delete_inspection_task(task_id: int, db: AsyncSession = Depends(get_db),
+                                 _: dict = Depends(admin_only)):
+    """删除巡检记录。仅 admin。
 
     - 可手动删除已完成/失败/待执行的记录；
     - 执行中（running）超过 1 小时的记录也可删除（视为卡死任务）；
@@ -284,8 +293,9 @@ async def delete_inspection_task(task_id: int, db: AsyncSession = Depends(get_db
 
 
 @router.get("/{task_id}/download/excel")
-async def download_excel(task_id: int, db: AsyncSession = Depends(get_db)):
-    """下载巡检 Excel 报告。"""
+async def download_excel(task_id: int, db: AsyncSession = Depends(get_db),
+                         _: dict = Depends(operator_or_admin)):
+    """下载巡检 Excel 报告（含采集明细，仅 operator/admin，P1-3）。"""
     result = await db.execute(select(InspectionTask).where(InspectionTask.id == task_id))
     task = result.scalar_one_or_none()
     if not task:
@@ -301,8 +311,9 @@ async def download_excel(task_id: int, db: AsyncSession = Depends(get_db)):
 
 
 @router.get("/{task_id}/download/word")
-async def download_word(task_id: int, db: AsyncSession = Depends(get_db)):
-    """下载巡检 Word 报告。"""
+async def download_word(task_id: int, db: AsyncSession = Depends(get_db),
+                        _: dict = Depends(operator_or_admin)):
+    """下载巡检 Word 报告（含采集明细，仅 operator/admin，P1-3）。"""
     result = await db.execute(select(InspectionTask).where(InspectionTask.id == task_id))
     task = result.scalar_one_or_none()
     if not task:

@@ -67,8 +67,9 @@ def operator_or_admin(user: dict = Depends(current_user)) -> dict:
 @router.post("/login")
 async def login(body: LoginRequest, request: Request, response: Response, db: AsyncSession = Depends(get_db)):
     client = await limit_login(request)
-    # 用户名维度锁定检查：防轮换 IP 对单一账号无限爆破（IP 限流可被绕过）
-    check_username_locked(body.username)
+    # 账号维度锁定检查：仅在“多来源分布式爆破”特征下锁账号（P1-5），
+    # 单来源暴力破解由 limit_login 的 IP 维度锁定负责
+    check_username_locked(body.username, client)
     user = (await db.execute(select(User).where(User.username == body.username))).scalar_one_or_none()
     if not user or not user.is_active or not verify_password(body.password, user.password_hash):
         record_login_failure(client, body.username)

@@ -55,17 +55,20 @@ def protect_device_secrets(data: dict) -> dict:
 
 
 async def encrypt_existing_device_secrets() -> None:
-    """一次性加密数据库中已存在的明文设备凭据（启用加密密钥后的存量迁移）。
+    """一次性加密数据库中已存在的明文凭据（启用加密密钥后的存量迁移）。
 
+    - Device：snmp_community / mgmt_password
+    - MailSetting：smtp_password（P1-2：SMTP 口令不再明文落库）
     无有效加密密钥时静默跳过（protect_secret 降级为明文，不破坏数据）。
     """
     from sqlalchemy import select
     from app.database import async_session
     from app.models.device import Device
+    from app.models.mail_setting import MailSetting
 
     async with async_session() as db:
-        devices = (await db.execute(select(Device))).scalars().all()
         changed = False
+        devices = (await db.execute(select(Device))).scalars().all()
         for d in devices:
             if d.snmp_community and not str(d.snmp_community).startswith(PREFIX):
                 d.snmp_community = protect_secret(d.snmp_community)
@@ -73,5 +76,9 @@ async def encrypt_existing_device_secrets() -> None:
             if d.mgmt_password and not str(d.mgmt_password).startswith(PREFIX):
                 d.mgmt_password = protect_secret(d.mgmt_password)
                 changed = True
+        mail = (await db.execute(select(MailSetting))).scalars().first()
+        if mail and mail.smtp_password and not str(mail.smtp_password).startswith(PREFIX):
+            mail.smtp_password = protect_secret(mail.smtp_password) or ""
+            changed = True
         if changed:
             await db.commit()

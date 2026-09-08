@@ -34,15 +34,93 @@ DEFAULT_EMBED_MODEL = os.getenv("AI_EMBED_MODEL", "nomic-embed-text")
 CACHE_TTL_HOURS = 24
 TIMEOUT_SECONDS = 180
 
-# 脱敏：community/password/secret/credential 赋值行打码
+# 脱敏：community/password/secret/credential 赋值打码（容忍 JSON 引号键/值）
 _SANITIZE_RE = re.compile(
-    r"(?i)\b(snmp[-_ ]?community|community|password|passwd|secret|credential|private[-_ ]?key)\b(\s*[:=]\s*)(\S+)"
+    r"(?i)\b(snmp[-_ ]?community|community|password|passwd|secret|credential|private[-_ ]?key)"
+    r"(\s*[\"']?\s*[:=]\s*)([^\s,;]+)"
 )
 
 
+def _mask_assign(m: re.Match) -> str:
+    """值打码；值本身带成对引号时保留引号（JSON 语义不破坏）。"""
+    v = m.group(3)
+    if len(v) >= 2 and v[0] in "\"'" and v[-1] == v[0]:
+        v = v[0] + "******" + v[-1]
+    else:
+        v = "******"
+    return f"{m.group(1)}{m.group(2)}{v}"
+
+
 def sanitize(text: str) -> str:
-    """脱敏文本中疑似凭据的赋值内容。"""
-    return _SANITIZE_RE.sub(lambda m: f"{m.group(1)}{m.group(2)}******", text or "")
+    """脱敏文本中疑似凭据的赋值内容（通用场景：用户问题、JSON 上下文等）。"""
+    return _SANITIZE_RE.sub(_mask_assign, text or "")
+
+
+# ---------------------------------------------------------------------------
+# 厂商配置脱敏（P0-3）：H3C Comware / 华为 VRP 显示配置（display current-configuration）
+# 的凭据语法与通用 "key: value" 完全不同：
+#   password cipher $c$3$<密文>   password hash $h$6$<哈希>   password simple <明文>
+#   password irreversible-cipher $c$3$...   local-user ... password cipher ...
+#   pre-shared-key cipher %^%#...#%^%#（华为）   snmp-agent community read cipher $c$...
+# 旧 sanitize 只匹配 password[:=]，对上述语法无效 → 完整配置外发前必须先经此函数。
+# ---------------------------------------------------------------------------
+
+# PEM 私钥块（多行）
+_PEM_BLOCK_RE = re.compile(
+    r"-----BEGIN (?:ENCRYPTED |RSA |EC |DSA |OPENSSH )?PRIVATE KEY-----.*?"
+    r"-----END (?:ENCRYPTED |RSA |EC |DSA |OPENSSH )?PRIVATE KEY-----",
+    re.S,
+)
+_PEM_MASK = "[私钥内容已脱敏]"
+
+# 触发行内"值"脱敏的关键字（配置上下文）
+_CONFIG_KEYWORDS = (
+    r"(?:password|passwd|secret|credential|"
+    r"pre[-_ ]?shared[-_ ]?key|preshared[-_ ]?key|"
+    r"local[-_ ]?key|peer[-_ ]?key|ike[-_ ]?key|community)"
+)
+
+# 厂商密文/哈希形态：H3C `$c$3$...` `$h$6$...`；华为 `%^%#...#%^%#`。
+# 命中后整行关键字之后的密文部分打码（保留可读前缀行首）。
+_VENDOR_CIPHER_RE = re.compile(
+    rf"(?im)([^\r\n]*?\b{_CONFIG_KEYWORDS}\b[^\r\n]*?)"
+    rf"(\$[A-Za-z0-9]{{1,4}}\$[A-Za-z0-9$+/=_.:-]{{4,}}|%\^%#[^\r\n]*?(?:%\^%#)?)[^\r\n]*",
+)
+
+# 关键字 + 可选算法词 + 值（覆盖明文 simple 口令 / hash 等无 `$`/`%` 前缀的形态）
+_VENDOR_ALGO_WORDS = (
+    r"simple|cipher|hash|irreversible[-_ ]?cipher|md5|sha(?:1|224|256|384|512)?|text"
+)
+# 紧跟关键字的非敏感结构词（password aging/min-length 等，不可误当口令值）
+_CONFIG_NON_SECRET_WORDS = (
+    r"aging|expired|min-length|min_length|history|control|recovery|enable|disable|"
+    r"timer|length|periodic|warning|max-age|max_age|super|user|class|level|undo"
+)
+_VENDOR_KEYWORD_VALUE_RE = re.compile(
+    rf"(?im)(\b(?:password|passwd|secret|credential)\b)"
+    rf"(?:\s+(?:{_VENDOR_ALGO_WORDS}))?"
+    rf"(\s+)(?!{_CONFIG_NON_SECRET_WORDS}\b)([^\s#\"'\\]{{1,160}})",
+)
+
+# snmp-agent community 显式团体字值
+_SNMP_COMMUNITY_RE = re.compile(
+    r"(?i)(\bsnmp-agent\s+community\s+(?:read|write)\s+(?:cipher\s+)?)([^\s#]{4,})",
+)
+
+
+def sanitize_config(text: str) -> str:
+    """厂商显示配置脱敏：PEM 私钥、H3C/华为密文哈希、明文口令、community 团体字。
+
+    误报倾向宁可多打码（送外部 LLM 的上下文不执行），不可漏敏。
+    """
+    t = text or ""
+    t = _PEM_BLOCK_RE.sub(_PEM_MASK, t)
+    t = _VENDOR_CIPHER_RE.sub(lambda m: f"{m.group(1)}******", t)
+    t = _VENDOR_KEYWORD_VALUE_RE.sub(
+        lambda m: f"{m.group(1)}{m.group(2)}******", t,
+    )
+    t = _SNMP_COMMUNITY_RE.sub(lambda m: f"{m.group(1)}******", t)
+    return sanitize(t)  # 最后兜底通用 key:value 形态
 
 
 # 告警级别中英文映射（供日报/解读输出中文）

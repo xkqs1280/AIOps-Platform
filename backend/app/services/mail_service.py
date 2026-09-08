@@ -12,6 +12,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.mail_setting import MailSetting
+from app.services.credential_service import protect_secret, reveal_secret
 
 logger = logging.getLogger("aiops.mail")
 
@@ -36,7 +37,8 @@ async def get_mail_setting(db: AsyncSession) -> dict | None:
         "smtp_host": row.smtp_host,
         "smtp_port": row.smtp_port,
         "smtp_user": row.smtp_user,
-        "smtp_password": _mask_password(row.smtp_password),
+        # 密文落库（P1-2），回显仅给掩码
+        "smtp_password": _mask_password(reveal_secret(row.smtp_password) or ""),
         "use_ssl": row.use_ssl,
         "sender": row.sender,
         "recipients": row.recipients,
@@ -52,10 +54,12 @@ async def save_mail_setting(db: AsyncSession, data: dict) -> dict:
     row.smtp_host = (data.get("smtp_host") or "").strip()
     row.smtp_port = int(data.get("smtp_port") or 465)
     row.smtp_user = (data.get("smtp_user") or "").strip()
-    # 密码仅在前端填写了新值（非空）时更新；留空表示保持原密码
+    # 密码仅在前端填写了新值（非空且非掩码回显）时更新；留空/掩码原样 = 不修改
+    # （掩码与 AI api_key 保存语义一致：new_pwd 含 "****" 视为未修改）
     new_pwd = (data.get("smtp_password") or "").strip()
-    if new_pwd:
-        row.smtp_password = new_pwd
+    if new_pwd and "****" not in new_pwd:
+        # Fernet 加密落库，杜绝 SMTP 口令明文（与设备凭据/AI Key 同机制）
+        row.smtp_password = protect_secret(new_pwd) or ""
     row.use_ssl = bool(data.get("use_ssl", True))
     row.sender = (data.get("sender") or "").strip()
     row.recipients = (data.get("recipients") or "").strip()
@@ -116,7 +120,7 @@ async def send_alert_email(db: AsyncSession, subject: str, body: str, dedup_key:
         "smtp_host": cfg_row.smtp_host,
         "smtp_port": cfg_row.smtp_port,
         "smtp_user": cfg_row.smtp_user,
-        "smtp_password": cfg_row.smtp_password,
+        "smtp_password": reveal_secret(cfg_row.smtp_password) or "",
         "use_ssl": cfg_row.use_ssl,
         "use_starttls": not cfg_row.use_ssl,
         "sender": cfg_row.sender,

@@ -373,7 +373,8 @@ async def _eval_if_errors(
         if st["violating"]:
             st["violating"] = False
             st["violation_start"] = None
-            await _resolve_alert(db, device, rule.name)
+        # 无条件尝试恢复（同 _eval_scalar：防引擎重启后僵尸 active，见上注释）
+        await _resolve_alert(db, device, rule.name)
 
 
 
@@ -464,7 +465,10 @@ async def _eval_scalar(db: AsyncSession, device: Device, rule: AlertRule, value:
             logger.info(f"[{device.name}] {rule.name} 恢复：{value}")
             st["violating"] = False
             st["violation_start"] = None
-            await _resolve_alert(db, device, rule.name)
+        # 无条件尝试恢复（不再依赖 violating 转换门）：告警引擎重启/升级后内存
+        # 状态库清空，重启前已触发、重启后条件已恢复的 active 告警若仅靠转换门
+        # 将永久停留（僵尸告警）。当前条件不违规即应恢复；无 active 行时为 no-op。
+        await _resolve_alert(db, device, rule.name)
 
 
 async def _eval_uptime(db: AsyncSession, device: Device, rule: AlertRule, value_ticks: float):
@@ -540,7 +544,8 @@ async def _eval_if_status(
         if st["violating"]:
             st["violating"] = False
             st["violation_start"] = None
-            await _resolve_alert(db, device, rule.name)
+        # 无条件尝试恢复（同 _eval_scalar：防引擎重启后僵尸 active，见上注释）
+        await _resolve_alert(db, device, rule.name)
 
 
 async def _evaluate_device(db: AsyncSession, device: Device, rules: list[AlertRule]):
