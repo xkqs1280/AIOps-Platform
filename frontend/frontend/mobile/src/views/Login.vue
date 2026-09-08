@@ -74,13 +74,13 @@
 
       <p v-if="error" class="text-center text-xs text-red-400">{{ error }}</p>
 
-      <!-- 原生端: HTTPS 自签证书场景, 一键引导安装平台根证书 -->
+      <!-- 原生端: 已信任平台管理（首次连接自动弹 TOFU 指纹确认，无需再手动装证书） -->
       <button
         v-if="isNative"
-        @click="installCa"
+        @click="openTrusted"
         class="mx-auto mt-1 block text-[11px] text-ink-faint underline decoration-dotted underline-offset-2 active:text-cyan-400"
       >
-        HTTPS 连不上? 点此安装平台根证书
+        已信任的平台管理
       </button>
     </div>
 
@@ -94,6 +94,7 @@ import { Capacitor } from '@capacitor/core'
 import { useRouter } from 'vue-router'
 import { login } from '../api.js'
 import { getServer, setServer, setToken } from '../store.js'
+import { openTofuManage } from '../tofu.js'
 import { startAlertPolling } from '../notifications.js'
 
 const router = useRouter()
@@ -115,15 +116,9 @@ onMounted(() => {
   }
 })
 
-async function installCa() {
+async function openTrusted() {
   error.value = ''
-  try {
-    const res = await Capacitor.Plugins.CaInstaller.installRootCertificate()
-    // 系统证书安装界面已唤起, 用户完成后返回
-    error.value = '已在系统中打开证书安装界面，请按提示完成安装'
-  } catch (e) {
-    error.value = '启动证书安装失败：' + (e?.message || '未知错误')
-  }
+  openTofuManage()
 }
 
 async function doLogin() {
@@ -142,7 +137,12 @@ async function doLogin() {
     startAlertPolling()
     router.push('/')
   } catch (e) {
-    error.value = (e?.response?.data?.detail) || '登录失败，请检查服务器地址或账号密码'
+    if (e && e.isTofuError) {
+      // TOFU 事件已在全局对话框处理：确认后自动重试成功；走到这里 = 用户取消/失败
+      error.value = '未信任该服务器，无法建立安全连接'
+    } else {
+      error.value = (e?.response?.data?.detail) || '登录失败，请检查服务器地址或账号密码'
+    }
   } finally {
     loading.value = false
   }

@@ -27,6 +27,9 @@
         </router-link>
       </div>
     </nav>
+
+    <!-- 全局 TOFU（首次连接证书指纹确认 / 已信任平台管理） -->
+    <TofuDialog />
   </div>
 </template>
 
@@ -34,6 +37,7 @@
 import { computed, onMounted } from 'vue'
 import { useRoute } from 'vue-router'
 import { startAlertPolling } from './notifications.js'
+import TofuDialog from './components/TofuDialog.vue'
 
 const route = useRoute()
 
