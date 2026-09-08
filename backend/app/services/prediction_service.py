@@ -10,7 +10,7 @@ from app.database import get_session
 from sqlalchemy import select, func
 from sqlalchemy.dialects.postgresql import insert
 import numpy as np
-from datetime import datetime, timedelta, date
+from datetime import datetime, timedelta, date, timezone
 
 
 # ---------------------------------------------------------------------------
@@ -93,7 +93,7 @@ async def predict_disk_exhaustion(session, device_id: int, days_history: int = 3
                 "rmse": round(rmse, 4),
                 "simulated": True,
             },
-            created_at=datetime.utcnow(),
+            created_at=datetime.now(timezone.utc),
         )
         .on_conflict_do_update(
             constraint="uq_prediction",
@@ -184,7 +184,7 @@ async def predict_interface_errors(session, device_id: int, days_history: int = 
                 "spike_count": int(np.sum(spikes > 2)),
                 "simulated": True,
             },
-            created_at=datetime.utcnow(),
+            created_at=datetime.now(timezone.utc),
         )
         .on_conflict_do_update(
             constraint="uq_prediction",
@@ -286,7 +286,7 @@ async def predict_cpu_trend(session, device_id: int, days_history: int = 30, day
                 "recommendation": recommendation,
                 "simulated": True,
             },
-            created_at=datetime.utcnow(),
+            created_at=datetime.now(timezone.utc),
         )
         .on_conflict_do_update(
             constraint="uq_prediction",

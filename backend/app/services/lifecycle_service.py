@@ -1,5 +1,5 @@
 """设备生命周期管理服务：厂商EOS/EOL数据管理与生命周期提醒"""
-from datetime import datetime, timedelta, date
+from datetime import datetime, timedelta, date, timezone
 
 from sqlalchemy import select, and_, or_, text
 from sqlalchemy.dialects.postgresql import insert as pg_insert
@@ -56,7 +56,7 @@ async def update_lifecycle_entry(session, entry_id, **kwargs):
         if key in allowed_fields:
             setattr(entry, key, value)
 
-    entry.updated_at = datetime.utcnow()
+    entry.updated_at = datetime.now(timezone.utc)
     await session.flush()
     return entry
 

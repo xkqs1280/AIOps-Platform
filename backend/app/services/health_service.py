@@ -13,7 +13,7 @@ from app.models.alert import Alert
 from app.database import get_session  # noqa: F401 — re-exported for callers
 from sqlalchemy import select, func, and_
 from sqlalchemy.dialects.postgresql import insert as pg_insert
-from datetime import datetime, timedelta, date  # noqa: F401 — date re-exported for callers
+from datetime import datetime, timedelta, date, timezone  # noqa: F401 — date re-exported for callers
 
 # 硬件温度默认阈值（°C），厂商阈值不可用时使用
 DEFAULT_TEMP_THRESHOLD = 60.0
@@ -41,7 +41,7 @@ async def calculate_health_score(session, device_id):
     if device is None:
         return None
 
-    now = datetime.utcnow()
+    now = datetime.now(timezone.utc)
     today = now.date()
     seven_days_ago = now - timedelta(days=7)
     thirty_days_ago = now - timedelta(days=30)

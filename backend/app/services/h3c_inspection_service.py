@@ -684,3 +684,53 @@ async def _run_task_with_db(task_id: int):
                     await db.commit()
             except Exception:
                 pass
+
+
+async def reconcile_stale_inspection_tasks() -> int:
+    """进程启动对账（P1-8）：清理上次进程遗留的巡检状态。
+
+    巡检任务由进程内后台协程执行（DB 仅存 running 标记，无独立 worker）。
+    进程崩溃/升级/重启后，遗留的 running / pending 任务与其设备行永远不会
+    被推进，前端将永久显示"执行中"。启动时统一把它们标记为 failed 并写明
+    "平台重启中断"，用户可一键重新执行；已成功的设备行保留（便于重跑时跳过）。
+
+    Returns: 被标记为 failed 的任务数。
+    """
+    from app.database import async_session
+
+    async with async_session() as db:
+        tasks = (
+            await db.execute(
+                select(InspectionTask).where(
+                    InspectionTask.status.in_(("pending", "running"))
+                )
+            )
+        ).scalars().all()
+        if not tasks:
+            return 0
+        msg = "平台重启，任务中断，请重新执行"
+        for task in tasks:
+            task.status = "failed"
+            task.error_message = (
+                f"{msg}（原状态 {task.status}，已成功设备结果保留）"
+            )
+            task.completed_at = datetime.now(timezone.utc)
+            # 该任务下仍 running/pending 的设备行一并标记失败
+            dev_rows = (
+                await db.execute(
+                    select(InspectionDeviceResult).where(
+                        InspectionDeviceResult.task_id == task.id,
+                        InspectionDeviceResult.status.in_(("pending", "running")),
+                    )
+                )
+            ).scalars().all()
+            for row in dev_rows:
+                row.status = "failed"
+                row.error_message = row.error_message or msg
+                row.completed_at = datetime.now(timezone.utc)
+        await db.commit()
+        logger.warning(
+            "Inspection reconcile: %d 个遗留任务已标记 failed（平台重启中断）",
+            len(tasks),
+        )
+        return len(tasks)

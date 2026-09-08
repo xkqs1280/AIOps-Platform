@@ -1,5 +1,5 @@
 """动态基线引擎：计算设备指标统计基线并检测偏差"""
-from datetime import datetime
+from datetime import datetime, timezone
 
 import numpy as np
 from sqlalchemy import select
@@ -83,7 +83,7 @@ async def calculate_baselines(
     if not device_ids:
         return 0
 
-    now = datetime.utcnow()
+    now = datetime.now(timezone.utc)
     total = 0
 
     for dev_id in device_ids:
