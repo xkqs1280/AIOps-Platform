@@ -3,7 +3,7 @@
     <div class="flex items-center justify-between mb-6">
       <div>
         <h2 class="text-xl font-bold text-ink-strong">AI 辅助设置</h2>
-        <p class="text-sm text-ink-faint mt-1">接入大模型：告警解读、运维问答、配置差异分析、巡检总结与知识库检索</p>
+        <p class="text-sm text-ink-faint mt-1">接入大模型：告警解读、运维问答、巡检总结与知识库检索</p>
       </div>
       <span v-if="isAdmin" class="px-2 py-0.5 rounded text-xs bg-cyan-500/10 text-cyan-400 border border-cyan-500/30">管理员</span>
     </div>
