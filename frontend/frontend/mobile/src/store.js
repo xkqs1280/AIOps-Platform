@@ -12,6 +12,12 @@ export function getServer() {
 
 // server: { ip, port, remembered }
 export function setServer(server) {
+  // 切到不同服务器时, 旧 token 必然失效 (跨平台 JWT 不可用), 主动清掉避免短暂 401
+  const prev = getServer()
+  const sameServer = prev && prev.ip === server.ip && (prev.port || 0) === (server.port || 0)
+  if (!sameServer) {
+    setToken('')
+  }
   if (server.remembered) {
     localStorage.setItem(IP_KEY, JSON.stringify(server))
   } else {
