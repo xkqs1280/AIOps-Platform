@@ -5,7 +5,7 @@
 """
 
 APP_NAME = "AIOps 智能运维托管平台"
-APP_VERSION = "4.4.5"
+APP_VERSION = "4.4.7"
 APP_BUILD_TIME = "2026-09-07"
 
 # 版本号三段比较工具：用于升级包版本校验（如 "4.0.0" > "3.6.0"）

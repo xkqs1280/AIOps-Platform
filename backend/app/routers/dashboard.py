@@ -175,6 +175,10 @@ async def _collect_bandwidth(db: AsyncSession | None = None):
         if not ifaces:
             return None
         top = max(ifaces, key=lambda x: x["max_util"])
+        # 若该设备的最大利用率接口是 LACP 聚合成员口（正常情况已被服务层剔除，
+        # 此处兜底），跳过该设备，避免聚合成员以聚合层流量虚高上榜。
+        if top.get("lacp_member"):
+            return None
         return {
             "name": d.name,
             "ip": d.ip,

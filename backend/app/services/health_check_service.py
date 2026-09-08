@@ -7,6 +7,7 @@
 """
 import asyncio
 import logging
+import subprocess
 import sys
 from datetime import datetime, timezone, timedelta
 
@@ -49,24 +50,60 @@ SNMP_RULE_NAME = "SNMP 采集异常"
 _failure_counts: dict[int, int] = {}
 
 
-async def _ping_ok(ip: str) -> bool:
+async def _ping_ok(ip: str) -> bool | None:
     """异步 ping 探测（跨平台），收到 TTL 响应即视为可达。
 
     - Windows: `ping -n <count> -w <ms>`（Linux 的 -n/-w 语义不同，需区分）
     - Linux:   `ping -c <count> -W <sec>`
+
+    返回三态，将「设备无响应」与「探测机制异常」区分开：
+    - True ：设备可达（收到 ICMP 回复）
+    - False：ping 命令正常执行但无回复（确认不可达）
+    - None ：探测机制异常（子进程启动失败 / 超时 / IO 错误）——上层必须跳过
+             本轮失败计数，避免把「探测不可用」误判为「设备不可达」。
+
+    背景（生产故障 2026-09-07）：旧实现把 ping 子进程的一切异常静默按 False
+    处理，在 Windows 打包进程（计划任务/隐藏窗口会话）下 ping 探测实际从未
+    成功过——任何 SNMP 瞬时失败都被当作「SNMP+ping 双失败」，连续 3 次即误报
+    离线（外部 ping 全程可达），全网刷「设备不可达」。异常改为记录日志并返回
+    None，既能暴露真实原因，也不再产生误报。
     """
     if sys.platform == "win32":
         cmd = ["ping", "-n", "2", "-w", "2000", ip]
+        # 无控制台会话（服务/计划任务/隐藏启动）下 spawn console 子进程需显式
+        # CREATE_NO_WINDOW，避免新建控制台窗口或启动失败
+        create_flags = getattr(subprocess, "CREATE_NO_WINDOW", 0)
+        proc_kwargs: dict = {"creationflags": create_flags}
     else:
         cmd = ["ping", "-c", "2", "-W", "2", ip]
+        proc_kwargs = {}
     try:
         proc = await asyncio.create_subprocess_exec(
-            *cmd, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE,
+            *cmd,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+            **proc_kwargs,
         )
+    except Exception as e:
+        logger.warning(f"Ping probe spawn failed for {ip}: {e!r}")
+        return None
+    try:
         out, _ = await asyncio.wait_for(proc.communicate(), timeout=10)
-        return out.decode("utf-8", errors="replace").upper().count("TTL=") > 0
-    except Exception:
-        return False
+    except asyncio.TimeoutError:
+        logger.warning(f"Ping probe timeout for {ip}")
+        try:
+            proc.kill()
+        except Exception:
+            pass
+        return None
+    except Exception as e:
+        logger.warning(f"Ping probe error for {ip}: {e!r}")
+        try:
+            proc.kill()
+        except Exception:
+            pass
+        return None
+    return out.decode("utf-8", errors="replace").upper().count("TTL=") > 0
 
 
 async def _check_single_device(db: AsyncSession, device: Device):
@@ -88,7 +125,17 @@ async def _check_single_device(db: AsyncSession, device: Device):
         await _resolve_snmp_alerts(db, device)
     else:
         # SNMP 无响应 → ping 二次确认：双失败才计入离线判定
-        if await _ping_ok(device.ip):
+        ping_ok = await _ping_ok(device.ip)
+        if ping_ok is None:
+            # ping 探测机制异常（子进程启动失败/超时等）：不能据此判定设备离线。
+            # 跳过本轮计数并记日志——曾致生产环境外部 ping 全程可达却全网误报
+            # 「设备不可达」（旧版将探测异常静默按 False 累计）。
+            logger.warning(
+                f"Ping probe unavailable for {device.name}({device.ip}), "
+                f"skip offline counting this round"
+            )
+            return
+        if ping_ok:
             # ping 可达：网络通、设备在线。SNMP 异常（community 错/UDP 被禁/
             # agent 停止）不再覆盖在线状态，改用去重的 warning 告警表达。
             _failure_counts[device.id] = 0
