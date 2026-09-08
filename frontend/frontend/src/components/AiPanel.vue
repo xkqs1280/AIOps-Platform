@@ -21,12 +21,22 @@
           </div>
         </div>
         <div ref="bodyRef" class="flex-1 overflow-y-auto px-5 py-4">
-          <div v-if="!content && loading" class="flex items-center gap-2 text-ink-faint text-[13px] py-8 justify-center">
+          <div v-if="thinking" class="mb-3">
+            <div class="flex items-center gap-2 text-ink-faint text-[13px] mb-1.5">
+              <span v-if="loading && !content" class="inline-block w-3 h-3 border-2 border-current border-t-transparent rounded-full animate-spin"></span>
+              <template v-if="loading && !content">AI 思考中…</template>
+              <template v-else>思考过程</template>
+            </div>
+            <div class="rounded-xl border border-line-strong/60 bg-hover/60 p-3 max-h-56 overflow-y-auto whitespace-pre-wrap break-words text-[12px] leading-relaxed text-ink-muted font-mono">
+              {{ thinking }}<span v-if="loading && !content" class="inline-block w-[2px] h-3 bg-cyan-500 align-middle animate-pulse ml-0.5"></span>
+            </div>
+          </div>
+          <div v-else-if="!content && loading" class="flex items-center gap-2 text-ink-faint text-[13px] py-8 justify-center">
             <span class="inline-block w-3.5 h-3.5 border-2 border-current border-t-transparent rounded-full animate-spin"></span>
             AI 正在思考…
           </div>
           <div v-else-if="error && !content" class="text-danger text-[13px] py-6 text-center">{{ error }}</div>
-          <AiMarkdown v-else :text="content" />
+          <AiMarkdown v-if="content" :text="content" />
           <p v-if="content" class="mt-3 text-[11px] text-ink-faint border-t border-line pt-2">
             AI 生成内容仅供参考，命令与配置需人工确认后执行。
           </p>
@@ -52,6 +62,7 @@ const props = defineProps({
 const emit = defineEmits(['update:open'])
 
 const content = ref('')
+const thinking = ref('')
 const loading = ref(false)
 const error = ref('')
 const cached = ref(false)
@@ -67,10 +78,16 @@ async function copy() {
 async function run() {
   const my = ++seq
   content.value = ''
+  thinking.value = ''
   error.value = ''
   cached.value = false
   loading.value = true
   await aiStream(props.path, props.body, {
+    onReasoning(r) {
+      if (my !== seq) return
+      thinking.value += r
+      nextTick(() => { if (bodyRef.value) bodyRef.value.scrollTop = bodyRef.value.scrollHeight })
+    },
     onDelta(t) {
       if (my !== seq) return
       content.value += t

@@ -133,7 +133,14 @@ def _headers(api_key: str) -> dict:
 
 
 async def stream_chat(db: AsyncSession, messages: list[dict], *, temperature: float | None = None):
-    """流式对话：逐段 yield 文本增量。失败抛异常（由路由包装成错误帧）。"""
+    """流式对话：逐段 yield (kind, text)。kind ∈ {"reasoning", "text"}。
+
+    - reasoning：模型的思考过程增量（OpenAI 兼容协议 reasoning_content 字段，
+      推理模型如 DeepSeek-R1 / Qwen3 在正式回答前产生，可能持续数十秒）；
+    - text：正式回答增量（原 content 通道，行为与旧版一致）。
+
+    不产 reasoning 的普通模型走纯 text，调用方无需感知。失败抛异常（由路由包装成错误帧）。
+    """
     cfg = await _effective_cfg(db)
     if not cfg["enabled"]:
         raise RuntimeError("AI 功能未启用，请先在系统设置中配置 AI 接入")
@@ -160,16 +167,21 @@ async def stream_chat(db: AsyncSession, messages: list[dict], *, temperature: fl
                 except ValueError:
                     continue
                 choices = obj.get("choices") or [{}]
-                delta = (choices[0].get("delta") or {}).get("content")
-                if delta:
-                    yield delta
+                delta = choices[0].get("delta") or {}
+                reason = delta.get("reasoning_content")
+                if reason:
+                    yield ("reasoning", reason)
+                content = delta.get("content")
+                if content:
+                    yield ("text", content)
 
 
 async def collect_chat(db: AsyncSession, messages: list[dict], *, temperature: float | None = None) -> str:
-    """聚合版：拼接流式输出为完整文本。"""
+    """聚合版：拼接流式输出为完整文本（仅正文，不含思考过程）。"""
     parts = []
-    async for chunk in stream_chat(db, messages, temperature=temperature):
-        parts.append(chunk)
+    async for kind, chunk in stream_chat(db, messages, temperature=temperature):
+        if kind == "text":
+            parts.append(chunk)
     return "".join(parts)
 
 
