@@ -147,7 +147,7 @@ $envContent = $envTemplate `
     -replace "replace-with-a-long-random-ingest-key", (New-RandomString 32) `
     -replace "replace-with-a-strong-admin-password", $adminPassword `
     -replace "SSH_KNOWN_HOSTS=.*", "SSH_KNOWN_HOSTS=" `
-    -replace "SSH_STRICT_HOST_KEY_CHECKING=.*", "SSH_STRICT_HOST_KEY_CHECKING=false" `
+    -replace "SSH_STRICT_HOST_KEY_CHECKING=.*", "SSH_STRICT_HOST_KEY_CHECKING=true" `
     -replace "COOKIE_SECURE=.*", "COOKIE_SECURE=true" `
     -replace "CORS_ORIGINS=.*", "CORS_ORIGINS=*"
 if ($existingKey) {
@@ -161,18 +161,52 @@ New-Item -ItemType Directory -Force -Path $backendRelease | Out-Null
 [System.IO.File]::WriteAllText((Join-Path $backendRelease ".env"), $envContent, (New-Object System.Text.UTF8Encoding($false)))
 Copy-Item (Join-Path $projectDir ".env.example") (Join-Path $backendRelease ".env.example")
 
-# ---- HTTPS 自签名证书：backend/certs/（移动 APP 内置信任同一证书） ----
+# ---- HTTPS 自签名证书：每次构建为本实例重新生成（P1-11） ----
+# 旧逻辑把 backend/certs/ 同一对自签证书复制进所有客户包 → 私钥全局复用：
+# 任一分发包泄露即可伪装任意实例，移动端 TOFU pin 的指纹也全局相同（静默 MITM）。
+# 改为用 Python + cryptography 每次构建生成全新证书对（仅一次性写入本包）。
 $certsRelease = Join-Path $backendRelease "certs"
 New-Item -ItemType Directory -Force -Path $certsRelease | Out-Null
-$srcCert = Join-Path $projectDir "backend\certs\server.crt"
-$srcKey = Join-Path $projectDir "backend\certs\server.key"
-if ((Test-Path $srcCert) -and (Test-Path $srcKey)) {
-    Copy-Item $srcCert (Join-Path $certsRelease "server.crt") -Force
-    Copy-Item $srcKey (Join-Path $certsRelease "server.key") -Force
-    Write-Host "[OK] 已内置 HTTPS 自签名证书（backend/certs/，移动 APP 信任同一证书）" -ForegroundColor Green
-} else {
-    Write-Host "[!] 未找到 HTTPS 证书（backend/certs/server.crt），生产包将以 HTTP 运行" -ForegroundColor Yellow
-}
+$genCertPy = Join-Path $workDir "gen_instance_cert.py"
+@'
+import datetime, ipaddress, os, sys
+from cryptography import x509
+from cryptography.hazmat.primitives import hashes, serialization
+from cryptography.hazmat.primitives.asymmetric import rsa
+from cryptography.x509.oid import NameOID
+
+out = sys.argv[1]
+key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
+now = datetime.datetime.now(datetime.timezone.utc)
+name = x509.Name([x509.NameAttribute(NameOID.COMMON_NAME, "AIOps Platform Instance")])
+san = x509.SubjectAlternativeName([
+    x509.IPAddress(ipaddress.ip_address("127.0.0.1")),
+    x509.DNSName("localhost"),
+])
+cert = (
+    x509.CertificateBuilder()
+    .subject_name(name)
+    .issuer_name(name)
+    .public_key(key.public_key())
+    .serial_number(x509.random_serial_number())
+    .not_valid_before(now - datetime.timedelta(days=1))
+    .not_valid_after(now + datetime.timedelta(days=3650))
+    .add_extension(san, critical=False)
+    .sign(key, hashes.SHA256())
+)
+with open(os.path.join(out, "server.crt"), "wb") as f:
+    f.write(cert.public_bytes(serialization.Encoding.PEM))
+with open(os.path.join(out, "server.key"), "wb") as f:
+    f.write(key.private_bytes(
+        serialization.Encoding.PEM,
+        serialization.PrivateFormat.PKCS8,
+        serialization.NoEncryption(),
+    ))
+print("instance cert written to", out)
+'@ | Set-Content -Path $genCertPy -Encoding UTF8
+& $Python $genCertPy $certsRelease
+if ($LASTEXITCODE -ne 0) { throw "实例 HTTPS 证书生成失败（需 cryptography 库）。" }
+Write-Host "[OK] 已为本实例生成独立 HTTPS 自签证书（backend/certs/，不复用全局同一证书对）" -ForegroundColor Green
 
 # ---- deploy/ 运行脚本（exe 版） ----
 $deployDir = Join-Path $releaseDir "deploy"

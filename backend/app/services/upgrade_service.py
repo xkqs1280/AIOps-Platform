@@ -200,8 +200,21 @@ def _verify_file_hashes(staging: Path, manifest: dict) -> None:
                 raise ValueError(f"升级包包含未列入清单的文件: {rel}")
 
 
+# 升级包解压保护（P1-12）：预扫描 ZipInfo.file_size 总量与条目数，防解压炸弹撑爆磁盘
+MAX_PACKAGE_ENTRIES = 20000
+MAX_PACKAGE_UNCOMPRESSED = 3 * 1024 ** 3  # 3GB（正常升级包 < 150MB）
+
+
 def validate_package(zip_path: Path) -> dict:
-    """校验升级包并解压到 staging，返回 manifest；失败抛异常（message 为原因）。"""
+    """校验升级包并解压到 staging，返回 manifest；失败抛异常（message 为原因）。
+
+    安全顺序（P1-12 修复，旧实现先 extractall 后验签——未验签即解压存在解压炸弹
+    风险）：
+      1. 预扫描：路径穿越防护 + 条目数/解压总量上限（不落盘）；
+      2. 仅从 zip 内读取 manifest.json → RSA 验签（签名不通过绝不落任何文件）；
+      3. 验签通过后才 extractall；
+      4. 逐文件 sha256 与签名清单比对 + 清单外文件拒绝。
+    """
     root = get_upgrade_root()
     staging = root / "staging"
     if staging.exists():
@@ -209,20 +222,37 @@ def validate_package(zip_path: Path) -> dict:
     staging.mkdir(parents=True, exist_ok=True)
 
     with zipfile.ZipFile(zip_path, "r") as zf:
-        # zip-slip 防护：拒绝路径穿越（is_relative_to 严格判断，避免前缀字符串绕过）
-        for name in zf.namelist():
+        names = zf.namelist()
+        if len(names) > MAX_PACKAGE_ENTRIES:
+            raise ValueError(f"升级包条目数过多（>{MAX_PACKAGE_ENTRIES}），拒绝处理")
+        # zip-slip 防护 + 解压体积预算（先于验签扫描，仍不落盘）
+        total_uncompressed = 0
+        for name in names:
             resolved = (staging / name).resolve()
             if not resolved.is_relative_to(staging.resolve()):
                 raise ValueError("升级包包含非法路径")
+            info = zf.getinfo(name)
+            if not info.is_dir():
+                total_uncompressed += info.file_size
+        if total_uncompressed > MAX_PACKAGE_UNCOMPRESSED:
+            raise ValueError(
+                f"升级包解压后体积超出安全上限（{total_uncompressed // (1024 ** 3)}GB），拒绝处理"
+            )
+        # 先验签后解压：manifest.json 是唯一被 RSA 签名的载体，其内容必须先被信任
+        if "manifest.json" not in names:
+            raise ValueError("升级包缺少 manifest.json")
+        try:
+            manifest = json.loads(zf.read("manifest.json").decode("utf-8"))
+        except (json.JSONDecodeError, UnicodeDecodeError):
+            raise ValueError("manifest.json 无法解析")
+        if not verify_signature(manifest):
+            raise ValueError("升级包签名校验失败（包可能被篡改或非官方包）")
+        # 验签通过才落盘
         zf.extractall(staging)
 
     manifest_file = staging / "manifest.json"
     if not manifest_file.is_file():
         raise ValueError("升级包缺少 manifest.json")
-
-    manifest = json.loads(manifest_file.read_text(encoding="utf-8"))
-    if not verify_signature(manifest):
-        raise ValueError("升级包签名校验失败（包可能被篡改或非官方包）")
 
     # 全文件 sha256 完整性校验：签名覆盖 files 清单，清单覆盖所有落地文件
     _verify_file_hashes(staging, manifest)
