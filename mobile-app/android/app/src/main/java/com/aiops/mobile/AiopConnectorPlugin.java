@@ -451,11 +451,12 @@ public class AiopConnectorPlugin extends Plugin {
         executor.execute(() -> {
             final CountDownLatch latch = new CountDownLatch(1);
             final boolean[] accepted = {false};
-            android.app.Activity activity = null;
+            android.app.Activity act = null;
             try {
-                activity = getBridge().getActivity();
+                act = getBridge().getActivity();
             } catch (Exception ignore) {
             }
+            final android.app.Activity activity = act;
             if (activity == null) {
                 call.reject("无法获取 Activity，无法执行确认");
                 return;
