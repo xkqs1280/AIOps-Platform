@@ -31,28 +31,49 @@ TERMINAL_DEBOUNCE_SECONDS = 300
 _last_terminal_alert: dict = {}
 
 
-def _ping_ip(ip: str) -> bool:
-    """ping 探测（跨平台），返回是否可达（TTL 出现次数 > 0）。
+def _ping_ip(ip: str) -> bool | None:
+    """ping 探测（跨平台），收到 TTL 响应即视为可达。
 
     - Windows: `ping -n <count> -w <ms>`（Linux 的 -n/-w 语义不同，需区分）
     - Linux:   `ping -c <count> -W <sec>`
+
+    返回三态，将「终端无响应」与「探测机制异常」区分开：
+    - True ：终端可达（收到 ICMP 回复）
+    - False：ping 命令正常执行但无回复（确认不可达）
+    - None ：探测机制异常（子进程启动失败 / 超时 / IO 错误）——上层必须跳过
+             本轮失败计数，避免把「探测不可用」误判为「终端离线」。
+
+    背景（同健康检查 2026-09-07 生产故障模式）：旧实现把 ping 子进程的一切
+    异常静默按 False 处理，Windows 打包进程（计划任务/隐藏窗口会话）下 spawn
+    ping 一旦失败即把全部启用终端按离线累计，10 分钟批量误报「终端离线」。
+    异常改为记录日志并返回 None，既能暴露真实原因，也不再产生误报。
     """
+    if sys.platform == "win32":
+        cmd = ["ping", "-n", str(PING_COUNT), "-w", "2000", ip]
+        # 无控制台会话（服务/计划任务/隐藏启动）下 spawn console 子进程需显式
+        # CREATE_NO_WINDOW，避免新建控制台窗口或启动失败
+        create_flags = getattr(subprocess, "CREATE_NO_WINDOW", 0)
+        proc_kwargs: dict = {"creationflags": create_flags}
+    else:
+        cmd = ["ping", "-c", str(PING_COUNT), "-W", "2", ip]
+        proc_kwargs = {}
     try:
-        if sys.platform == "win32":
-            cmd = ["ping", "-n", str(PING_COUNT), "-w", "2000", ip]
-        else:
-            cmd = ["ping", "-c", str(PING_COUNT), "-W", "2", ip]
         proc = subprocess.run(
-            cmd, capture_output=True, timeout=PING_COUNT * 3 + 3,
+            cmd, capture_output=True, timeout=PING_COUNT * 3 + 3, **proc_kwargs,
         )
-        output = proc.stdout.decode("utf-8", errors="replace") + proc.stderr.decode("utf-8", errors="replace")
-        return output.upper().count("TTL=") > 0
-    except Exception:
-        return False
+    except subprocess.TimeoutExpired:
+        # subprocess.run 超时后已自动 kill 并回收子进程
+        logger.warning(f"Business ping probe timeout for {ip}")
+        return None
+    except Exception as e:
+        logger.warning(f"Business ping probe spawn failed for {ip}: {e!r}")
+        return None
+    output = proc.stdout.decode("utf-8", errors="replace") + proc.stderr.decode("utf-8", errors="replace")
+    return output.upper().count("TTL=") > 0
 
 
-async def probe_terminal_online(ip: str) -> bool:
-    """异步探测终端在线状态（线程池跑同步 ping）。"""
+async def probe_terminal_online(ip: str) -> bool | None:
+    """异步探测终端在线状态（线程池跑同步 ping）。三态同 _ping_ip。"""
     return await asyncio.to_thread(_ping_ip, ip)
 
 
@@ -63,6 +84,14 @@ async def _probe_single(db, terminal) -> None:
 
     now = datetime.now(timezone.utc)
     reachable = await probe_terminal_online(terminal.ip)
+    if reachable is None:
+        # 探测机制异常（子进程启动失败/超时等）：不能据此判定终端离线。
+        # 跳过本轮计数并记日志——避免把「探测不可用」误判为「终端离线」批量误报。
+        logger.warning(
+            f"Business ping probe unavailable for {terminal.name} ({terminal.ip}), "
+            f"skip offline counting this round"
+        )
+        return
     prev_status = terminal.status
 
     def _debounced(alert_type: str) -> bool:
