@@ -1,6 +1,8 @@
 package com.aiops.mobile;
 
+import android.app.AlertDialog;
 import android.content.Context;
+import android.content.DialogInterface;
 import android.content.SharedPreferences;
 import android.util.Log;
 
@@ -27,15 +29,22 @@ import java.security.SecureRandom;
 import java.security.cert.Certificate;
 import java.security.cert.CertificateException;
 import java.security.cert.X509Certificate;
+import java.util.ArrayList;
 import java.util.Iterator;
+import java.util.List;
 import java.util.Map;
+import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.concurrent.TimeUnit;
 
 import javax.net.ssl.HostnameVerifier;
 import javax.net.ssl.HttpsURLConnection;
+import javax.net.ssl.SNIHostName;
+import javax.net.ssl.SNIServerName;
 import javax.net.ssl.SSLContext;
 import javax.net.ssl.SSLException;
+import javax.net.ssl.SSLParameters;
 import javax.net.ssl.SSLSocket;
 import javax.net.ssl.SSLSocketFactory;
 import javax.net.ssl.TrustManager;
@@ -65,6 +74,7 @@ public class AiopConnectorPlugin extends Plugin {
     private static final String ERR_FIRST_USE = "TOFU_FIRST_USE";
     private static final String ERR_MISMATCH = "TOFU_MISMATCH";
     private static final String ERR_NETWORK = "NETWORK_ERROR";
+    private static final String ERR_CERT_TIME = "TOFU_CERT_TIME";
 
     private final ExecutorService executor = Executors.newSingleThreadExecutor();
 
@@ -124,6 +134,19 @@ public class AiopConnectorPlugin extends Plugin {
             sock = (SSLSocket) f.createSocket();
             sock.connect(new InetSocketAddress(host, port), Math.max(timeoutMs, 5000));
             sock.setSoTimeout(Math.max(timeoutMs, 5000));
+            // 显式携带 SNI：共享 IP / SNI 路由部署下若无 SNI，服务器会握手失败或回退
+            // 默认证书 → 首次信任拿错指纹或误 pin。IP 直连（SNIHostName 抛异常）忽略即可。
+            if (host != null && !host.isEmpty()) {
+                try {
+                    SSLParameters params = sock.getSSLParameters();
+                    List<SNIServerName> names = new ArrayList<>(1);
+                    names.add(new SNIHostName(host));
+                    params.setServerNames(names);
+                    sock.setSSLParameters(params);
+                } catch (Exception sniErr) {
+                    Log.w(TAG, "SNI set skipped for " + host + ": " + sniErr.getMessage());
+                }
+            }
             sock.startHandshake();
             Certificate[] certs = sock.getSession().getPeerCertificates();
             if (certs == null || certs.length == 0) {
@@ -161,10 +184,13 @@ public class AiopConnectorPlugin extends Plugin {
             public void checkClientTrusted(X509Certificate[] chain, String authType) {}
             public void checkServerTrusted(X509Certificate[] chain, String authType) throws CertificateException {
                 if (chain == null || chain.length == 0) throw new CertificateException("no cert");
-                String fp = sha256FingerprintSafe(chain[0]);
+                X509Certificate leaf = chain[0];
+                String fp = sha256FingerprintSafe(leaf);
                 if (fp == null || !normalizeFp(fp).equals(normalizeFp(pin))) {
                     throw new CertificateException("TOFU_PIN_MISMATCH host=" + hostKey);
                 }
+                // 指纹命中后仍校验证书有效期（已过期/未生效的证书不可信）
+                leaf.checkValidity();
             }
             public X509Certificate[] getAcceptedIssuers() { return new X509Certificate[0]; }
         }}, new SecureRandom());
@@ -312,10 +338,17 @@ public class AiopConnectorPlugin extends Plugin {
             }
             out.put("ok", false);
             if (probeOk) {
-                // 真·指纹不一致（服务器换证书 / 中间人）
-                out.put("code", ERR_MISMATCH);
-                out.put("message", "服务器证书指纹与已信任的不一致");
-                out.put("fingerprint", probeFp);
+                if (pinNow != null && normalizeFp(probeFp).equals(normalizeFp(pinNow))) {
+                    // 指纹与已信任一致但握手仍失败 → 证书时间窗问题（过期/未生效）
+                    out.put("code", ERR_CERT_TIME);
+                    out.put("message", "服务器证书已过期或尚未生效（指纹与已信任一致），请更新平台证书");
+                    out.put("fingerprint", probeFp);
+                } else {
+                    // 真·指纹不一致（服务器换证书 / 中间人）
+                    out.put("code", ERR_MISMATCH);
+                    out.put("message", "服务器证书指纹与已信任的不一致");
+                    out.put("fingerprint", probeFp);
+                }
             } else {
                 // 已信任服务器但当前连不上（网络/防火墙/服务挂了）→ 不弹"指纹变化"误导用户
                 out.put("code", ERR_NETWORK);
@@ -409,12 +442,73 @@ public class AiopConnectorPlugin extends Plugin {
             call.reject("host 与 fingerprint 不能为空");
             return;
         }
-        prefs().edit().putString(hostKey(host, port), prettyFp(fp)).apply();
-        JSObject out = new JSObject();
-        out.put("ok", true);
-        out.put("host", host);
-        out.put("port", port);
-        call.resolve(out);
+        final String hkey = hostKey(host, port);
+        final String fpPretty = prettyFp(fp);
+
+        // 原生二次确认（P0-6）：信任落库必须在原生 UI 弹窗经用户确认，不能仅凭 WebView
+        // JS 调用就写盘——SPA 一旦被注入 JS 可静默 re-pin 到攻击者证书接管 API+token。
+        // 整体放后台线程执行（CountDownLatch 阻塞等待），仅弹窗在 UI 线程。
+        executor.execute(() -> {
+            final CountDownLatch latch = new CountDownLatch(1);
+            final boolean[] accepted = {false};
+            android.app.Activity activity = null;
+            try {
+                activity = getBridge().getActivity();
+            } catch (Exception ignore) {
+            }
+            if (activity == null) {
+                call.reject("无法获取 Activity，无法执行确认");
+                return;
+            }
+            activity.runOnUiThread(() -> {
+                try {
+                    AlertDialog dlg = new AlertDialog.Builder(activity)
+                            .setTitle("信任服务器证书？")
+                            .setMessage("请与平台管理员提供的证书指纹核对一致后再信任。\n\n"
+                                    + "服务器：" + hkey + "\n\n"
+                                    + "SHA-256 指纹：\n" + fpPretty + "\n\n"
+                                    + "信任后将自动免证书连接该平台。")
+                            .setCancelable(false)
+                            .setPositiveButton("信任", (DialogInterface d, int w) -> {
+                                accepted[0] = true;
+                                latch.countDown();
+                            })
+                            .setNegativeButton("取消", (DialogInterface d, int w) -> {
+                                accepted[0] = false;
+                                latch.countDown();
+                            })
+                            .create();
+                    dlg.show();
+                } catch (Exception e) {
+                    Log.e(TAG, "native confirm dialog failed: " + e.getMessage());
+                    latch.countDown(); // 弹窗失败视同拒绝，绝不静默信任
+                }
+            });
+            boolean decided;
+            try {
+                decided = latch.await(60, TimeUnit.SECONDS);
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                call.reject("等待用户确认被中断");
+                return;
+            }
+            if (!decided) {
+                call.reject("等待用户确认超时");
+                return;
+            }
+            if (!accepted[0]) {
+                Log.i(TAG, "pin rejected by user: " + hkey);
+                call.reject("用户取消信任");
+                return;
+            }
+            prefs().edit().putString(hkey, fpPretty).apply();
+            Log.i(TAG, "pin confirmed by native dialog: " + hkey);
+            JSObject out = new JSObject();
+            out.put("ok", true);
+            out.put("host", host);
+            out.put("port", port);
+            call.resolve(out);
+        });
     }
 
     @PluginMethod

@@ -189,6 +189,8 @@
 <script setup>
 import { chartTheme } from '../utils/chartTheme'
 const cc = chartTheme()
+// HTML 转义：设备名/接口名等用户可写字段渲染进 tooltip 前必须先转义，防存储型 XSS
+const escHtml = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]))
 import { ref, computed, onMounted, onUnmounted, nextTick } from 'vue'
 import * as echarts from 'echarts'
 import {
@@ -552,8 +554,11 @@ function renderBandwidthChart() {
       formatter: function (params) {
         const p = params[0]
         const item = data[data.length - 1 - p.dataIndex] || {}
-        let html = `${p.name}<br/>带宽利用率: <b style="color:${p.color}">${p.value}%</b>`
-        if (item.interface) html += `<br/>接口: ${item.interface}`
+        // 设备名/接口名为 SNMP 同步或用户录入的可控字段，拼 HTML 前必须转义（同拓扑 tooltip）
+        const devName = escHtml(p.name)
+        const ifName = escHtml(item.interface)
+        let html = `${devName}<br/>带宽利用率: <b style="color:${p.color}">${p.value}%</b>`
+        if (item.interface) html += `<br/>接口: ${ifName}`
         if (item.in_rate != null) {
           html += `<br/>下行 ${fmtRate(item.in_rate)} / 上行 ${fmtRate(item.out_rate)}`
         }
