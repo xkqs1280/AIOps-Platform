@@ -108,7 +108,7 @@ async function doUpgrade() {
     status.value = { state: 'uploading', progress: 5, message: '升级已开始…', log: [] }
     startPoll()
   } catch (e) {
-    errorMsg.value = (e.response && e.response.data && e.response.data.detail) || '上传失败'
+    errorMsg.value = (e.response && e.response.data && e.response.data.detail) || e.message || '上传失败'
     upgrading.value = false
     busy.value = false
   }

@@ -1,10 +1,14 @@
 import axios from 'axios'
 import { currentBaseUrl, getToken, setToken } from './store.js'
+import tofuAdapter, { isTofuAdapterActive } from './tofuAdapter.js'
+import { resolveTofu } from './tofu.js'
 
-// 移动端 API：baseURL 动态指向用户配置的服务器，携带 Bearer token（跨域安全）
+// 移动端 API：baseURL 动态指向用户配置的服务器，携带 Bearer token（跨域安全）。
+// 原生端走 TOFU HTTPS 通道（任意自签名平台，首次指纹确认后免证书），Web 端回退默认 XHR。
 const api = axios.create({
   baseURL: currentBaseUrl(),
   timeout: 20000,
+  adapter: isTofuAdapterActive() ? tofuAdapter : undefined,
   // 不全局锁定 Content-Type：JSON 请求由 axios 自动设为 application/json，
   // FormData 上传自动切换为 multipart/form-data（否则 file 字段收不到）
 })
@@ -26,10 +30,20 @@ export function setUnauthorizedHandler(fn) {
 
 api.interceptors.response.use(
   (res) => res.data,
-  (err) => {
+  async (err) => {
+    // 401：token 失效 → 清 token 回登录
     if (err.response && err.response.status === 401) {
       setToken('')
       if (onUnauthorized) onUnauthorized()
+      return Promise.reject(err)
+    }
+    // TOFU：首次连接 / 证书指纹变更 → 弹确认（全局 TofuDialog），确认后 pin 并自动重试一次
+    if (err.tofu && !err.config?._tofuRetried) {
+      const accepted = await resolveTofu(err.tofu)
+      if (accepted) {
+        err.config._tofuRetried = true
+        return api.request(err.config)
+      }
     }
     return Promise.reject(err)
   },
