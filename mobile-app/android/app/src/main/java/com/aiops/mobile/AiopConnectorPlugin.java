@@ -2,6 +2,7 @@ package com.aiops.mobile;
 
 import android.content.Context;
 import android.content.SharedPreferences;
+import android.util.Log;
 
 import com.getcapacitor.JSArray;
 import com.getcapacitor.JSObject;
@@ -59,6 +60,7 @@ import javax.net.ssl.X509TrustManager;
 @CapacitorPlugin(name = "AiopConnector")
 public class AiopConnectorPlugin extends Plugin {
 
+    private static final String TAG = "AiopConnector";
     private static final String PREFS = "aiops_tofu_pins";
     private static final String ERR_FIRST_USE = "TOFU_FIRST_USE";
     private static final String ERR_MISMATCH = "TOFU_MISMATCH";
@@ -197,11 +199,14 @@ public class AiopConnectorPlugin extends Plugin {
             String host = url.getHost();
             int port = url.getPort() == -1 ? url.getDefaultPort() : url.getPort();
             String hkey = hostKey(host, port);
+            Log.i(TAG, "request " + method + " " + urlStr + " host=" + host + " port=" + port);
 
             // TOFU：无 pin → 探测指纹并返回 FIRST_USE（不发业务请求）
             String pin = prefs().getString(hkey, null);
+            Log.i(TAG, "pin[" + hkey + "]=" + (pin == null ? "NULL(首次)" : "SET"));
             if (pin == null) {
                 JSObject probe = probeTls(host, port, timeoutMs);
+                Log.i(TAG, "probeTls ok=" + probe.optBoolean("ok", false) + " code=" + probe.optString("code", ""));
                 if (probe.optBoolean("ok", false)) {
                     out.put("ok", false);
                     out.put("code", ERR_FIRST_USE);
@@ -224,7 +229,13 @@ public class AiopConnectorPlugin extends Plugin {
             conn = (HttpURLConnection) url.openConnection();
             if (conn instanceof HttpsURLConnection) {
                 HttpsURLConnection https = (HttpsURLConnection) conn;
-                https.setSSLSocketFactory(pinnedFactory(hkey, pin));
+                try {
+                    https.setSSLSocketFactory(pinnedFactory(hkey, pin));
+                    Log.i(TAG, "pinnedFactory OK host=" + host);
+                } catch (Exception fe) {
+                    Log.e(TAG, "pinnedFactory FAIL: " + fe.getMessage());
+                    throw fe;
+                }
                 https.setHostnameVerifier(new HostnameVerifier() {
                     public boolean verify(String h, javax.net.ssl.SSLSession s) { return true; }
                 });
@@ -261,6 +272,7 @@ public class AiopConnectorPlugin extends Plugin {
             }
 
             int status = conn.getResponseCode();
+            Log.i(TAG, "HTTP " + status + " for " + method + " " + urlStr);
             InputStream is = status >= 400 ? conn.getErrorStream() : conn.getInputStream();
             String respBody = readAll(is);
 
@@ -280,28 +292,42 @@ public class AiopConnectorPlugin extends Plugin {
             out.put("headers", respHeaders);
             return out;
         } catch (SSLException e) {
+            Log.e(TAG, "SSLException: " + e.getMessage());
             // pin 已存在但握手失败（服务器换证书 / 中间人 / 网络异常）→ 探测当前指纹供比对
-            String host = null, pinNow = null;
+            String host = null;
+            int p = -1;
+            String pinNow = null;
+            boolean probeOk = false;
+            String probeFp = "";
             try {
                 URL u = new URL(urlStr);
                 host = u.getHost();
-                int p = u.getPort() == -1 ? u.getDefaultPort() : u.getPort();
+                p = u.getPort() == -1 ? u.getDefaultPort() : u.getPort();
                 pinNow = prefs().getString(hostKey(host, p), null);
                 JSObject probe = probeTls(host, p, timeoutMs);
-                out.put("ok", false);
-                out.put("code", ERR_MISMATCH);
-                out.put("host", host);
-                out.put("port", p);
-                out.put("fingerprint", probe.optString("fingerprint", "")); // 服务器当前
-                out.put("pinnedFingerprint", pinNow == null ? "" : pinNow);
-                out.put("message", "服务器证书指纹与已信任的不一致");
+                probeOk = probe.optBoolean("ok", false);
+                if (probeOk) probeFp = probe.optString("fingerprint", "");
             } catch (Exception ex) {
-                out.put("ok", false);
-                out.put("code", ERR_MISMATCH);
-                out.put("message", "服务器证书校验失败");
+                /* host/port 解析或探测失败，继续走兜底分支 */
             }
+            out.put("ok", false);
+            if (probeOk) {
+                // 真·指纹不一致（服务器换证书 / 中间人）
+                out.put("code", ERR_MISMATCH);
+                out.put("message", "服务器证书指纹与已信任的不一致");
+                out.put("fingerprint", probeFp);
+            } else {
+                // 已信任服务器但当前连不上（网络/防火墙/服务挂了）→ 不弹"指纹变化"误导用户
+                out.put("code", ERR_NETWORK);
+                out.put("message", "已信任服务器当前不可达：" + e.getMessage());
+                out.put("fingerprint", "");
+            }
+            if (host != null) out.put("host", host);
+            if (p > 0) out.put("port", p);
+            out.put("pinnedFingerprint", pinNow == null ? "" : pinNow);
             return out;
         } catch (Exception e) {
+            Log.e(TAG, "doRequest EX: " + e.getClass().getSimpleName() + ": " + e.getMessage());
             out.put("ok", false);
             out.put("code", ERR_NETWORK);
             out.put("message", (e.getMessage() == null ? e.getClass().getSimpleName() : e.getMessage()));
