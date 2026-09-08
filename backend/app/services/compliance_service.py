@@ -390,7 +390,7 @@ async def run_secondary_compliance_check(session, device_id: int) -> dict:
             "total": len(applicable),
             "details": results,
             "categories": categories,
-            "checked_at": datetime.utcnow(),
+            "checked_at": datetime.now(timezone.utc),
             "note": "SSH 采集不可用，已回退为平台指标推断评估",
         }
 
@@ -405,7 +405,7 @@ async def run_secondary_compliance_check(session, device_id: int) -> dict:
             control_desc=rule["desc"],
             status=status,
             evidence=evidence,
-            checked_at=datetime.utcnow(),
+            checked_at=datetime.now(timezone.utc),
         )
         stmt = stmt.on_conflict_do_update(
             index_elements=["device_id", "control_id"],
@@ -449,7 +449,7 @@ async def run_secondary_compliance_check(session, device_id: int) -> dict:
         "total": len(applicable),
         "details": results,
         "categories": categories,
-        "checked_at": datetime.utcnow(),
+        "checked_at": datetime.now(timezone.utc),
     }
 
 
@@ -603,7 +603,7 @@ async def run_compliance_check(session, device_id):
         return []
 
     device_type = device.device_type or ""
-    now = datetime.utcnow()
+    now = datetime.now(timezone.utc)
     results = []
 
     for rule in COMPLIANCE_RULES:
@@ -689,7 +689,7 @@ async def _evaluate_rule(session, rule, device):
 
     # ── syslog 类规则：基于 SecurityEvent 记录推断 ──
     if rule.get("requires_syslog"):
-        seven_days_ago = datetime.utcnow() - timedelta(days=7)
+        seven_days_ago = datetime.now(timezone.utc) - timedelta(days=7)
 
         # 检查该设备在近 7 天内是否有对应类别的事件
         if rule["control_id"] == "8.1.4.2-b":

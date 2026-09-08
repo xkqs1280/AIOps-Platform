@@ -48,9 +48,14 @@ async def _backup_scheduler():
         await asyncio.sleep(60)
 
 
-async def _backup_cleanup_loop():
-    """每日清理：6 个月（180 天）前的所有备份记录 + 1 个月（30 天）前的备份失败记录。启动后先执行一次再按天循环。"""
+async def _cleanup_loop():
+    """每日清理（启动 30s 后先执行一次，再按天循环）：
+    - 配置备份：6 个月（180 天）前全部记录 + 1 个月（30 天）前失败记录；
+    - 核心业务表保留期（P1-6）：alerts(resolved 90d) / ai_logs(180d) /
+      security_events(180d) / business_alerts(180d)，全部分批删除。
+    """
     from app.services.backup_service import cleanup_old_backups
+    from app.services.retention_service import cleanup_expired_core_data
     await asyncio.sleep(30)
     while True:
         try:
@@ -59,6 +64,12 @@ async def _backup_cleanup_loop():
                 logger.info(f"Backup cleanup: removed {deleted} expired records")
         except Exception as e:
             logger.error(f"Backup cleanup error: {e}")
+        try:
+            stats = await cleanup_expired_core_data()
+            if any(stats.values()):
+                logger.info(f"Core data retention cleanup: {stats}")
+        except Exception as e:
+            logger.error(f"Core data retention cleanup error: {e}")
         await asyncio.sleep(86400)
 
 
@@ -93,27 +104,36 @@ async def lifespan(app: FastAPI):
                 logger.warning("Bootstrap administrator created: %s", settings.BOOTSTRAP_ADMIN_USERNAME)
             else:
                 logger.error("No users exist. Set BOOTSTRAP_ADMIN_USERNAME and BOOTSTRAP_ADMIN_PASSWORD before first startup.")
+    # ── 启动巡检对账：进程重启后把遗留 running/pending 巡检任务置 failed（P1-8）──
+    try:
+        from app.services.h3c_inspection_service import reconcile_stale_inspection_tasks
+        await reconcile_stale_inspection_tasks()
+    except Exception as e:
+        logger.error(f"Inspection startup reconcile failed: {e}")
+    # ── 后台循环全部由监督器托管：崩溃/意外退出自动延迟重启（P1-8）──
+    from app.services.loop_supervisor import start_supervised
     # 启动定时备份调度器
-    scheduler_task = asyncio.create_task(_backup_scheduler())
+    scheduler_task = start_supervised("backup-scheduler", _backup_scheduler)
     logger.info("Backup scheduler started")
     # 启动设备可达性检测服务（每5秒探测，3次失败判定离线）
     from app.services.health_check_service import health_check_loop
-    health_check_task = asyncio.create_task(health_check_loop())
+    health_check_task = start_supervised("health-check", health_check_loop)
     logger.info("Device health check service started")
     # 启动真实指标采集服务（每60秒 SNMP 采集 CPU/内存/温度）
     from app.services.metrics_collector import metrics_collect_loop
-    metrics_task = asyncio.create_task(metrics_collect_loop())
+    metrics_task = start_supervised("metrics-collector", metrics_collect_loop)
     logger.info("Metrics collector service started")
     # 启动外部威胁情报采集服务（每30分钟抓取 FireHOL + ip-api 地理标注）
     from app.services.external_threat_service import threat_collect_loop
-    threat_task = asyncio.create_task(threat_collect_loop())
+    threat_task = start_supervised("threat-collector", threat_collect_loop)
     logger.info("External threat collector service started")
     # 启动重要业务监控服务（每5分钟 ping 探测终端，离线告警）
-    from app.services.business_monitor_service import start_business_monitor
-    biz_monitor_task = await start_business_monitor()
-    # 启动配置备份清理（每日删除 6 个月前的备份记录）
-    cleanup_task = asyncio.create_task(_backup_cleanup_loop())
-    logger.info("Backup cleanup service started")
+    from app.services.business_monitor_service import probe_terminals_loop
+    biz_monitor_task = start_supervised("business-monitor", probe_terminals_loop)
+    logger.info("Business monitor service started")
+    # 启动配置备份与核心表保留期清理（每日循环）
+    cleanup_task = start_supervised("daily-cleanup", _cleanup_loop)
+    logger.info("Cleanup service started")
     yield
     scheduler_task.cancel()
     health_check_task.cancel()

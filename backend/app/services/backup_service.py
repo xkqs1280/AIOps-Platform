@@ -13,7 +13,7 @@ import re
 from datetime import datetime, timezone, timedelta
 
 import asyncssh
-from sqlalchemy import select, func, or_, text
+from sqlalchemy import select, func, or_, text, delete
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.device import Device
@@ -583,12 +583,14 @@ def generate_diff(config1: str, config2: str) -> list[dict]:
     return result
 
 
-async def cleanup_old_backups(days: int = 180, failed_days: int = 30) -> int:
+async def cleanup_old_backups(days: int = 180, failed_days: int = 30, batch_size: int = 500) -> int:
     """清理过期配置备份记录，返回删除条数。
 
     - 删除 days 天（默认 180）前的所有备份记录；
     - 同时删除 failed_days 天（默认 30）前的备份失败记录（status='failed'），
       避免失败记录长期堆积，成功记录则保留更久。
+    - 分批删除（每批 batch_size 条，默认 500）：先取该批主键再 DELETE ... IN (...),
+      避免全表 SELECT 一次性载入内存（记录多时 OOM / 单事务过长持锁）。
     """
     from app.database import async_session
 
@@ -598,16 +600,28 @@ async def cleanup_old_backups(days: int = 180, failed_days: int = 30) -> int:
         (ConfigBackup.created_at < now - timedelta(days=failed_days))
         & (ConfigBackup.status == "failed")
     )
+    total = 0
     async with async_session() as db:
-        result = await db.execute(select(ConfigBackup).where(or_(*conditions)))
-        old = result.scalars().all()
-        count = len(old)
-        for b in old:
-            await db.delete(b)
-        await db.commit()
-        if count:
-            logger.info(
-                "Backup cleanup: removed %d records (%dd+ all / %dd+ failed)",
-                count, days, failed_days,
+        while True:
+            # 1) 取一批主键（不载入整行大字段 config_content）
+            id_rows = await db.execute(
+                select(ConfigBackup.id)
+                .where(or_(*conditions))
+                .order_by(ConfigBackup.id)
+                .limit(batch_size)
             )
-        return count
+            ids = [r for (r,) in id_rows.all()]
+            if not ids:
+                break
+            # 2) 按主键批量删除（一条 DELETE 处理整批）
+            await db.execute(delete(ConfigBackup).where(ConfigBackup.id.in_(ids)))
+            await db.commit()
+            total += len(ids)
+            if len(ids) < batch_size:
+                break
+    if total:
+        logger.info(
+            "Backup cleanup: removed %d records (%dd+ all / %dd+ failed)",
+            total, days, failed_days,
+        )
+    return total
