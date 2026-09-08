@@ -49,6 +49,13 @@ async def device_terminal_ws(
     # 必须先 accept 才能发送/关闭（Starlette 约束：未 accept 的 close 会抛错导致 403）
     await websocket.accept()
 
+    # License 锁定拦截：授权中间件（main.py HTTP 中间件）不作用于 WebSocket，
+    # 若不在 accept 后立即校验，锁定态下持账号者仍可经本端点无痕操作全网设备。
+    from app.services.license_service import is_locked
+    if await is_locked():
+        await websocket.close(code=4003, reason="平台授权已锁定，设备终端不可用")
+        return
+
     # 认证：WebSocket 握手无法用 HTTP Depends，手动校验 token（cookie / Bearer / query 参数）
     token = websocket.cookies.get("access_token")
     authorization = websocket.headers.get("authorization", "")

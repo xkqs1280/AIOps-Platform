@@ -1,5 +1,7 @@
 from datetime import datetime
-from pydantic import BaseModel, Field
+import os
+
+from pydantic import BaseModel, Field, field_validator
 
 
 class InspectionDeviceResultResponse(BaseModel):
@@ -33,6 +35,15 @@ class InspectionTaskResponse(BaseModel):
     completed_at: datetime | None = None
 
     model_config = {"from_attributes": True}
+
+    @field_validator("excel_path", "word_path", mode="before")
+    @classmethod
+    def _relative_report_path(cls, v):
+        """只回显报告文件名，不回显服务器绝对路径（防目录结构泄露，P1-3）。"""
+        if isinstance(v, str) and v.strip():
+            base = os.path.basename(v.replace("\\", "/"))
+            return base if base else v.strip()
+        return v
 
 
 class InspectionTaskDetailResponse(InspectionTaskResponse):

@@ -222,10 +222,18 @@ async def explain_backup(backup_id: int, db: AsyncSession = Depends(get_db), act
             fromfile=f"旧配置#{prev.id}", tofile=f"新配置#{cur.id}", lineterm="", n=2,
         ))
         diff = "\n".join(lines[:400]) or "（两次配置完全一致）"
-    ctx = {"device": svc._device_brief(d), "diff": svc.sanitize(diff)}
-    key = f"backup:{backup_id}:{cur.config_hash or ''}"
-    return await _cached_sse("backup", key, actor.get("username", ""), f"backup#{backup_id}",
-                             db, lambda: svc.build_backup_messages(ctx))
+    # 配置差异含厂商敏感凭据（password cipher/hash/irreversible-cipher/VPN key/community
+    # 等），送外部 LLM 前必须经厂商语法脱敏（通用 sanitize 对配置语法无效）。
+    ctx = {"device": svc._device_brief(d), "diff": svc.sanitize_config(diff)}
+
+    # 含完整配置的场景默认不落 ai_cache：即便脱敏，LLM 应答可能复述配置片段，
+    # 缓存会使其以明文形态持久化（旧版 _cached_sse 的缺陷）。
+    async def _gen():
+        async with svc._ai_semaphore:
+            async for delta in svc.stream_chat(db, svc.build_backup_messages(ctx)):
+                yield delta
+    return await _sse_response("backup", actor.get("username", ""), f"backup#{backup_id}",
+                               _gen(), db=db)
 
 
 # ---------------------------------------------------------------------------
