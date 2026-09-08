@@ -28,17 +28,25 @@ export function setUnauthorizedHandler(fn) {
   onUnauthorized = fn
 }
 
+// 登录/登出自身的 401（口令错误等）不代表会话过期，不得触发全局跳登录
+const isAuthEndpoint = (url) => /\/auth\/(login|logout)$/.test(String(url || ''))
+
 api.interceptors.response.use(
   (res) => res.data,
   async (err) => {
-    // 401：token 失效 → 清 token 回登录
-    if (err.response && err.response.status === 401) {
+    // 401：token 失效 → 清 token 回登录（登录端点自身的 401 除外）
+    if (err.response && err.response.status === 401 && !isAuthEndpoint(err.config && err.config.url)) {
       setToken('')
       if (onUnauthorized) onUnauthorized()
       return Promise.reject(err)
     }
-    // TOFU：首次连接 / 证书指纹变更 → 弹确认（全局 TofuDialog），确认后 pin 并自动重试一次
-    if (err.tofu && !err.config?._tofuRetried) {
+    // TOFU：仅「首次连接」与「证书指纹变化」弹确认（全局 TofuDialog）；
+    // 网络不可达 / 证书过期等其它错误直接透传，绝不误弹"指纹变化"诱导信任
+    const tofuCode = err.tofu && err.tofu.code
+    if (
+      (tofuCode === 'TOFU_FIRST_USE' || tofuCode === 'TOFU_MISMATCH') &&
+      !err.config?._tofuRetried
+    ) {
       const accepted = await resolveTofu(err.tofu)
       if (accepted) {
         err.config._tofuRetried = true

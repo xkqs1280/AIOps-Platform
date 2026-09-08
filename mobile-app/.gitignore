@@ -1,0 +1,25 @@
+# ---- AIOps 移动端（mobile-app）独立仓库防护（P1-10）----
+# 若本目录被拆成独立公开/协作仓库，以下敏感与构建产物必须被排除，
+# 否则签名私钥(jks)与口令(signing.properties)明文泄露 = S0 级事故。
+
+# 签名私钥 / 口令 / 本地 SDK 路径
+*.jks
+*.keystore
+aiops-signing.properties
+signing.properties
+local.properties
+
+# 依赖与构建产物
+node_modules/
+android/.gradle/
+android/build/
+android/app/build/
+android/capacitor-cordova-android-plugins/build/
+*.apk
+*.aab
+*.log
+
+# Capacitor 生成文件
+android/app/src/main/assets/public/
+android/app/src/main/assets/capacitor.config.json
+android/app/src/main/assets/capacitor.plugins.json
