@@ -23,14 +23,14 @@ class ActivateRequest(BaseModel):
 
 
 @router.get("/fingerprint")
-async def license_fingerprint():
-    """返回本机机器指纹（供厂商生成激活码）"""
+async def license_fingerprint(_actor: dict = Depends(current_user)):
+    """返回本机机器指纹（供厂商生成激活码；需登录）"""
     return {"fingerprint": get_machine_fingerprint()}
 
 
 @router.get("/status")
-async def license_status():
-    """返回当前授权状态"""
+async def license_status(_actor: dict = Depends(current_user)):
+    """返回当前授权状态（需登录）"""
     return await get_license_status()
 
 
