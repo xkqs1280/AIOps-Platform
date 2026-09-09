@@ -52,7 +52,7 @@ LICENSE_ENABLED=true
 # 跨域来源（逗号分隔）
 CORS_ORIGINS=http://localhost:8000,http://127.0.0.1:8000
 """
-io.open(os.path.join(PKG_DIR, "backend", ".env.example"), "w", encoding="utf-8").write(env_example)
+io.open(os.path.join(PKG_DIR, "backend", ".env.example"), "w", encoding="utf-8", newline="\n").write(env_example)
 
 print("== 复制前端 dist（v4.5.1） ==")
 n = copy_tree(os.path.join(ROOT, "frontend", "dist"), os.path.join(PKG_DIR, "frontend", "dist"))
@@ -69,91 +69,250 @@ else:
 
 # ---------------- install.sh ----------------
 install_sh = r'''#!/usr/bin/env bash
+# ---- 行尾自愈：若本脚本被 Windows 工具改写为 CRLF（\r\n），先转回 LF 再执行，避免 \r 造成语法错误 ----
+[ -z "$(grep -q $'\r' "$0" && echo x)" ] || { sed -i 's/\r$//' "$0"; exec bash "$0" "$@"; } # guard end
 # ============================================
-#  AIOps v4.5.1  Linux 一键安装脚本
-#  适用: Ubuntu 22.04+ / Debian 12+ / CentOS 9+
+#  AIOps Platform  Linux 一键安装脚本
+#  适用: Ubuntu 22.04+ / Debian 12+ / Rocky·AlmaLinux 9+
+#  功能: 自动检查/安装 Python 3.10+ → 下载 Python 依赖 → 准备 PostgreSQL
+#        → 生成 .env → 启动服务 → 打印访问地址 / 登录账号 / 密码
+#  (CentOS 7 不支持：自带 Python 3.6 过低且已 EOL)
 # ============================================
 set -e
 ROOT="$(cd "$(dirname "$0")" && pwd)"
 cd "$ROOT"
 
-echo "== 1/4 检查 Python =="
-if ! command -v python3 >/dev/null 2>&1; then
-  echo "[错误] 未找到 python3，请先安装："
-  echo "  Ubuntu/Debian: sudo apt install -y python3 python3-venv python3-pip"
-  echo "  CentOS:        sudo dnf install -y python3 python3-pip"
-  exit 1
-fi
-python3 -c 'import sys; assert sys.version_info >= (3,10), "需要 Python 3.10+"; print("  Python", sys.version.split()[0], "OK")'
+say()  { printf '\n\033[1;36m== %s ==\033[0m\n' "$*"; }
+info() { printf '  %s\n' "$*"; }
+warn() { printf '  \033[33m[警告] %s\033[0m\n' "$*"; }
+die()  { printf '\033[31m[错误] %s\033[0m\n' "$*" >&2; exit 1; }
 
-echo "== 2/4 创建虚拟环境并安装依赖（约3-5分钟） =="
-if [ ! -d backend/.venv ]; then
-  python3 -m venv backend/.venv
-fi
-backend/.venv/bin/pip install --upgrade pip -q
-# passlib 1.7.4 与 bcrypt>=5 不兼容，必须锁 4.0.1
-backend/.venv/bin/pip install "bcrypt==4.0.1" -q
-backend/.venv/bin/pip install -r backend/requirements.txt
+# ---------- 0 环境识别 ----------
+if [ "$(id -u)" -eq 0 ]; then SUDO=""; else SUDO="sudo"; fi
+if [ -r /etc/os-release ]; then . /etc/os-release; fi
+DISTRO="${ID:-unknown}"; VER="${VERSION_ID:-}"
+info "系统: ${PRETTY_NAME:-unknown} | 模式: $([ -z "$SUDO" ] && echo root || echo 普通用户+sudo)"
+if command -v apt-get >/dev/null 2>&1; then PKG=apt
+elif command -v dnf    >/dev/null 2>&1; then PKG=dnf
+elif command -v yum    >/dev/null 2>&1; then PKG=yum
+else PKG=""; fi
 
-echo "== 3/4 检查 PostgreSQL =="
-DB_OK=0
-if command -v ss >/dev/null 2>&1 && ss -tln 2>/dev/null | grep -q ':5432'; then
-  DB_OK=1
-  echo "  检测到 5432 端口已有 PostgreSQL，使用现有实例（需存在库/用户 aiops/aiops123）"
-elif command -v docker >/dev/null 2>&1; then
-  if ! docker ps --format '{{.Names}}' | grep -q '^aiops-postgres$'; then
-    echo "  通过 Docker 启动 PostgreSQL…"
-    docker run -d --name aiops-postgres \
-      -e POSTGRES_USER=aiops -e POSTGRES_PASSWORD=aiops123 -e POSTGRES_DB=aiops \
-      -p 5432:5432 -v aiops-pgdata:/var/lib/postgresql/data \
-      --restart unless-stopped postgres:16-alpine
-    echo "  Docker PostgreSQL 已启动 (aiops-postgres / aiops:aiops123)"
+port_open() {
+  if command -v ss >/dev/null 2>&1; then ss -tln 2>/dev/null | grep -qE '[:.]5432\b'
+  elif command -v netstat >/dev/null 2>&1; then netstat -tln 2>/dev/null | grep -qE '[:.]5432\b'
+  else return 1; fi
+}
+
+# ---------- 1/6 Python ----------
+say "1/6 检查 / 安装 Python 3.10+"
+PY=""
+for c in python3.13 python3.12 python3.11 python3.10 python3; do
+  if command -v "$c" >/dev/null 2>&1 && "$c" -c 'import sys; sys.exit(0 if sys.version_info>=(3,10) else 1)' >/dev/null 2>&1; then PY="$c"; break; fi
+done
+if [ -z "$PY" ]; then
+  case "$PKG" in
+    apt)
+      info "系统 Python 过低，尝试安装新版 Python 与 venv 组件…"
+      $SUDO env DEBIAN_FRONTEND=noninteractive apt-get update -qq
+      for c in python3.13 python3.12 python3.11 python3.10 python3; do
+        if [ "$c" = python3 ] || apt-cache policy "$c" 2>/dev/null | grep -q Candidate; then
+          $SUDO env DEBIAN_FRONTEND=noninteractive apt-get install -y "$c" "$c-venv" >/dev/null 2>&1 && { PY="$c"; break; } || true
+        fi
+      done
+      [ -z "$PY" ] && { $SUDO env DEBIAN_FRONTEND=noninteractive apt-get install -y python3 python3-venv >/dev/null 2>&1 && PY=python3 || true; }
+      ;;
+    dnf)
+      info "系统 Python 过低，尝试安装 python3.11/3.12…"
+      for c in python3.12 python3.11 python3; do
+        $SUDO dnf install -y "$c" "$c-pip" >/dev/null 2>&1 && { PY="$c"; break; } || true
+      done
+      ;;
+    yum)
+      die "检测到 CentOS 7 / 旧版 yum 系统：自带 Python 3.6 过低且仓库无 3.10+，平台无法运行。建议改用 Rocky Linux 9 / AlmaLinux 9 / Ubuntu 22.04+。"
+      ;;
+    *)
+      die "无法识别系统包管理器，请先手动安装 Python 3.10+ 后重新运行本脚本。"
+      ;;
+  esac
+fi
+[ -z "$PY" ] && die "Python 3.10+ 安装失败，请检查上方日志或手动安装后重试。"
+"$PY" -c 'import sys; assert sys.version_info >= (3,10), "需要 Python 3.10+"'
+PYV="$("$PY" -c 'import sys; print("%d.%d" % sys.version_info[:2])')"
+info "使用 Python: $PY ($PYV)"
+
+# ---------- 2/6 venv + 依赖 ----------
+say "2/6 创建虚拟环境并下载依赖（首次约 3~8 分钟，视网速而定）"
+if [ ! -x backend/.venv/bin/python ]; then
+  info "创建虚拟环境 backend/.venv …"
+  if ! "$PY" -m venv backend/.venv; then
+    warn "venv 创建失败（可能缺 venv 组件），尝试补装后重试…"
+    case "$PKG" in
+      apt) $SUDO env DEBIAN_FRONTEND=noninteractive apt-get install -y "$PY-venv" python3-venv >/dev/null 2>&1 || true ;;
+      dnf) $SUDO dnf install -y "$PY-pip" python3-pip >/dev/null 2>&1 || true ;;
+    esac
+    "$PY" -m venv backend/.venv || die "虚拟环境创建失败：请先安装 $PY-venv（或 python3-venv / python3-pip）再运行"
   fi
-  # 等待就绪
-  for i in $(seq 1 30); do
-    if docker exec aiops-postgres pg_isready -U aiops >/dev/null 2>&1; then DB_OK=1; break; fi
-    sleep 1
-  done
-  [ "$DB_OK" = "1" ] && echo "  PostgreSQL 就绪"
-else
-  echo "[警告] 未检测到 PostgreSQL。请先安装 PostgreSQL 并创建数据库："
-  echo "  sudo apt install -y postgresql && sudo -u postgres psql -c \"CREATE USER aiops PASSWORD 'aiops123' SUPERUSER; CREATE DATABASE aiops OWNER aiops;\""
-  echo "  或安装 docker 后重新运行本脚本。"
-  exit 1
 fi
+PIP="backend/.venv/bin/pip"
+export PIP_DEFAULT_TIMEOUT=120 PIP_RETRIES=5
+"$PIP" install --upgrade pip -q >/dev/null 2>&1 || true
+pip_install() {
+  if "$PIP" install "$@"; then return 0; fi
+  if [ -z "${PIP_INDEX_URL:-}" ]; then
+    warn "官方 PyPI 下载失败，自动改用清华镜像重试…"
+    "$PIP" install -i https://pypi.tuna.tsinghua.edu.cn/simple "$@"
+  else
+    return 1
+  fi
+}
+info "安装 bcrypt==4.0.1（passlib 兼容，必须锁版本）…"
+pip_install "bcrypt==4.0.1" -q || die "bcrypt 安装失败"
+info "下载并安装后端依赖 backend/requirements.txt …"
+pip_install -r backend/requirements.txt || die "后端依赖下载/安装失败，请检查网络后重新运行本脚本"
+info "依赖安装完成"
 
-echo "== 4/4 生成配置 .env =="
+# ---------- 3/6 PostgreSQL ----------
+say "3/6 准备 PostgreSQL（优先: 已有实例 -> Docker -> 系统包安装）"
+DB_OK=0
+if port_open; then
+  DB_OK=1
+  info "检测到 127.0.0.1:5432 已有 PostgreSQL，将直接使用"
+elif command -v docker >/dev/null 2>&1; then
+  if ! docker info >/dev/null 2>&1; then
+    info "启动 Docker 服务…"
+    $SUDO systemctl enable --now docker >/dev/null 2>&1 || $SUDO service docker start >/dev/null 2>&1 || true
+    sleep 2
+  fi
+  if docker info >/dev/null 2>&1; then
+    if ! docker ps -a --format '{{.Names}}' | grep -q '^aiops-postgres$'; then
+      info "通过 Docker 启动 PostgreSQL 16（镜像 postgres:16-alpine）…"
+      docker run -d --name aiops-postgres \
+        -e POSTGRES_USER=aiops -e POSTGRES_PASSWORD=aiops123 -e POSTGRES_DB=aiops \
+        -p 5432:5432 -v aiops-pgdata:/var/lib/postgresql/data \
+        --restart unless-stopped postgres:16-alpine >/dev/null 2>&1 || \
+      $SUDO docker run -d --name aiops-postgres \
+        -e POSTGRES_USER=aiops -e POSTGRES_PASSWORD=aiops123 -e POSTGRES_DB=aiops \
+        -p 5432:5432 -v aiops-pgdata:/var/lib/postgresql/data \
+        --restart unless-stopped postgres:16-alpine >/dev/null 2>&1 || true
+    else
+      docker start aiops-postgres >/dev/null 2>&1 || $SUDO docker start aiops-postgres >/dev/null 2>&1 || true
+    fi
+    for i in $(seq 1 40); do
+      if docker exec aiops-postgres pg_isready -U aiops >/dev/null 2>&1 || $SUDO docker exec aiops-postgres pg_isready -U aiops >/dev/null 2>&1; then DB_OK=1; break; fi
+      sleep 1
+    done
+    [ "$DB_OK" = 1 ] && info "Docker PostgreSQL 已就绪 (容器 aiops-postgres)"
+  fi
+fi
+if [ "$DB_OK" = 0 ] && [ -n "$PKG" ]; then
+  info "通过系统包管理器安装 PostgreSQL（下载安装约 1~3 分钟）…"
+  case "$PKG" in
+    apt)
+      $SUDO env DEBIAN_FRONTEND=noninteractive apt-get install -y postgresql postgresql-client >/dev/null 2>&1 || true
+      $SUDO systemctl enable --now postgresql >/dev/null 2>&1 || $SUDO service postgresql start >/dev/null 2>&1 || true
+      sleep 2
+      ;;
+    dnf)
+      $SUDO dnf install -y postgresql-server postgresql >/dev/null 2>&1 || true
+      if [ ! -d /var/lib/pgsql/data/base ]; then
+        $SUDO /usr/bin/postgresql-setup --initdb >/dev/null 2>&1 || $SUDO postgresql-setup --initdb >/dev/null 2>&1 || true
+      fi
+      $SUDO systemctl enable --now postgresql >/dev/null 2>&1 || true
+      sleep 2
+      HBA="$(find /var/lib/pgsql -name pg_hba.conf 2>/dev/null | head -n 1)"
+      if [ -n "$HBA" ]; then
+        info "调整 pg_hba.conf：host 认证 ident -> scram-sha-256"
+        $SUDO sed -i 's/\bident\b/scram-sha-256/g' "$HBA" || true
+        $SUDO systemctl reload postgresql >/dev/null 2>&1 || true
+      fi
+      ;;
+  esac
+  for i in $(seq 1 30); do port_open && { DB_OK=1; break; }; sleep 1; done
+  if [ "$DB_OK" = 1 ]; then
+    if $SUDO -u postgres psql -tAc 'SELECT 1' >/dev/null 2>&1; then
+      $SUDO -u postgres psql -tAc "SELECT 1 FROM pg_roles WHERE rolname='aiops'" 2>/dev/null | grep -q 1 || \
+        $SUDO -u postgres psql -c "SET password_encryption='scram-sha-256'; CREATE USER aiops WITH PASSWORD 'aiops123' SUPERUSER;" >/dev/null 2>&1 || true
+      $SUDO -u postgres psql -tAc "SELECT 1 FROM pg_database WHERE datname='aiops'" 2>/dev/null | grep -q 1 || \
+        $SUDO -u postgres psql -c "CREATE DATABASE aiops OWNER aiops;" >/dev/null 2>&1 || true
+    fi
+    info "系统 PostgreSQL 已就绪（库/用户 aiops/aiops123，密码连接）"
+  fi
+fi
+if [ "$DB_OK" = 1 ] && $SUDO -u postgres psql -tAc 'SELECT 1' >/dev/null 2>&1; then
+  $SUDO -u postgres psql -tAc "SELECT 1 FROM pg_roles WHERE rolname='aiops'" 2>/dev/null | grep -q 1 || \
+    $SUDO -u postgres psql -c "CREATE USER aiops WITH PASSWORD 'aiops123' SUPERUSER;" >/dev/null 2>&1 || true
+  $SUDO -u postgres psql -tAc "SELECT 1 FROM pg_database WHERE datname='aiops'" 2>/dev/null | grep -q 1 || \
+    $SUDO -u postgres psql -c "CREATE DATABASE aiops OWNER aiops;" >/dev/null 2>&1 || true
+fi
+[ "$DB_OK" = 1 ] || die "PostgreSQL 未能就绪。请先安装 PostgreSQL（或 Docker）后重新运行本脚本，详见 README。"
+
+# ---------- 4/6 .env ----------
+say "4/6 生成运行配置 backend/.env"
 if [ ! -f backend/.env ]; then
   SECRET="$(head -c 32 /dev/urandom | base64 | tr -d '\n')"
-  # 用项目 venv 的 cryptography 生成合法 Fernet key（base64url 32 字节）
   FERNET="$(backend/.venv/bin/python -c 'from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())' 2>/dev/null || head -c 32 /dev/urandom | base64 | tr '+/' '-_')"
-  # 管理员随机密码（含大小写+数字，>=12 位）
-  ADMIN_PASS="$(head -c 12 /dev/urandom | base64 | tr -dc 'A-Za-z0-9' | head -c 12)"
+  ADMIN_USER="${BOOTSTRAP_ADMIN_USERNAME:-admin}"
+  if [ -n "${BOOTSTRAP_ADMIN_PASSWORD:-}" ]; then
+    ADMIN_PASS="$BOOTSTRAP_ADMIN_PASSWORD"
+  else
+    ADMIN_PASS="$(head -c 12 /dev/urandom | base64 | tr -dc 'A-Za-z0-9' | head -c 12)"
+  fi
   [ -z "$ADMIN_PASS" ] && ADMIN_PASS="Aiop$(date +%s | tail -c 8)"
-  cat > backend/.env <<EOF
-DATABASE_URL=postgresql+psycopg_async://aiops:aiops123@localhost:5432/aiops
+  cat > backend/.env <<EOF2
+DATABASE_URL=postgresql+psycopg_async://aiops:aiops123@127.0.0.1:5432/aiops
 SECRET_KEY=${SECRET}
 CREDENTIAL_ENCRYPTION_KEY=${FERNET}
-BOOTSTRAP_ADMIN_USERNAME=admin
+BOOTSTRAP_ADMIN_USERNAME=${ADMIN_USER}
 BOOTSTRAP_ADMIN_PASSWORD=${ADMIN_PASS}
 LICENSE_ENABLED=true
-EOF
-  echo "  已生成 backend/.env（管理员 admin / ${ADMIN_PASS}，设备凭据已启用加密）"
+EOF2
+  info "已生成 backend/.env"
 else
-  echo "  backend/.env 已存在，跳过"
+  warn "backend/.env 已存在，保留原配置"
+fi
+ADMIN_USER="$(grep -E '^BOOTSTRAP_ADMIN_USERNAME=' backend/.env | tail -n 1 | cut -d= -f2-)"
+ADMIN_PASS="$(grep -E '^BOOTSTRAP_ADMIN_PASSWORD=' backend/.env | tail -n 1 | cut -d= -f2-)"
+printf 'AIOps 平台登录凭证\n访问地址: http://<本机IP>:8000\n登录账号: %s\n登录密码: %s\n' "$ADMIN_USER" "$ADMIN_PASS" > admin-credentials.txt
+chmod 600 admin-credentials.txt
+
+# ---------- 5/6 启动 ----------
+say "5/6 启动 AIOps 服务"
+pkill -f '[u]vicorn app.main:app' 2>/dev/null || true
+sleep 1
+cd backend
+nohup .venv/bin/uvicorn app.main:app --host 0.0.0.0 --port 8000 >> uvicorn.log 2>&1 &
+cd "$ROOT"
+OK=0
+for i in $(seq 1 20); do
+  if (command -v ss >/dev/null 2>&1 && ss -tln 2>/dev/null | grep -q ':8000') || (command -v netstat >/dev/null 2>&1 && netstat -tln 2>/dev/null | grep -q ':8000'); then OK=1; break; fi
+  sleep 1
+done
+if [ "$OK" = 1 ]; then
+  info "服务已启动（日志: backend/uvicorn.log）"
+  command -v firewall-cmd >/dev/null 2>&1 && { $SUDO firewall-cmd --permanent --add-port=8000/tcp >/dev/null 2>&1 || true; $SUDO firewall-cmd --reload >/dev/null 2>&1 || true; }
+  command -v ufw >/dev/null 2>&1 && { $SUDO ufw allow 8000/tcp >/dev/null 2>&1 || true; }
+else
+  warn "端口 8000 未监听成功，请查看 backend/uvicorn.log；也可稍后手动运行 ./start.sh"
 fi
 
+# ---------- 6/6 完成 ----------
+say "6/6 安装完成"
+IP="$(hostname -I 2>/dev/null | awk '{print $1}')"
+[ -z "$IP" ] && IP="127.0.0.1"
 echo ""
 echo "=============================================="
-echo "  安装完成！"
-echo "  启动服务: ./start.sh"
-echo "  停止服务: ./stop.sh"
-echo "  访问地址: http://$(hostname -I 2>/dev/null | awk '{print $1}' || echo '<本机IP>'):8000"
-echo "  默认账号: admin / ${ADMIN_PASS}"
-echo "  首次登录后请前往「授权管理」页激活授权（测试版3个月 / 全功能版永久）"
-echo "=============================================="
-'''
-io.open(os.path.join(PKG_DIR, "install.sh"), "w", encoding="utf-8").write(install_sh)
+echo "  AIOps 平台 安装完成"
+echo ""
+echo "  访问地址 : http://${IP}:8000   (本机: http://127.0.0.1:8000)"
+echo "  登录账号 : ${ADMIN_USER}"
+echo "  登录密码 : ${ADMIN_PASS}"
+echo ""
+echo "  凭证备份 : $(pwd)/admin-credentials.txt"
+echo "  日常运维 : ./start.sh 启动 / ./stop.sh 停止"
+echo "  运行日志 : backend/uvicorn.log"
+echo "  提示     : 首次登录后请在「授权管理」页激活授权（试用版 3 个月 / 全功能版永久）"
+echo "=============================================="'''
+io.open(os.path.join(PKG_DIR, "install.sh"), "w", encoding="utf-8", newline="\n").write(install_sh)
 
 # ---------------- start.sh ----------------
 start_sh = r'''#!/usr/bin/env bash
@@ -171,11 +330,11 @@ else
   tail -20 uvicorn.log
 fi
 '''
-io.open(os.path.join(PKG_DIR, "start.sh"), "w", encoding="utf-8").write(start_sh)
+io.open(os.path.join(PKG_DIR, "start.sh"), "w", encoding="utf-8", newline="\n").write(start_sh)
 
 # ---------------- stop.sh ----------------
 stop_sh = '#!/usr/bin/env bash\npkill -f "[u]vicorn app.main:app" 2>/dev/null && echo "AIOps 已停止" || echo "AIOps 未在运行"\n'
-io.open(os.path.join(PKG_DIR, "stop.sh"), "w", encoding="utf-8").write(stop_sh)
+io.open(os.path.join(PKG_DIR, "stop.sh"), "w", encoding="utf-8", newline="\n").write(stop_sh)
 
 print("== 写 README ==")
 readme = """# AIOps 智能运维托管平台 v4.5.1
@@ -213,22 +372,21 @@ python start_dev.py
 ## 二、Linux 部署（源码包 `aiops-v4.5.1-linux.zip`）
 
 ### 环境要求
-- Ubuntu 22.04+ / Debian 12+ / CentOS 9+，Python 3.10+
-- PostgreSQL（脚本可自动用 Docker 启动）或已安装的 PostgreSQL
+- Ubuntu 22.04+ / Debian 12+ / Rocky·AlmaLinux 9+（CentOS 7 已 EOL 且 Python 过低，不支持）
+- 安装脚本会自动：检测/安装 Python 3.10+ → 下载 Python 依赖 → 准备 PostgreSQL（系统包或 Docker）→ 启动服务
 
 ### 安装步骤
 ```bash
 # 1. 解压
 unzip aiops-v4.5.1-linux.zip && cd AIOps
 
-# 2. 一键安装（建 venv + 装依赖 + 准备 PostgreSQL + 生成 .env）
+# 2. 一键安装：自动补环境 + 下载依赖 + 启动服务（约 5~10 分钟）
 chmod +x install.sh && ./install.sh
+#    完成后会打印 访问地址 / 登录账号 / 登录密码（同时保存到 admin-credentials.txt）
 
-# 3. 启动
-./start.sh
-
-# 4. 访问
-# http://<本机IP>:8000   （默认账号 admin，密码为安装时生成并打印的随机密码）
+# 3. 访问（脚本已自动启动服务）
+# http://<本机IP>:8000   （默认账号 admin，密码见结尾提示或 admin-credentials.txt）
+# 以后重启服务: ./start.sh  /  ./stop.sh
 ```
 
 ### 手动安装（不依赖一键脚本）
@@ -287,7 +445,7 @@ sudo systemctl daemon-reload && sudo systemctl enable --now aiops
 ---
 *© 2026 AIOps Platform v4.5.1*
 """
-io.open(os.path.join(PKG_DIR, "README.md"), "w", encoding="utf-8").write(readme)
+io.open(os.path.join(PKG_DIR, "README.md"), "w", encoding="utf-8", newline="\n").write(readme)
 
 print("== 打包 zip ==")
 z = zipfile.ZipFile(OUT, "w", zipfile.ZIP_DEFLATED)
