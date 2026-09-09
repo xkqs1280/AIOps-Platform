@@ -174,6 +174,10 @@ async def _ensure_snmp_alert(db: AsyncSession, device: Device):
 
     采集异常是告警信息，不覆盖设备在线状态；SNMP 恢复后由
     _resolve_snmp_alerts 自动关闭。
+
+    抑制策略（与离线告警一致的防抖窗口）：设备 SNMP 间歇性恢复会导致
+    「创建→恢复→再创建」反复横跳刷屏（如测试服 SW2 曾在 24h 内产生 90 条），
+    因此 DEBOUNCE_MINUTES 窗口内即使已恢复过也不再重复创建告警。
     """
     existing = await db.execute(
         select(Alert).where(
@@ -183,6 +187,22 @@ async def _ensure_snmp_alert(db: AsyncSession, device: Device):
         )
     )
     if existing.scalars().first() is not None:
+        return
+    # 防抖：DEBOUNCE_MINUTES 内该设备已触发过 SNMP 采集异常告警（含已恢复）→ 抑制，
+    # 避免 SNMP 间歇恢复导致的反复横跳刷屏（与 offline 告警防抖语义一致）
+    cutoff = datetime.now(timezone.utc) - timedelta(minutes=DEBOUNCE_MINUTES)
+    recent = await db.execute(
+        select(Alert).where(
+            Alert.device_id == device.id,
+            Alert.rule_name == SNMP_RULE_NAME,
+            Alert.triggered_at >= cutoff,
+        )
+    )
+    if recent.scalars().first() is not None:
+        logger.info(
+            f"Suppress SNMP alert for {device.name}({device.ip}): "
+            f"re-triggered within {DEBOUNCE_MINUTES}min debounce window"
+        )
         return
     alert = Alert(
         device_id=device.id,
