@@ -104,6 +104,19 @@ async def lifespan(app: FastAPI):
                 logger.warning("Bootstrap administrator created: %s", settings.BOOTSTRAP_ADMIN_USERNAME)
             else:
                 logger.error("No users exist. Set BOOTSTRAP_ADMIN_USERNAME and BOOTSTRAP_ADMIN_PASSWORD before first startup.")
+    # ── 重要业务监控：空库自动创建"默认分组"，首次使用免手动建组即可添加终端（幂等）──
+    try:
+        async with async_session() as session:
+            from app.models.business_monitor import BusinessGroup
+            existing = (
+                await session.execute(select(BusinessGroup.id).limit(1))
+            ).scalar_one_or_none()
+            if existing is None:
+                session.add(BusinessGroup(name="默认分组", description="未分类业务终端（系统自动创建）"))
+                await session.commit()
+                logger.info("Business monitor default group created.")
+    except Exception as e:
+        logger.error(f"Business monitor default group seed failed: {e}")
     # ── 启动巡检对账：进程重启后把遗留 running/pending 巡检任务置 failed（P1-8）──
     try:
         from app.services.h3c_inspection_service import reconcile_stale_inspection_tasks
@@ -199,7 +212,8 @@ async def add_security_headers(request: Request, call_next):
         response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
         response.headers["Permissions-Policy"] = "camera=(), microphone=(), geolocation=()"
         return response
-    # /license/* 免登录（登录页/授权页需在未登录或锁定时获取授权状态）
+    # /license/* 与 /auth/* 不做路径级强制鉴权（授权锁定 403002 时须能进入授权/登录流程）；
+    # 但 /license 各端点自身仍用 Depends(current_user) 校验登录（fingerprint/status/activate 均需登录）。
     protected = path.startswith(f"{api_prefix}/") and not path.startswith(f"{api_prefix}/auth/") and not path.startswith(f"{api_prefix}/license/")
     ingest_path = path in {f"{api_prefix}/traps", f"{api_prefix}/syslog"}
     if settings.AUTH_ENABLED and protected:
