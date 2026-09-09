@@ -142,6 +142,38 @@ info "使用 Python: $PY ($PYV)"
 
 # ---------- 2/6 venv + 依赖 ----------
 say "2/6 创建虚拟环境并下载依赖（首次约 3~8 分钟，视网速而定）"
+
+# 编译环境自检：Python 3.12+ 部分依赖（如 numpy）无预编译 wheel 时需源码编译，
+# 必须保证 gcc + Python 头文件(python*-dev) 可用，否则会报 Unknown compiler / Python.h not found
+CC_MISSING=0; DEV_MISSING=0
+command -v cc >/dev/null 2>&1 || command -v gcc >/dev/null 2>&1 || CC_MISSING=1
+PY_INC="$("$PY" -c 'import sysconfig;print(sysconfig.get_paths()["include"])' 2>/dev/null)"
+{ [ -n "$PY_INC" ] && [ -f "$PY_INC/Python.h" ]; } || DEV_MISSING=1
+if [ "$CC_MISSING" = 1 ] || [ "$DEV_MISSING" = 1 ]; then
+  info "检测到缺少 C 编译环境（gcc / Python.h），部分依赖需源码编译，自动补装…"
+  case "$PKG" in
+    apt)
+      $SUDO env DEBIAN_FRONTEND=noninteractive apt-get update -qq >/dev/null 2>&1 || true
+      $SUDO env DEBIAN_FRONTEND=noninteractive apt-get install -y build-essential "$PY-dev" python3-dev >/dev/null 2>&1 || true
+      ;;
+    dnf)
+      $SUDO dnf groupinstall -y "Development Tools" >/dev/null 2>&1 || $SUDO dnf install -y gcc gcc-c++ make >/dev/null 2>&1 || true
+      $SUDO dnf install -y "$PY-devel" python3-devel >/dev/null 2>&1 || true
+      ;;
+  esac
+  command -v cc >/dev/null 2>&1 || command -v gcc >/dev/null 2>&1 || \
+    die "gcc 安装失败，请手动执行 $SUDO <包管理器> install build-essential 后重跑"
+  if [ ! -f "/usr/include/$PYV/Python.h" ] && [ ! -f "$PY_INC/Python.h" ]; then
+    die "Python $PYV 头文件安装失败，请手动执行 $SUDO <包管理器> install $PY-dev 后重跑"
+  fi
+  # 若虚拟环境在缺 dev 包时已创建（include 死链），删除重建以正确链接 Python.h
+  if [ -d backend/.venv ] && { [ -z "$PY_INC" ] || [ ! -f "$PY_INC/Python.h" ]; }; then
+    warn "已有虚拟环境缺少 Python 头文件链接，删除后重建…"
+    rm -rf backend/.venv
+  fi
+  info "编译环境就绪"
+fi
+
 if [ ! -x backend/.venv/bin/python ]; then
   info "创建虚拟环境 backend/.venv …"
   if ! "$PY" -m venv backend/.venv; then
