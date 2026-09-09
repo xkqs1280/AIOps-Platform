@@ -1,6 +1,7 @@
 fastapi==0.115.0
 uvicorn[standard]==0.30.6
-sqlalchemy[asyncio]==2.0.35
+sqlalchemy[asyncio]==2.0.35; python_version < "3.14"
+sqlalchemy[asyncio]==2.0.44; python_version >= "3.14"
 psycopg[binary]==3.2.3; python_version < "3.14"
 psycopg[binary]==3.2.10; python_version >= "3.14"
 pydantic==2.9.2; python_version < "3.14"
