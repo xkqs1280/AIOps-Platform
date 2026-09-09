@@ -188,7 +188,7 @@ fi
 PIP="backend/.venv/bin/pip"
 export PIP_DEFAULT_TIMEOUT=120 PIP_RETRIES=5
 "$PIP" install --upgrade pip -q >/dev/null 2>&1 || true
-# 官方 PyPI 失败后依次回退的国内镜像（清华 -> 阿里云）
+# 默认依赖源顺序（国内优先）：清华 -> 阿里云 -> 官方 PyPI（官方仅作最后兜底）
 PIP_MIRRORS="https://pypi.tuna.tsinghua.edu.cn/simple https://mirrors.aliyun.com/pypi/simple/"
 pip_install() {
   # 用户显式指定 PIP_INDEX_URL 时只用该源，不做镜像回退
@@ -196,12 +196,13 @@ pip_install() {
     "$PIP" install "$@"
     return $?
   fi
-  if "$PIP" install "$@"; then return 0; fi
   for m in $PIP_MIRRORS; do
-    warn "官方 PyPI 下载失败，自动改用镜像 ${m} 重试…"
+    info "使用国内镜像源安装: ${m} …"
     if "$PIP" install -i "$m" "$@"; then return 0; fi
+    warn "镜像 ${m} 下载失败，切换下一源…"
   done
-  return 1
+  warn "国内镜像均失败，最后尝试官方 PyPI…"
+  "$PIP" install "$@"
 }
 info "安装 bcrypt==4.0.1（passlib 兼容，必须锁版本）…"
 pip_install "bcrypt==4.0.1" -q || die "bcrypt 安装失败"
