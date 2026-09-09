@@ -312,7 +312,7 @@ echo "  日常运维 : ./start.sh 启动 / ./stop.sh 停止"
 echo "  运行日志 : backend/uvicorn.log"
 echo "  提示     : 首次登录后请在「授权管理」页激活授权（试用版 3 个月 / 全功能版永久）"
 echo "=============================================="'''
-io.open(os.path.join(PKG_DIR, "install.sh"), "w", encoding="utf-8", newline="\n").write(install_sh)
+io.open(os.path.join(PKG_DIR, "install.sh"), "w", encoding="utf-8", newline="\n").write(install_sh.replace("\r\n", "\n"))
 
 # ---------------- start.sh ----------------
 start_sh = r'''#!/usr/bin/env bash
@@ -330,11 +330,11 @@ else
   tail -20 uvicorn.log
 fi
 '''
-io.open(os.path.join(PKG_DIR, "start.sh"), "w", encoding="utf-8", newline="\n").write(start_sh)
+io.open(os.path.join(PKG_DIR, "start.sh"), "w", encoding="utf-8", newline="\n").write(start_sh.replace("\r\n", "\n"))
 
 # ---------------- stop.sh ----------------
 stop_sh = '#!/usr/bin/env bash\npkill -f "[u]vicorn app.main:app" 2>/dev/null && echo "AIOps 已停止" || echo "AIOps 未在运行"\n'
-io.open(os.path.join(PKG_DIR, "stop.sh"), "w", encoding="utf-8", newline="\n").write(stop_sh)
+io.open(os.path.join(PKG_DIR, "stop.sh"), "w", encoding="utf-8", newline="\n").write(stop_sh.replace("\r\n", "\n"))
 
 print("== 写 README ==")
 readme = """# AIOps 智能运维托管平台 v4.4.0
