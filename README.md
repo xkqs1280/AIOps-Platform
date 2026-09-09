@@ -199,7 +199,11 @@ npm run dev                               # 默认 5173，已配置代理到后�
 
 ### 方式三：源码部署（Linux）
 
-`uvicorn app.main:app --host 0.0.0.0 --port 8000`（可加 `--ssl-*` 参数启用 HTTPS），浏览器打开 `https://<服务器IP>:8000`（未启用 HTTPS 时用 `http://<服务器IP>:8000`）。
+Linux 系统建议使用 **Rocky Linux 9 / AlmaLinux 9 / Ubuntu 22.04+**（需 Python 3.10+；CentOS 7 已停止维护，不支持）。
+
+生产环境推荐直接使用 Release 中的 `aiops-vX.Y.Z-linux.zip` 源码包：解压后执行 `chmod +x install.sh && ./install.sh` 一键安装（自动补齐 Python/PostgreSQL 环境与依赖、生成 `.env` 并启动服务，结尾打印访问地址与登录账号密码）。
+
+手动启动：`uvicorn app.main:app --host 0.0.0.0 --port 8000`（可加 `--ssl-*` 参数启用 HTTPS），浏览器打开 `https://<服务器IP>:8000`（未启用 HTTPS 时用 `http://<服务器IP>:8000`）。
 
 ## 升级
 
