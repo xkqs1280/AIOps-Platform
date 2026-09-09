@@ -181,8 +181,25 @@ npm run dev                               # 默认 5173，已配置代理到后�
 
 ## 生产部署
 
-- **Windows**：使用 `deploy/build_windows_exe.ps1` 构建单文件部署包（含前端、证书、升级脚本），解压后运行 `deploy/start.bat`，浏览器打开 `https://<服务器IP>:8000`。
-- **Linux**：`uvicorn app.main:app --host 0.0.0.0 --port 8000`（可加 `--ssl-*` 参数启用 HTTPS），浏览器打开 `https://<服务器IP>:8000`（未启用 HTTPS 时用 `http://<服务器IP>:8000`）。
+### 方式一：Release 生产包（推荐 · Windows 一键）
+
+1. 到 [Releases](https://github.com/xkqs1280/AIOps-Platform/releases) 下载最新版 **`aiops-vX.Y.Z.zip`**（Windows 一体化生产包），解压到**无空格/无中文**路径（如 `D:\AIOps`）。
+2. 右键 **`一键部署.bat` → 以管理员身份运行**：脚本自动安装 PostgreSQL 并启动平台（首次约 5–10 分钟）。
+   - 前台调试运行：双击 `start.bat`；
+   - 开机自启服务：双击 `deploy/install_service.bat`（注册为 Windows 服务 `AIOpsPlatform`，自动启动，卸载用 `uninstall_service.bat`）；
+   - 重置管理员口令：`deploy/reset_admin.bat`。
+3. 浏览器打开 `https://<服务器IP>:8000`（首次访问提示自签名证书，点击「高级 → 继续前往」即可）。
+4. 使用包内 `backend/.env` 中的 `BOOTSTRAP_ADMIN_USERNAME / BOOTSTRAP_ADMIN_PASSWORD`（构建时随机生成，见 `.env` 文件）首次登录，**登录后立即在「账号设置」中修改初始口令**。
+
+> 首次部署自动激活 **90 天全功能试用**（无需厂商参与），试用期内功能完整开放；到期后平台自动锁定（仅授权页可用），上传正式激活码解锁。生产包内置 PostgreSQL、前端与 HTTPS 证书，数据与配置均保存在本机 `backend/` 目录，升级走平台内置「系统升级」无缝衔接。
+
+### 方式二：源码构建（Windows）
+
+使用 `deploy/build_windows_exe.ps1` 构建单文件部署包（含前端、证书、升级脚本），解压后运行 `deploy/start.bat`，浏览器打开 `https://<服务器IP>:8000`。
+
+### 方式三：源码部署（Linux）
+
+`uvicorn app.main:app --host 0.0.0.0 --port 8000`（可加 `--ssl-*` 参数启用 HTTPS），浏览器打开 `https://<服务器IP>:8000`（未启用 HTTPS 时用 `http://<服务器IP>:8000`）。
 
 ## 升级
 
@@ -192,7 +209,14 @@ npm run dev                               # 默认 5173，已配置代理到后�
 
 ## 版本发布
 
-已发布版本与升级包见 [Releases](https://github.com/xkqs1280/AIOps-Platform/releases)，每个版本的 `aiops-upgrade-vX.Y.Z.zip` 可直接在平台「系统设置 → 系统升级」中上传使用。
+已发布版本见 [Releases](https://github.com/xkqs1280/AIOps-Platform/releases)，每个版本提供 4 个资产：
+
+| 资产 | 用途 |
+|---|---|
+| `aiops-vX.Y.Z.zip` | **Windows 一体化生产包**（首次部署用，见上文「生产部署 方式一」） |
+| `aiops-upgrade-vX.Y.Z.zip` | 签名升级包，在已部署平台「系统设置 → 系统升级」中上传，自动备份+回滚 |
+| `aiops-vX.Y.Z-linux.zip` | Linux 源码包（Ubuntu 等，systemd/uvicorn 部署） |
+| `AIOps-Android-vX.Y.Z.apk` | 移动端 Android APP（登录后「更多」菜单含巡检/业务监控/安全等模块） |
 
 ## 许可证
 
