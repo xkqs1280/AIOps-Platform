@@ -335,6 +335,7 @@ else
 fi
 
 # ---------- 6/6 完成 ----------
+chmod +x start.sh stop.sh 2>/dev/null || true
 say "6/6 安装完成"
 IP="$(hostname -I 2>/dev/null | awk '{print $1}')"
 [ -z "$IP" ] && IP="127.0.0.1"
