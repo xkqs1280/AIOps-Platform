@@ -269,19 +269,27 @@ if [ "$DB_OK" = 0 ] && [ -n "$PKG" ]; then
   for i in $(seq 1 30); do port_open && { DB_OK=1; break; }; sleep 1; done
   if [ "$DB_OK" = 1 ]; then
     if $SUDO -u postgres psql -tAc 'SELECT 1' >/dev/null 2>&1; then
+      # 幂等：角色/库不存在则创建；存在也强制把密码对齐为 aiops123（防半状态/残留导致认证失败）
       $SUDO -u postgres psql -tAc "SELECT 1 FROM pg_roles WHERE rolname='aiops'" 2>/dev/null | grep -q 1 || \
-        $SUDO -u postgres psql -c "SET password_encryption='scram-sha-256'; CREATE USER aiops WITH PASSWORD 'aiops123' SUPERUSER;" >/dev/null 2>&1 || true
+        $SUDO -u postgres psql -c "CREATE USER aiops WITH PASSWORD 'aiops123' SUPERUSER;" >/dev/null 2>&1 || true
+      $SUDO -u postgres psql -c "ALTER USER aiops WITH PASSWORD 'aiops123' SUPERUSER;" >/dev/null 2>&1 || true
       $SUDO -u postgres psql -tAc "SELECT 1 FROM pg_database WHERE datname='aiops'" 2>/dev/null | grep -q 1 || \
         $SUDO -u postgres psql -c "CREATE DATABASE aiops OWNER aiops;" >/dev/null 2>&1 || true
+      $SUDO -u postgres psql -c "ALTER DATABASE aiops OWNER TO aiops;" >/dev/null 2>&1 || true
+      PGPASSWORD=aiops123 psql -h 127.0.0.1 -U aiops -d aiops -tAc 'SELECT 1' >/dev/null 2>&1 && \
+        info "PostgreSQL 就绪（库/用户 aiops/aiops123，密码连接验证通过）" || \
+        warn "aiops 密码连接验证失败，请检查 pg_hba.conf（host 行应为 scram-sha-256）"
     fi
-    info "系统 PostgreSQL 已就绪（库/用户 aiops/aiops123，密码连接）"
   fi
 fi
+# 兜底（覆盖「已有 5432 直接使用 / Docker」场景）：确保角色/库存在且密码与 .env 一致
 if [ "$DB_OK" = 1 ] && $SUDO -u postgres psql -tAc 'SELECT 1' >/dev/null 2>&1; then
   $SUDO -u postgres psql -tAc "SELECT 1 FROM pg_roles WHERE rolname='aiops'" 2>/dev/null | grep -q 1 || \
     $SUDO -u postgres psql -c "CREATE USER aiops WITH PASSWORD 'aiops123' SUPERUSER;" >/dev/null 2>&1 || true
+  $SUDO -u postgres psql -c "ALTER USER aiops WITH PASSWORD 'aiops123' SUPERUSER;" >/dev/null 2>&1 || true
   $SUDO -u postgres psql -tAc "SELECT 1 FROM pg_database WHERE datname='aiops'" 2>/dev/null | grep -q 1 || \
     $SUDO -u postgres psql -c "CREATE DATABASE aiops OWNER aiops;" >/dev/null 2>&1 || true
+  $SUDO -u postgres psql -c "ALTER DATABASE aiops OWNER TO aiops;" >/dev/null 2>&1 || true
 fi
 [ "$DB_OK" = 1 ] || die "PostgreSQL 未能就绪。请先安装 PostgreSQL（或 Docker）后重新运行本脚本，详见 README。"
 
@@ -355,19 +363,26 @@ echo "=============================================="'''
 io.open(os.path.join(PKG_DIR, "install.sh"), "w", encoding="utf-8", newline="\n").write(install_sh.replace("\r\n", "\n"))
 
 # ---------------- start.sh ----------------
-start_sh = r'''#!/usr/bin/env bash
+start_sh = r'''
+#!/usr/bin/env bash
 ROOT="$(cd "$(dirname "$0")" && pwd)"
 cd "$ROOT/backend"
 pkill -f '[u]vicorn app.main:app' 2>/dev/null || true
 sleep 1
 nohup .venv/bin/uvicorn app.main:app --host 0.0.0.0 --port 8000 >> uvicorn.log 2>&1 &
-sleep 2
-if pgrep -f '[u]vicorn app.main:app' >/dev/null; then
+# 端口探测确认成功（进程存活不代表应用启动成功，pgrep 会误报“已启动”）
+OK=0
+for i in $(seq 1 12); do
+  if (command -v ss >/dev/null 2>&1 && ss -tln 2>/dev/null | grep -q ':8000') || \
+     (command -v netstat >/dev/null 2>&1 && netstat -tln 2>/dev/null | grep -qE '[:.]8000\b'); then OK=1; break; fi
+  sleep 1
+done
+if [ "$OK" = 1 ]; then
   IP=$(hostname -I 2>/dev/null | awk '{print $1}')
-  echo "AIOps v4.4.0 已启动: http://${IP:-127.0.0.1}:8000  （日志: backend/uvicorn.log）"
+  echo "AIOps v4.5.1 已启动: http://${IP:-127.0.0.1}:8000  （日志: backend/uvicorn.log）"
 else
   echo "启动失败，查看日志: backend/uvicorn.log"
-  tail -20 uvicorn.log
+  tail -25 uvicorn.log
 fi
 '''
 io.open(os.path.join(PKG_DIR, "start.sh"), "w", encoding="utf-8", newline="\n").write(start_sh.replace("\r\n", "\n"))
