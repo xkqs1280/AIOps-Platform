@@ -12,6 +12,7 @@ const routes = [
   { path: '/compliance', name: 'Compliance', component: () => import('./views/Compliance.vue'), meta: { title: '合规' } },
   { path: '/security', name: 'Security', component: () => import('./views/Security.vue'), meta: { title: '安全' } },
   { path: '/inspection', name: 'Inspection', component: () => import('./views/Inspection.vue'), meta: { title: '巡检' } },
+  { path: '/business-monitor', name: 'BusinessMonitor', component: () => import('./views/BusinessMonitor.vue'), meta: { title: '业务监控' } },
   { path: '/account', name: 'Account', component: () => import('./views/Account.vue'), meta: { title: '账号' } },
   { path: '/system-upgrade', name: 'SystemUpgrade', component: () => import('./views/SystemUpgrade.vue'), meta: { title: '系统升级' } },
 ]

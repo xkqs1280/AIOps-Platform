@@ -67,6 +67,7 @@ const menu = [
   { path: '/compliance', label: '等保合规', icon: '🛡', desc: '合规检查与评分' },
   { path: '/security', label: '安全监控', icon: '⚠️', desc: '外部威胁态势' },
   { path: '/inspection', label: '设备巡检', icon: '🔍', desc: 'H3C 巡检任务' },
+  { path: '/business-monitor', label: '业务监控', icon: '📡', desc: '重要业务终端探活' },
   { path: '/account', label: '账号设置', icon: '👤', desc: '修改密码/账号' },
   { path: '/system-upgrade', label: '系统升级', icon: '📦', desc: '一键升级平台' },
 ]

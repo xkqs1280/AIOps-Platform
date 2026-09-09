@@ -109,6 +109,16 @@ export const getLatestMetrics = (deviceId) => api.get('/metrics/latest', { param
 export const getInspectionTasks = (params) => api.get('/inspections', { params })
 export const getInspectionTask = (id) => api.get(`/inspections/${id}`)
 
+// 重要业务监控
+export const getBizGroups = () => api.get('/business-monitor/groups')
+export const getBizSummary = () => api.get('/business-monitor/summary')
+export const getBizTerminals = (params) => api.get('/business-monitor/terminals', { params })
+export const probeBizTerminal = (id) => api.post(`/business-monitor/terminals/${id}/probe`)
+export const probeBizAll = () => api.post('/business-monitor/terminals/probe-all')
+export const getBizAlerts = (params) => api.get('/business-monitor/alerts', { params })
+export const clearBizAlerts = () => api.delete('/business-monitor/alerts')
+export const deleteBizAlert = (id) => api.delete(`/business-monitor/alerts/${id}`)
+
 // 授权
 export const getLicenseStatus = () => api.get('/license/status')
 export const getLicenseFingerprint = () => api.get('/license/fingerprint')
