@@ -1,14 +1,10 @@
 """等保2.0合规检查 API 路由 — 合规检测、状态查询、评分"""
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, Field
-from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import get_session
-from app.models.device import Device
 from app.services.compliance_service import (
-    run_compliance_check,
-    calculate_compliance_score,
     get_compliance_status,
     run_secondary_compliance_check,
     run_secondary_compliance_check_batch,
@@ -27,11 +23,16 @@ async def run_check(
     body: ComplianceCheckRequest,
     session: AsyncSession = Depends(get_session),
 ):
-    """执行合规检查。
+    """执行合规检查（运行态 + 配置基线）。
 
-    - 等保二级配置核查（SSH 采集真实配置）：body.device_ids 给定（含空列表）时，对全部/部分设备批量评估。
-    - 兼容旧调用：body.device_id 给定且 device_ids 为空时，走单台（SSH 核查优先，回退指标推断）。
-    - 全量（不带任何参数）：对全部设备执行等保二级 SSH 核查。
+    - body.device_ids 给定（含空列表）时，对全部/部分设备批量评估。
+    - 兼容旧调用：body.device_id 给定且 device_ids 为空时，走单台。
+    - 全量（不带任何参数）：对全部设备执行核查。
+
+    每台设备的结论由两类来源合成：
+      * 运行态核查（SSH 采集 display 命令）—— 服务是否真的在跑、日志是否落地；
+      * 配置基线核查（读取已有配置备份全文）—— 配置里写了什么。
+    配置未采集的设备，配置类 14 项判 not_applicable 而非不合规。
     """
     # 二级批量核查入口：device_ids 显式给定（None 之外的任何值，包括空数组）
     if body.device_ids is not None or (body.device_id is None and body.device_ids is None):
@@ -77,8 +78,13 @@ async def get_score(
     device_id: int,
     session: AsyncSession = Depends(get_session),
 ):
-    """获取指定设备的合规评分。"""
-    score = await calculate_compliance_score(session, device_id)
-    if score is None:
+    """获取指定设备的合规明细（读取已落库的核查结论，不重新执行核查）。
+
+    返回结构与 ``/status?device_id=`` 一致，供前端的设备展开面板使用。
+    """
+    result = await get_compliance_status(session, device_id=device_id)
+    if result is None:
         raise HTTPException(status_code=404, detail=f"设备 {device_id} 不存在")
-    return score
+    # 前端展开面板读 d.checks / d.details，这里补一个 checks 别名，兼容两种取值
+    result.setdefault("checks", result.get("details") or [])
+    return result

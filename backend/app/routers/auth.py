@@ -1,6 +1,6 @@
 from fastapi import APIRouter, Cookie, Depends, Header, HTTPException, Request, Response
 from pydantic import BaseModel, Field
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import settings
@@ -11,6 +11,9 @@ from app.services.rate_limit import limit_login, record_login_failure, check_use
 from app.services.audit_service import record_audit, get_client_ip
 
 router = APIRouter(prefix="/auth", tags=["认证与用户"])
+
+# 内置管理员账号名：首次部署时创建，禁止删除（否则可能把平台锁死）
+BUILTIN_ADMIN = "admin"
 
 
 class LoginRequest(BaseModel):
@@ -136,6 +139,31 @@ async def create_user(body: UserCreate, actor: dict = Depends(admin_only), db: A
     db.add(user); await db.commit(); await db.refresh(user)
     await record_audit(db, actor, "user", "create", f"创建用户 {body.username}（角色 {body.role}）", "")
     return user_data(user)
+
+
+@router.delete("/users/{user_id}", status_code=204)
+async def delete_user(user_id: int, actor: dict = Depends(admin_only), db: AsyncSession = Depends(get_db)):
+    """删除平台账号（内置 admin 与本账号不可删，且须保留至少一个管理员）。"""
+    user = await db.get(User, user_id)
+    if not user:
+        raise HTTPException(status_code=404, detail="用户不存在")
+    if user.username == BUILTIN_ADMIN:
+        raise HTTPException(status_code=400, detail="内置管理员账号 admin 不可删除")
+    if user.username == actor["sub"]:
+        raise HTTPException(status_code=400, detail="不能删除当前登录的账号")
+    if user.role == "admin":
+        others = (
+            await db.execute(
+                select(func.count(User.id)).where(User.role == "admin", User.id != user.id)
+            )
+        ).scalar() or 0
+        if others == 0:
+            raise HTTPException(status_code=400, detail="至少需要保留一个管理员账号")
+    username = user.username
+    await db.delete(user)
+    await db.commit()
+    await record_audit(db, actor, "user", "delete", f"删除用户 {username}", "")
+    return None
 
 
 @router.patch("/users/{user_id}")

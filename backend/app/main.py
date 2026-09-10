@@ -13,7 +13,7 @@ from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 from sqlalchemy import select
 
 from app.config import settings
-from app.database import async_session, init_db
+from app.database import async_session, create_schema, seed_default_data
 from app.version import APP_BUILD_TIME, APP_NAME, APP_VERSION
 from app.models.user import User
 from app.services.auth_service import create_access_token, decode_access_token, hash_password, require_password_strength
@@ -31,6 +31,7 @@ from app.routers import auth
 from app.routers import settings as settings_router
 from app.routers import ai as ai_router
 from app.routers import system
+from app.routers import notify_channels, device_dependencies
 
 logger = logging.getLogger(__name__)
 
@@ -73,10 +74,36 @@ async def _cleanup_loop():
         await asyncio.sleep(86400)
 
 
-@asynccontextmanager
-async def lifespan(app: FastAPI):
-    await init_db()
-    # 数据库结构迁移（升级后自动执行，幂等；失败会阻止启动，提示回滚）
+async def _baseline_loop():
+    """动态基线计算循环：启动 5 分钟后先算一次，之后每 6 小时重算。
+
+    基线是「分设备 × 指标 × 本地时段」的统计量，需要足够的真实采样
+    （每时段 >= MIN_SAMPLES 条）才有意义。独立成循环而非每日一次，
+    是为了让新接入的设备尽快积累出可用基线；样本不足的时段会被跳过。
+    """
+    from app.services.baseline_service import calculate_baselines
+    await asyncio.sleep(300)
+    while True:
+        try:
+            async with async_session() as db:
+                count = await calculate_baselines(db)
+                if count:
+                    logger.info(f"Dynamic baseline recalculated: {count} rows")
+        except Exception as e:
+            logger.error(f"Baseline calculation error: {e}")
+        await asyncio.sleep(21600)
+
+
+async def _bootstrap_database():
+    """数据库启动初始化：建表 → 迁移 → 种子，**顺序不可颠倒**。
+
+    种子规则可能引用迁移新增的列（如 alert_rules.mode/baseline_sigma），
+    若在建表（create_all 不改旧表结构）之后、迁移之前插入，会因「列不存在」
+    直接导致服务启动失败。存量库升级时尤其要注意。
+    """
+    # 1) 建新表 + 补索引
+    await create_schema()
+    # 2) 旧表结构迁移（升级后自动执行，幂等；失败会阻止启动，提示回滚）
     try:
         from app.migrations import run_migrations
         applied = await run_migrations()
@@ -85,6 +112,16 @@ async def lifespan(app: FastAPI):
     except Exception as e:
         logger.critical("Database migration failed: %s. Upgrade is not fully applied.", e)
         raise
+    # 3) 种子数据（可能引用迁移新增的列，必须在迁移之后）
+    try:
+        await seed_default_data()
+    except Exception as e:
+        logger.error("Seed default data failed: %s", e)
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    await _bootstrap_database()
     # 存量明文设备凭据一次性加密（启用加密密钥后的迁移，幂等）
     try:
         from app.services.credential_service import encrypt_existing_device_secrets
@@ -147,6 +184,9 @@ async def lifespan(app: FastAPI):
     # 启动配置备份与核心表保留期清理（每日循环）
     cleanup_task = start_supervised("daily-cleanup", _cleanup_loop)
     logger.info("Cleanup service started")
+    # 启动动态基线计算（每 6 小时，支撑告警规则的 baseline 判定模式）
+    baseline_task = start_supervised("baseline-calc", _baseline_loop)
+    logger.info("Dynamic baseline service started")
     yield
     scheduler_task.cancel()
     health_check_task.cancel()
@@ -154,6 +194,7 @@ async def lifespan(app: FastAPI):
     threat_task.cancel()
     biz_monitor_task.cancel()
     cleanup_task.cancel()
+    baseline_task.cancel()
     try:
         await scheduler_task
     except asyncio.CancelledError:
@@ -176,6 +217,10 @@ async def lifespan(app: FastAPI):
         pass
     try:
         await cleanup_task
+    except asyncio.CancelledError:
+        pass
+    try:
+        await baseline_task
     except asyncio.CancelledError:
         pass
 
@@ -284,6 +329,8 @@ app.include_router(auth.router, prefix=settings.API_PREFIX)
 app.include_router(settings_router.router, prefix=settings.API_PREFIX)
 app.include_router(ai_router.router, prefix=settings.API_PREFIX)
 app.include_router(system.router, prefix=settings.API_PREFIX)
+app.include_router(notify_channels.router, prefix=settings.API_PREFIX)
+app.include_router(device_dependencies.router, prefix=settings.API_PREFIX)
 
 
 @app.get("/health")
@@ -307,7 +354,7 @@ LEGACY_LOGIN_HTML = """<!doctype html><html lang='zh-CN'><meta charset='utf-8'><
 # ---- 简易部署模式：若 backend 上级存在 frontend/dist，则由后端同端口托管前端（SPA）----
 # 使 Windows 一键部署包可单进程、单端口运行（http://IP:8000）；不影响常规前后端分离部署。
 import os as _os
-from fastapi.responses import FileResponse, JSONResponse
+from fastapi.responses import FileResponse
 
 # SPA 入口 index.html 禁止缓存（assets 带 hash 可长缓存）：
 # 否则浏览器启发式缓存旧 index.html，前端发版后用户看到的仍是旧版本。

@@ -1,0 +1,191 @@
+{
+  "version": "1.0",
+  "updated": "2026-09-10",
+  "spec": "GB/T 22239-2019 等保2.0 网络设备配置基线核查",
+  "vendors": [
+    "H3C Comware",
+    "Huawei VRP"
+  ],
+  "categories": {
+    "identity_auth": "身份鉴别",
+    "access_control": "访问控制",
+    "security_audit": "安全审计",
+    "intrusion_prevention": "入侵防范",
+    "data_confidentiality": "数据保密性"
+  },
+  "severity_order": {
+    "high": 0,
+    "medium": 1,
+    "low": 2
+  },
+  "rules": [
+    {
+      "id": "CFG-001",
+      "name": "Telnet 服务处于开启状态",
+      "severity": "high",
+      "category": "intrusion_prevention",
+      "match": "any",
+      "advice": "执行 undo telnet server enable，改用 SSH（ssh server enable）。Telnet 全程明文传输，管理口令可被同链路抓取。",
+      "patterns": [
+        "^\\s*telnet\\s+server\\s+enable"
+      ]
+    },
+    {
+      "id": "CFG-002",
+      "name": "SNMP 使用 public / private 默认团体字",
+      "severity": "high",
+      "category": "data_confidentiality",
+      "match": "any",
+      "advice": "删除默认团体字：undo snmp-agent community read public。改用 SNMPv3（snmp-agent usm-user v3 ...）并限定 ACL；默认团体字等同于把设备状态开放给全网。",
+      "patterns": [
+        "^snmp-agent\\s+community\\b.*(?<![\\w-])(public|private)(?![\\w-])"
+      ]
+    },
+    {
+      "id": "CFG-003",
+      "name": "存在 simple（明文）方式存储的口令",
+      "severity": "high",
+      "category": "identity_auth",
+      "match": "any",
+      "advice": "改为密文存储：local-user <user> password cipher。simple 方式在配置文件中可直接读出原文，配置一旦外泄口令即泄露。",
+      "patterns": [
+        "\\bpassword\\s+simple\\s+\\S+"
+      ],
+      "mask": [
+        "(\\bpassword\\s+simple\\s+)\\S+"
+      ]
+    },
+    {
+      "id": "CFG-004",
+      "name": "未启用 SSH 远程管理",
+      "severity": "medium",
+      "category": "intrusion_prevention",
+      "match": "absent",
+      "advice": "执行 ssh server enable，并生成密钥对（public-key local create rsa）。缺少 SSH 时运维人员往往只能退回 Telnet 或现场接入。",
+      "patterns": [
+        "ssh\\s+server\\s+enable"
+      ]
+    },
+    {
+      "id": "CFG-005",
+      "name": "未配置 NTP 时间同步",
+      "severity": "medium",
+      "category": "security_audit",
+      "match": "absent",
+      "advice": "配置 ntp-service unicast-server <NTP服务器地址>。时间不同步会让日志、告警、审计记录失去时间轴，故障回溯时无法对齐。",
+      "patterns": [
+        "ntp-service\\s+unicast-server",
+        "ntp-service\\s+enable"
+      ]
+    },
+    {
+      "id": "CFG-006",
+      "name": "未配置日志服务器（日志仅存本地）",
+      "severity": "medium",
+      "category": "security_audit",
+      "match": "absent",
+      "advice": "配置 info-center loghost <日志服务器IP>。设备被重启、清空或替换后本地日志即丢失，事后无法追溯。",
+      "patterns": [
+        "info-center\\s+loghost"
+      ]
+    },
+    {
+      "id": "CFG-007",
+      "name": "HTTP 明文 Web 管理处于开启状态",
+      "severity": "medium",
+      "category": "intrusion_prevention",
+      "match": "any",
+      "advice": "执行 undo ip http server，如需 Web 管理请启用 HTTPS 并绑定 ACL。HTTP 管理口令为明文传输。",
+      "patterns": [
+        "^\\s*ip\\s+http\\s+server",
+        "^\\s*http\\s+server\\s+enable"
+      ]
+    },
+    {
+      "id": "CFG-008",
+      "name": "VLAN 1 上配置了管理地址",
+      "severity": "medium",
+      "category": "access_control",
+      "match": "block",
+      "advice": "把管理地址迁到独立管理 VLAN，并在管理接口上挂 ACL 限制源地址段。VLAN 1 是默认 VLAN，接入口误配即可直达管理面。",
+      "anchors": [
+        "^interface\\s+Vlan-interface\\s*1\\s*$",
+        "^interface\\s+Vlanif\\s*1\\s*$"
+      ],
+      "within": [
+        "^ip\\s+address\\s+\\S+"
+      ]
+    },
+    {
+      "id": "CFG-009",
+      "name": "未配置 BPDU 保护（防非法接入交换机）",
+      "severity": "medium",
+      "category": "intrusion_prevention",
+      "match": "absent",
+      "advice": "在接入口配置 bpdu-protection，并启用 stp global enable。缺少 BPDU 保护时，私接交换机可能引发二层环路与生成树震荡。",
+      "patterns": [
+        "bpdu-protection"
+      ]
+    },
+    {
+      "id": "CFG-010",
+      "name": "未配置登录标语（Banner）",
+      "severity": "low",
+      "category": "identity_auth",
+      "match": "absent",
+      "advice": "配置 header login 与 header shell，写明「未经授权禁止访问」。等保合规审计通常要求有登录告示。",
+      "patterns": [
+        "header\\s+(login|shell)"
+      ]
+    },
+    {
+      "id": "CFG-011",
+      "name": "VTY 线路未启用 scheme 认证",
+      "severity": "medium",
+      "category": "identity_auth",
+      "match": "block_absent",
+      "advice": "在 user-interface vty 下配置 authentication-mode scheme，由 AAA 统一认证，避免使用 line password。",
+      "anchors": [
+        "^user-interface\\s+(vty|aux)"
+      ],
+      "within": [
+        "authentication-mode\\s+(scheme|aaa)"
+      ]
+    },
+    {
+      "id": "CFG-012",
+      "name": "未配置配置自动备份 / 归档",
+      "severity": "low",
+      "category": "security_audit",
+      "match": "absent",
+      "advice": "启用 archive：archive configuration location ... 定期归档，避免误操作后无配置可回滚。",
+      "patterns": [
+        "^\\s*archive\\b"
+      ]
+    },
+    {
+      "id": "CFG-013",
+      "name": "存在多个最高权限（level 15）本地用户",
+      "severity": "low",
+      "category": "access_control",
+      "match": "count",
+      "advice": "按最小权限原则分级授权，只保留必要的最高权限账号，其余降级并审计使用记录。",
+      "patterns": [
+        "^\\s*local-user\\s+(\\S+)\\b.*(?:privilege\\s+level\\s+15|\\bclass\\s+manage\\b)"
+      ],
+      "distinct_group": 1,
+      "min_hits": 2
+    },
+    {
+      "id": "CFG-014",
+      "name": "未配置端口安全（防私接与 MAC 泛洪）",
+      "severity": "low",
+      "category": "access_control",
+      "match": "absent",
+      "advice": "在接入端口配置 port-security 或 MAC 地址学习数量限制。",
+      "patterns": [
+        "port-security"
+      ]
+    }
+  ]
+}

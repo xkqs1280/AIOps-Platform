@@ -103,7 +103,6 @@ import {
   ShieldCheckIcon,
   ClipboardDocumentCheckIcon,
   Cog6ToothIcon,
-  EnvelopeIcon,
   BellIcon,
   UserIcon,
   KeyIcon,
@@ -114,6 +113,7 @@ import {
   MoonIcon,
   SwatchIcon,
   SparklesIcon,
+  PaperAirplaneIcon,
 } from '@heroicons/vue/24/outline'
 import { playAlert, playRecovered, unlock } from './utils/voiceAlert'
 import { getThemeMode, applyTheme as applyThemeUtil, switchTheme } from './utils/theme.js'
@@ -137,8 +137,10 @@ const mainNav = [
 
 const settingsNav = [
   { path: '/settings/ai', label: 'AI 辅助', icon: SparklesIcon },
-  { path: '/settings/mail', label: '邮件告警', icon: EnvelopeIcon },
+  // 「邮件告警」已并入「通知通道」页（2026-09-10），不再单列菜单
+  { path: '/settings/notify-channels', label: '通知通道', icon: PaperAirplaneIcon },
   { path: '/settings/alert-rules', label: '告警规则', icon: BellIcon },
+  // 「设备依赖」模块已取消（2026-09-10）：依赖改由拓扑连线自动推导，入口在「拓扑发现」页
   { path: '/settings/account', label: '账号管理', icon: UserIcon },
   { path: '/settings/license', label: '授权管理', icon: KeyIcon },
   { path: '/settings/display', label: '显示设置', icon: SwatchIcon },

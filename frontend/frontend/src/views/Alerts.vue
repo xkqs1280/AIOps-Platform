@@ -1,6 +1,6 @@
 <script setup>
 import { ref, computed, onMounted, onUnmounted, watch } from 'vue'
-import { getAlerts, deleteAlert, clearAlerts, getMe } from '../api/index.js'
+import { getAlerts, deleteAlert, clearAlerts, getMe, getAlertStats } from '../api/index.js'
 import { getConfig, setConfig, unlock, test } from '../utils/voiceAlert'
 import AiPanel from '../components/AiPanel.vue'
 
@@ -71,6 +71,7 @@ async function handleClearAll() {
 
 const severityFilter = ref('')
 const statusFilter = ref('')
+const keyword = ref('')
 const currentPage = ref(1)
 const pageSize = 20
 
@@ -112,14 +113,42 @@ function severityLabel(severity) {
 }
 
 function statusBadgeColor(status) {
-  return status === 'active' ? 'bg-red-500' : 'bg-green-600'
+  if (status === 'active') return 'bg-red-500'
+  if (status === 'suppressed') return 'bg-yellow-600'
+  return 'bg-green-600'
 }
 
 function statusText(status) {
-  return status === 'active' ? '活跃' : '已解决'
+  if (status === 'active') return '活跃'
+  if (status === 'suppressed') return '已抑制'
+  return '已解决'
+}
+
+function statusDotClass(status) {
+  if (status === 'active') return 'bg-red-200 animate-pulse'
+  if (status === 'suppressed') return 'bg-yellow-200'
+  return 'bg-green-200'
+}
+
+// 抑制来源提示：被上游设备状态抑制时说明原因，鼠标悬停看完整原因
+function suppressTip(alert) {
+  const src = alert.suppressed_by_name || alert.suppressed_by_device_id
+  const reason = alert.suppress_reason || '上游设备异常'
+  return src ? `因上游「${src}」${reason}，该告警已抑制（不推送通知）` : reason
 }
 
 let fetchSeq = 0  // 请求序号：丢弃过期响应，防止慢请求覆盖新数据（轮询竞态）
+
+// 告警统计（含被收敛抑制的条数）
+const stats = ref(null)
+async function fetchStats() {
+  try {
+    const data = await getAlertStats()
+    stats.value = data && typeof data === 'object' ? data : null
+  } catch {
+    // 统计失败不影响列表展示
+  }
+}
 
 async function fetchAlerts(silent = false) {
   const seq = ++fetchSeq
@@ -132,11 +161,17 @@ async function fetchAlerts(silent = false) {
     }
     if (severityFilter.value) params.severity = severityFilter.value
     if (statusFilter.value) params.status = statusFilter.value
+    if (keyword.value.trim()) params.q = keyword.value.trim()
 
     const data = await getAlerts(params)
     if (seq !== fetchSeq) return // 已有更新的请求，丢弃本次过期结果
     alerts.value = data.items || []
     total.value = data.total || 0
+    // 数据变少后当前页可能越界（自动刷新/筛选变化），回退到最后一页重新取数
+    if (currentPage.value > totalPages.value) {
+      currentPage.value = totalPages.value
+      return
+    }
   } catch (err) {
     if (seq !== fetchSeq) return
     error.value = err.message || '加载告警数据失败'
@@ -152,9 +187,20 @@ function goToPage(page) {
   currentPage.value = page
 }
 
+// 跳转到指定页：输入框回车或点「前往」都触发
+const jumpPage = ref('')
+
+function applyJump() {
+  const n = Number.parseInt(jumpPage.value, 10)
+  jumpPage.value = ''
+  if (!Number.isFinite(n)) return
+  goToPage(Math.min(Math.max(1, n), totalPages.value))
+}
+
 function resetFilters() {
   severityFilter.value = ''
   statusFilter.value = ''
+  keyword.value = ''
   currentPage.value = 1
 }
 
@@ -163,9 +209,21 @@ watch([severityFilter, statusFilter], () => {
   fetchAlerts()
 })
 
+// 关键字搜索：防抖 300ms，避免每敲一个字就打一次接口
+let searchTimer = null
+watch(keyword, () => {
+  if (searchTimer) clearTimeout(searchTimer)
+  searchTimer = setTimeout(() => {
+    currentPage.value = 1
+    fetchAlerts()
+  }, 300)
+})
+
 watch(currentPage, () => {
   fetchAlerts()
 })
+
+const hasFilter = computed(() => Boolean(severityFilter.value || statusFilter.value || keyword.value.trim()))
 
 async function removeAlert(alert) {
   if (!confirm(`确定删除该告警吗？\n严重级别：${severityLabel(alert.severity)}  设备：${alert.device_name || '-'}\n此操作不可恢复。`)) {
@@ -201,11 +259,13 @@ const visiblePages = computed(() => {
 let refreshTimer = null
 onMounted(() => {
   fetchAlerts()
+  fetchStats()
   // 告警列表 10s 自动刷新（静默，不闪烁 loading）
-  refreshTimer = setInterval(() => fetchAlerts(true), 10000)
+  refreshTimer = setInterval(() => { fetchAlerts(true); fetchStats() }, 10000)
 })
 onUnmounted(() => {
   if (refreshTimer) clearInterval(refreshTimer)
+  if (searchTimer) clearTimeout(searchTimer)
 })
 </script>
 
@@ -221,6 +281,36 @@ onUnmounted(() => {
     <div class="max-w-7xl mx-auto p-6 space-y-6">
       <!-- Filter Bar -->
       <div class="bg-surface border border-line rounded-xl p-4">
+        <!-- 搜索框 -->
+        <div class="relative mb-4">
+          <svg
+            class="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-ink-faint"
+            fill="none" stroke="currentColor" viewBox="0 0 24 24"
+          >
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                  d="M21 21l-4.35-4.35M17 11a6 6 0 11-12 0 6 6 0 0112 0z" />
+          </svg>
+          <input
+            v-model="keyword"
+            type="search"
+            placeholder="搜索告警内容、规则名称、设备名称或 IP…"
+            class="w-full bg-surface-2 border border-line rounded-lg pl-9 pr-9 py-2.5 text-sm text-ink
+                   placeholder:text-ink-faint focus:outline-none focus:border-blue-500 focus:ring-1
+                   focus:ring-blue-500 transition-colors"
+          />
+          <button
+            v-if="keyword"
+            @click="keyword = ''"
+            class="absolute right-3 top-1/2 -translate-y-1/2 text-ink-faint hover:text-ink transition-colors"
+            title="清空搜索"
+          >
+            <svg class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                    d="M6 18L18 6M6 6l12 12" />
+            </svg>
+          </button>
+        </div>
+
         <div class="flex flex-wrap items-center gap-4">
           <div class="flex items-center gap-2">
             <label class="text-xs text-ink-faint font-medium">严重级别</label>
@@ -246,6 +336,7 @@ onUnmounted(() => {
             >
               <option value="">全部</option>
               <option value="active">活跃</option>
+              <option value="suppressed">已抑制</option>
               <option value="resolved">已解决</option>
             </select>
           </div>
@@ -267,8 +358,17 @@ onUnmounted(() => {
             {{ clearing ? '清空中...' : '一键清空' }}
           </button>
 
-          <div class="ml-auto text-sm text-ink-faint">
-            共 <span class="text-ink-muted font-medium">{{ total }}</span> 条告警
+          <div class="ml-auto flex items-center gap-3 text-sm text-ink-faint">
+            <span
+              v-if="stats && stats.suppressed > 0"
+              class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs
+                     bg-yellow-500/10 text-yellow-400 border border-yellow-500/30"
+              title="被上游依赖抑制的告警：仍可查询，但不推送通知、不计入活跃告警"
+            >
+              <span class="w-1.5 h-1.5 rounded-full bg-yellow-400" />
+              已抑制 {{ stats.suppressed }}
+            </span>
+            <span>共 <span class="text-ink-muted font-medium">{{ total }}</span> 条告警</span>
           </div>
         </div>
       </div>
@@ -422,16 +522,16 @@ onUnmounted(() => {
           <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5"
                 d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
         </svg>
-        <p class="text-ink-faint text-lg mb-1">暂无告警记录</p>
+        <p class="text-ink-faint text-lg mb-1">{{ hasFilter ? '没有匹配的告警' : '暂无告警记录' }}</p>
         <p class="text-ink-faint text-sm">
-          {{ severityFilter || statusFilter ? '当前筛选条件下没有匹配的告警，尝试调整筛选条件' : '系统运行正常，没有告警产生' }}
+          {{ hasFilter ? '当前搜索 / 筛选条件下没有匹配的告警，尝试调整条件' : '系统运行正常，没有告警产生' }}
         </p>
         <button
-          v-if="severityFilter || statusFilter"
+          v-if="hasFilter"
           @click="resetFilters"
           class="mt-4 px-4 py-2 bg-surface-2 hover:bg-hover text-ink-muted rounded-lg transition-colors text-sm"
         >
-          清除筛选条件
+          清除搜索与筛选条件
         </button>
       </div>
 
@@ -482,7 +582,27 @@ onUnmounted(() => {
                   </span>
                 </td>
                 <td class="py-3 px-4 text-ink font-medium min-w-28">{{ alert.device_name || '-' }}</td>
-                <td class="py-3 px-4 text-ink-muted min-w-36">{{ alert.rule_name || '-' }}</td>
+                <td class="py-3 px-4 text-ink-muted min-w-36">
+                  <div>{{ alert.rule_name || '-' }}</div>
+                  <div v-if="alert.flap_count > 0 || alert.aggregated_count > 0" class="mt-1 flex items-center gap-1.5">
+                    <span
+                      v-if="alert.aggregated_count > 0"
+                      class="inline-flex items-center px-1.5 py-0.5 rounded text-[11px]
+                             bg-purple-500/10 text-purple-300 border border-purple-500/30"
+                      :title="`告警风暴期间被折叠合并，本条代表 ${alert.aggregated_count} 条同类告警`"
+                    >
+                      折叠 ×{{ alert.aggregated_count }}
+                    </span>
+                    <span
+                      v-if="alert.flap_count > 0"
+                      class="inline-flex items-center px-1.5 py-0.5 rounded text-[11px]
+                             bg-orange-500/10 text-orange-300 border border-orange-500/30"
+                      :title="`链路不稳定：该告警在 30 分钟内反复触发/恢复 ${alert.flap_count} 次`"
+                    >
+                      抖动 ×{{ alert.flap_count }}
+                    </span>
+                  </div>
+                </td>
                 <td class="py-3 px-4 text-ink-muted max-w-md">
                   <span class="line-clamp-2 whitespace-normal" :title="alert.message">
                     {{ alert.message || '-' }}
@@ -498,13 +618,21 @@ onUnmounted(() => {
                   <span
                     class="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-semibold text-white"
                     :class="statusBadgeColor(alert.status)"
+                    :title="alert.status === 'suppressed' ? suppressTip(alert) : ''"
                   >
                     <span
                       class="w-1.5 h-1.5 rounded-full"
-                      :class="alert.status === 'active' ? 'bg-red-200 animate-pulse' : 'bg-green-200'"
+                      :class="statusDotClass(alert.status)"
                     />
                     {{ statusText(alert.status) }}
                   </span>
+                  <div
+                    v-if="alert.status === 'suppressed' && alert.suppressed_by_name"
+                    class="mt-1 text-[11px] text-yellow-400/90 max-w-32 truncate"
+                    :title="suppressTip(alert)"
+                  >
+                    因「{{ alert.suppressed_by_name }}」
+                  </div>
                 </td>
                 <td class="py-3 px-4">
                   <div class="flex items-center gap-1.5">
@@ -531,10 +659,11 @@ onUnmounted(() => {
       <!-- Pagination -->
       <div
         v-if="alerts.length > 0 && totalPages > 1"
-        class="flex items-center justify-between bg-surface border border-line rounded-xl px-6 py-4"
+        class="flex flex-wrap items-center justify-between gap-3 bg-surface border border-line rounded-xl px-6 py-4"
       >
         <div class="text-sm text-ink-faint">
           第 {{ (currentPage - 1) * pageSize + 1 }}-{{ Math.min(currentPage * pageSize, total) }} 条，共 {{ total }} 条
+          <span class="text-ink-faint/70">· 第 {{ currentPage }} / {{ totalPages }} 页</span>
         </div>
 
         <div class="flex items-center gap-1.5">
@@ -574,6 +703,31 @@ onUnmounted(() => {
             <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7" />
             </svg>
+          </button>
+        </div>
+
+        <!-- 跳转到指定页 -->
+        <div class="flex items-center gap-2 text-sm text-ink-faint">
+          <label for="alert-jump-page">跳至</label>
+          <input
+            id="alert-jump-page"
+            v-model="jumpPage"
+            type="number"
+            min="1"
+            :max="totalPages"
+            placeholder="页码"
+            @keydown.enter.prevent="applyJump"
+            class="w-16 bg-surface-2 border border-line rounded-lg px-2 py-1.5 text-center text-sm text-ink
+                   placeholder:text-ink-faint focus:outline-none focus:border-blue-500 focus:ring-1
+                   focus:ring-blue-500 transition-colors"
+          />
+          <span>/ {{ totalPages }} 页</span>
+          <button
+            @click="applyJump"
+            class="px-3 py-1.5 text-xs rounded-lg border border-line bg-surface-2 hover:bg-hover
+                   text-ink-muted hover:text-ink transition-colors"
+          >
+            前往
           </button>
         </div>
       </div>

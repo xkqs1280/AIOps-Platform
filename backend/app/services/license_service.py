@@ -89,7 +89,7 @@ def _decode_license_code(code: str) -> dict | None:
     """解码并验签激活码，返回 payload；无效/伪造返回 None。
     注意：激活码本身含 base64url 的 `-`/`_`，只能去除空白，不能去 `-`。
     """
-    code = code.strip().replace(" ", "").replace("\n", "").replace("\r", "")
+    code = (code or "").strip().replace(" ", "").replace("\n", "").replace("\r", "")
     if "." not in code:
         return None
     b64part, sigpart = code.split(".", 1)

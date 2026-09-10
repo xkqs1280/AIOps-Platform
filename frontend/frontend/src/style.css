@@ -188,7 +188,11 @@
   /* ============ 动画 keyframes ============ */
   @keyframes fade-in-up {
     from { opacity: 0; transform: translateY(10px); }
-    to   { opacity: 1; transform: translateY(0); }
+    /* 终态必须是 none（而非 translateY(0)）：animation-fill-mode=both 会让元素在动画结束后
+       长期持有 transform，从而成为 position:fixed 后代的包含块 —— 弹窗会脱离视口居中、
+       相对页面内容盒定位，并被 overflow 祖先裁切。改为 none 后动效不变（none 与
+       translateY(0) 视觉等价），但不再劫持 fixed 定位。 */
+    to   { opacity: 1; transform: none; }
   }
   @keyframes fade-in {
     from { opacity: 0; }

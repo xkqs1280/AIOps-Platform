@@ -60,11 +60,29 @@ export const createAlertRule = (data) => api.post('/alert-rules', data)
 export const updateAlertRule = (id, data) => api.put(`/alert-rules/${id}`, data)
 export const deleteAlertRule = (id) => api.delete(`/alert-rules/${id}`)
 
+// 告警通知通道（钉钉 / 企业微信 / 飞书 / 自定义 Webhook）
+export const getNotifyChannelMeta = () => api.get('/notify-channels/meta')
+export const getNotifyChannels = () => api.get('/notify-channels')
+export const createNotifyChannel = (data) => api.post('/notify-channels', data)
+export const updateNotifyChannel = (id, data) => api.put(`/notify-channels/${id}`, data)
+export const deleteNotifyChannel = (id) => api.delete(`/notify-channels/${id}`)
+export const testNotifyChannel = (id) => api.post(`/notify-channels/${id}/test`, null, { timeout: 30000 })
+
+// 设备依赖关系：模块已从 UI 取消（2026-09-10），依赖改由拓扑连线自动推导
+// （见下方 getTopologyDependencies）。以下封装仅作扩展点备份，当前无页面引用。
+export const getDeviceDependencies = () => api.get('/device-dependencies')
+export const getDeviceDependenciesOf = (deviceId) => api.get(`/device-dependencies/device/${deviceId}`)
+export const createDeviceDependency = (data) => api.post('/device-dependencies', data)
+export const updateDeviceDependency = (id, data) => api.put(`/device-dependencies/${id}`, data)
+export const deleteDeviceDependency = (id) => api.delete(`/device-dependencies/${id}`)
+
 // 拓扑
 export const getTopology = () => api.get('/topology')
 export const getTopologyLinks = () => api.get('/topology/links')
 export const createTopologyLink = (data) => api.post('/topology/links', data)
 export const deleteTopologyLink = (id) => api.delete(`/topology/links/${id}`)
+// 自动推导的设备依赖（用于告警拓扑依赖抑制，也可在拓扑页查看）
+export const getTopologyDependencies = () => api.get('/topology/dependencies')
 
 // 大屏 Dashboard
 export const getDashboardOverview = () => api.get('/dashboard/overview')
@@ -115,6 +133,7 @@ export const createUser = (data) => api.post('/auth/users', data)
 export const login = (data) => api.post('/auth/login', data)
 export const logout = () => api.post('/auth/logout')
 export const updateUser = (id, data) => api.patch(`/auth/users/${id}`, data)
+export const deleteUser = (id) => api.delete(`/auth/users/${id}`)
 export const changePassword = (data) => api.post('/auth/change-password', data)
 
 // 系统设置

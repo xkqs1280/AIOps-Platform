@@ -389,8 +389,15 @@ async def _cleanup_device_relations(db: AsyncSession, device_ids: list[int]) -> 
         from app.models.config_backup import ConfigBackup, BackupSchedule
         from app.models.p2_baseline import MetricBaseline, PredictionResult, DeviceHealthScore
         from app.models.inspection import InspectionDeviceResult
+        from app.models.device_dependency import DeviceDependency
 
         await db.execute(sa_delete(Alert).where(Alert.device_id.in_(device_ids)))
+        # 设备依赖：设备自身作为下游或上游的依赖关系都要清掉，
+        # 否则残留行会让别的设备被"幽灵上游"抑制告警
+        await db.execute(sa_delete(DeviceDependency).where(
+            (DeviceDependency.device_id.in_(device_ids)) |
+            (DeviceDependency.depends_on_device_id.in_(device_ids))
+        ))
         await db.execute(sa_delete(DeviceComponent).where(DeviceComponent.device_id.in_(device_ids)))
         await db.execute(sa_delete(ComplianceCheck).where(ComplianceCheck.device_id.in_(device_ids)))
         await db.execute(sa_delete(TopologyLink).where(

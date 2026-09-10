@@ -22,6 +22,7 @@ import uuid
 import asyncssh
 
 from app.config import settings
+from app.services import config_baseline_service
 from app.services.credential_service import reveal_secret
 
 logger = logging.getLogger(__name__)
@@ -367,31 +368,25 @@ async def run_secondary_compliance_check(session, device_id: int) -> dict:
         method = "ssh_config"
     except Exception as e:
         logger.warning(f"等保二级 SSH 核查失败 {device.name}({device.ip}): {e}")
-        # 回退：使用现有三级规则推断结果作为近似评估
-        results = await run_compliance_check(session, device_id)
-        applicable = [r for r in results if r["status"] != "not_applicable"]
-        passed = sum(1 for r in applicable if r["status"] == "compliant")
-        score = round(passed / len(applicable) * 100, 1) if applicable else 100.0
-        categories = {}
-        for cat_key, cat_label in SECONDARY_CATEGORIES.items():
-            cat_results = [r for r in results if r.get("category") == cat_key]
-            categories[cat_key] = {
-                "label": cat_label,
-                "score": round(sum(1 for r in cat_results if r["status"] == "compliant") / len(cat_results) * 100, 1) if cat_results else 0.0,
-            }
+        # 不再回退到「指标推断」（CPU<70% 就算处理能力冗余那套）：那会凭空造出一个
+        # 看上去真实的分数，客户拿去当等保测评依据会出问题。如实报告不可用，
+        # 运行态无结论；配置基线部分仍会由 run_device_compliance_check 合并进来。
         return {
             "device_id": device_id,
             "id": device_id,
             "device_name": device.name,
             "ip": device.ip,
-            "method": "snmp_fallback",
-            "score": score,
-            "passed": passed,
-            "total": len(applicable),
-            "details": results,
-            "categories": categories,
+            "method": "unavailable",
+            "score": 0.0,
+            "passed": 0,
+            "total": 0,
+            "details": [],
+            "categories": {
+                cat_key: {"label": cat_label, "score": 0.0, "passed": 0, "total": 0}
+                for cat_key, cat_label in SECONDARY_CATEGORIES.items()
+            },
             "checked_at": datetime.now(timezone.utc),
-            "note": "SSH 采集不可用，已回退为平台指标推断评估",
+            "note": f"SSH 采集不可用（{e}），运行态核查未完成",
         }
 
     # ── SSH 配置核查评估 ──
@@ -454,7 +449,7 @@ async def run_secondary_compliance_check(session, device_id: int) -> dict:
 
 
 async def run_secondary_compliance_check_batch(session, device_ids: list[int] | None = None) -> dict:
-    """对全部或部分设备执行等保二级合规评估（并发，限 5 路，每台独立事务提交）。
+    """对全部或部分设备执行完整等保核查（运行态 + 配置基线，并发，限 5 路，每台独立事务提交）。
 
     Args:
         session: 异步 SQLAlchemy 会话（仅用于读取设备列表）。
@@ -475,7 +470,7 @@ async def run_secondary_compliance_check_batch(session, device_ids: list[int] | 
         async with sem:
             # 每台设备使用独立会话，避免并发共享同一 session 的冲突，且各自显式 commit
             async with async_session() as dev_session:
-                return await run_secondary_compliance_check(dev_session, did)
+                return await run_device_compliance_check(dev_session, did)
 
     devices = await asyncio.gather(*[limited(did) for did in device_ids], return_exceptions=True)
 
@@ -492,6 +487,86 @@ async def run_secondary_compliance_check_batch(session, device_ids: list[int] | 
         "total_devices": len(results),
         "overall_avg": avg,
     }
+
+
+# ---------------------------------------------------------------------------
+# 运行态核查 + 配置基线核查 的合并
+# ---------------------------------------------------------------------------
+
+def _merge_device_results(runtime: dict, collected: dict | None) -> dict:
+    """把两类核查结果合成一台设备的完整结论。
+
+    - 运行态核查（SSH 采集 display 命令）：看服务是否真的在跑、日志是否落地；
+    - 配置基线核查（配置备份全文）：看配置里写了什么。
+
+    两者控制项不同、id 不重叠（SEC-* 与 CFG-*），因此直接拼接后统一重算评分；
+    ``details[].source`` 区分来源（``runtime`` / ``config``），供前端标注。
+    配置未采集时其 14 项为 not_applicable，会被排除出评分，不影响原有分数。
+    """
+    if runtime.get("error"):
+        return runtime
+
+    runtime_details = runtime.get("details") or []
+    for d in runtime_details:
+        d.setdefault("source", "runtime")
+
+    cfg_details = (collected or {}).get("details") or []
+    merged = runtime_details + cfg_details
+
+    applicable = [d for d in merged if d.get("status") != "not_applicable"]
+    passed = sum(1 for d in applicable if d.get("status") == "compliant")
+    score = round(passed / len(applicable) * 100, 1) if applicable else 0.0
+
+    categories = {}
+    for key, label in SECONDARY_CATEGORIES.items():
+        rows = [d for d in merged if d.get("category") == key]
+        ok = sum(1 for d in rows if d.get("status") == "compliant")
+        categories[key] = {
+            "label": label,
+            "score": round(ok / len(rows) * 100, 1) if rows else 0.0,
+            "passed": ok,
+            "total": len(rows),
+        }
+
+    # 只有真正跑出结论的来源才算一种数据源；unavailable / none 不列入
+    methods = [m for m in [runtime.get("method")] if m and m not in ("none", "unavailable")]
+    if (collected or {}).get("config_available") and "config_backup" not in methods:
+        methods.append("config_backup")
+
+    out = dict(runtime)
+    out.update({
+        "details": merged,
+        "score": score,
+        "passed": passed,
+        "total": len(applicable),
+        "categories": categories,
+        "methods": methods,
+        "config_available": bool((collected or {}).get("config_available")),
+        "config_backup_at": (collected or {}).get("config_backup_at"),
+        "config_note": (collected or {}).get("note"),
+    })
+    return out
+
+
+async def run_device_compliance_check(session, device_id: int) -> dict:
+    """单台设备的完整等保核查（运行态 + 配置基线），供批量接口与页面使用。
+
+    两侧结论都会落库（``SEC-*`` 由运行态核查写、``CFG-*`` 在这里写），
+    这样 ``GET /compliance/status`` 才能读到完整结论。只合并不落库的话，
+    页面上会出现「刚评估完、一刷新配置项就没了」的错觉。
+    """
+    runtime = await run_secondary_compliance_check(session, device_id)
+    try:
+        collected = await config_baseline_service.collect_findings(session, device_id)
+        if collected.get("details"):
+            await config_baseline_service.persist_details(
+                session, device_id, collected["details"]
+            )
+    except Exception as e:
+        # 配置基线核查失败不应拖垮运行态结论（例如规则集缺失）
+        logger.error(f"配置基线核查失败 device_id={device_id}: {e}")
+        collected = None
+    return _merge_device_results(runtime, collected)
 
 
 # ---------------------------------------------------------------------------
@@ -583,6 +658,16 @@ def is_rule_applicable(rule, device_type):
 
 async def run_compliance_check(session, device_id):
     """对指定设备执行全部等保2.0合规检查，结果 upsert 到 ComplianceCheck 表。
+
+    .. deprecated:: 4.6.0
+        **已停止使用**，不再被任何 API 或页面调用。它按 CPU/内存/SNMP 版本
+        「推断」合规结论（如 CPU<70% 就判"处理能力具备冗余空间"），并非真实核查，
+        不能作为等保测评依据。保留仅为兼容历史调用方。
+
+        替代方案（均为真实核查）：
+          - ``config_baseline_service.run_config_baseline_check``：配置态核查
+          - ``compliance_service.run_secondary_compliance_check``：运行态核查
+          - ``compliance_service.run_device_compliance_check``：两者合并
 
     由于无法获取真实 SNMP/syslog/config 数据，检查逻辑基于可用指标模拟：
       - SNMP 类规则：根据 CPU/内存使用率推断冗余/处理能力
@@ -823,7 +908,7 @@ async def _evaluate_rule(session, rule, device):
             # 设备身份标识与鉴别：SNMPv3 提供加密认证，视为合规
             snmp_v = (device.snmp_version or "").lower()
             if snmp_v == "v3":
-                return ("compliant", f"设备使用 SNMPv3，具备身份标识与加密鉴别机制")
+                return ("compliant", "设备使用 SNMPv3，具备身份标识与加密鉴别机制")
             elif snmp_v in ("v2", "v2c"):
                 return ("partial", f"设备使用 SNMP{snmp_v}，具备 community 字符串认证但缺少加密")
             elif snmp_v == "v1":
@@ -913,8 +998,124 @@ async def calculate_compliance_score(session, device_id):
 
 
 # ---------------------------------------------------------------------------
-# 4. 合规状态查询
+# 4. 合规状态查询（读取已落库的核查结论）
 # ---------------------------------------------------------------------------
+#
+# 口径说明：本模块早期用「CPU<70% 就算处理能力冗余」这类指标推断来模拟合规结论
+# （见 run_compliance_check 的 docstring），可信度低，**不再作为页面评分依据**。
+# 现在只统计两类真实核查的落库结果：
+#   SEC-*  运行态核查（SSH 采集 display 命令，见 SECONDARY_RULES）
+#   CFG-*  配置基线核查（配置备份全文解析，见 config_baseline_service）
+# 早期写入的 8.1.* 模拟行保留在表中但不再参与评分，避免污染真实结论。
+
+def _control_category_map() -> dict:
+    """control_id → 五维分类。"""
+    mapping = {}
+    try:
+        from app.services.config_audit_engine import load_rules
+        for r in load_rules()["rules"]:
+            mapping[r["id"]] = r.get("category") or ""
+    except Exception:
+        logger.warning("配置基线规则集加载失败，CFG-* 项将归入未分类", exc_info=True)
+    for r in SECONDARY_RULES:
+        mapping[r["control_id"]] = r.get("category") or ""
+    return mapping
+
+
+def _is_real_check(control_id: str) -> bool:
+    """只认真实核查项；排除早期指标模拟写入的 8.1.* 行。"""
+    return control_id.startswith("CFG-") or control_id.startswith("SEC-")
+
+
+def _summarize_device(device_row, check_rows, category_map) -> dict:
+    """把一台设备的落库核查行汇总成前端需要的结构。"""
+    details = []
+    for r in check_rows:
+        cid = r.control_id or ""
+        if not _is_real_check(cid):
+            continue
+        details.append({
+            "control_id": cid,
+            "category": category_map.get(cid, ""),
+            "desc": r.control_desc or "",
+            "status": r.status or "not_applicable",
+            "evidence": r.evidence or "",
+            "source": "config" if cid.startswith("CFG-") else "runtime",
+        })
+    # 同来源内按 control_id 排序，展示稳定
+    details.sort(key=lambda d: (0 if d["source"] == "runtime" else 1, d["control_id"]))
+
+    applicable = [d for d in details if d["status"] != "not_applicable"]
+    passed = sum(1 for d in applicable if d["status"] == "compliant")
+    score = round(passed / len(applicable) * 100, 1) if applicable else 0.0
+
+    categories = {}
+    for key, label in SECONDARY_CATEGORIES.items():
+        rows = [d for d in details if d["category"] == key]
+        ok = sum(1 for d in rows if d["status"] == "compliant")
+        categories[key] = {
+            "label": label,
+            "score": round(ok / len(rows) * 100, 1) if rows else 0.0,
+            "passed": ok,
+            "total": len(rows),
+        }
+
+    methods = []
+    if any(d["source"] == "runtime" for d in details):
+        methods.append("ssh_config")
+    # 配置基线：只有在真正拿到配置全文（不是整片 not_applicable）时才算一种数据源
+    config_available = any(
+        d["source"] == "config" and d["status"] != "not_applicable" for d in details
+    )
+    if config_available:
+        methods.append("config_backup")
+
+    checked_at = max((r.checked_at for r in check_rows if r.checked_at), default=None)
+
+    return {
+        "device_id": device_row.id,
+        "id": device_row.id,
+        "device_name": device_row.name,
+        "ip": device_row.ip,
+        "device_type": device_row.device_type,
+        "score": score,
+        "compliance_score": score,
+        "passed": passed,
+        "total": len(applicable),
+        "checked": bool(applicable),
+        "checked_at": checked_at,
+        "method": methods[0] if methods else "none",
+        "methods": methods,
+        "config_available": config_available,
+        "categories": categories,
+        "details": details,
+    }
+
+
+def _empty_summary(device_row) -> dict:
+    """尚未核查过的设备：明确标记为未核查，而不是给一个假的 0 分。"""
+    return {
+        "device_id": device_row.id,
+        "id": device_row.id,
+        "device_name": device_row.name,
+        "ip": device_row.ip,
+        "device_type": device_row.device_type,
+        "score": None,
+        "compliance_score": None,
+        "passed": 0,
+        "total": 0,
+        "checked": False,
+        "checked_at": None,
+        "method": "none",
+        "methods": [],
+        "config_available": False,
+        "categories": {
+            key: {"label": label, "score": 0.0, "passed": 0, "total": 0}
+            for key, label in SECONDARY_CATEGORIES.items()
+        },
+        "details": [],
+    }
+
 
 async def get_compliance_status(session, device_id=None, page=None, page_size=None):
     """查询合规状态：单设备详情或全局概要。
@@ -927,108 +1128,83 @@ async def get_compliance_status(session, device_id=None, page=None, page_size=No
 
     Returns:
         dict:
-            单设备模式 — {"device_id": int, "score": float, "passed": int,
-                           "total": int, "details": [...], "device_name": str}
-            全局模式 —   {"devices": [...], "overall_avg": float, "total_devices": int,
-                           "non_compliant_items": [...]}
-                        分页时 devices 仅含当前页，total_devices 仍为全局设备数。
+            单设备模式 — 该设备汇总（score/passed/total/details/categories/methods），
+                         另含 category_scores 扁平形式便于前端雷达使用。
+            全局模式 —   {
+                "devices": [当前页设备],
+                "total_devices": int,
+                "overall_avg": float, "overall_score": float,   # 同值，兼容两种字段名
+                "compliant_devices": int,                       # 评分 ≥ 90 的设备数
+                "categories": {五维: 平均分},                    # 扁平数值，供雷达图
+                "non_compliant_items": [...],
+            }
+        设备不存在时单设备模式返回 None。
     """
+    category_map = _control_category_map()
+
+    # ── 单设备模式 ──
     if device_id is not None:
-        score_data = await calculate_compliance_score(session, device_id)
-        if score_data is None:
+        device = (
+            await session.execute(select(Device).where(Device.id == device_id))
+        ).scalar_one_or_none()
+        if device is None:
             return None
+        rows = (await session.execute(
+            select(ComplianceCheck).where(ComplianceCheck.device_id == device_id)
+        )).scalars().all()
+        summary = _summarize_device(device, rows, category_map) if rows else _empty_summary(device)
+        summary["category_scores"] = {k: v["score"] for k, v in summary["categories"].items()}
+        return summary
 
-        device_result = await session.execute(
-            select(Device).where(Device.id == device_id)
-        )
-        device_row = device_result.scalar_one_or_none()
-        device_name = device_row.name if device_row else None
-        device_ip = device_row.ip if device_row else None
+    # ── 全局模式：一次取全部设备与全部核查行，避免逐设备重复查询 ──
+    devices = (await session.execute(select(Device).order_by(Device.id))).scalars().all()
+    check_rows = (await session.execute(select(ComplianceCheck))).scalars().all()
 
-        return {
-            "device_id": device_id,
-            "id": device_id,
-            "device_name": device_name,
-            "ip": device_ip,
-            "score": score_data["score"],
-            "passed": score_data["passed"],
-            "total": score_data["total"],
-            "details": score_data["details"],
-        }
+    grouped: dict[int, list] = {}
+    for r in check_rows:
+        grouped.setdefault(r.device_id, []).append(r)
 
-    # ── 全局模式 ──
-    device_ids_result = await session.execute(select(Device.id))
-    all_device_ids = [row[0] for row in device_ids_result.all()]
+    summaries = []
+    for dev in devices:
+        rows = grouped.get(dev.id) or []
+        summaries.append(_summarize_device(dev, rows, category_map) if rows else _empty_summary(dev))
 
-    device_scores = []
+    # 未核查的设备（total=0）不参与平均分，避免拉低真实水平
+    scored = [s for s in summaries if s["total"] > 0]
+    overall = round(sum(s["score"] for s in scored) / len(scored), 1) if scored else 0.0
+    compliant = sum(1 for s in scored if s["score"] >= 90)
+
+    category_scores = {}
+    for key in SECONDARY_CATEGORIES:
+        vals = [s["categories"][key]["score"] for s in summaries if s["categories"][key]["total"] > 0]
+        category_scores[key] = round(sum(vals) / len(vals)) if vals else 0
+
     non_compliant_items = []
-
-    for did in all_device_ids:
-        score_data = await calculate_compliance_score(session, did)
-        if score_data is None:
-            continue
-
-        device_result = await session.execute(
-            select(Device).where(Device.id == did)
-        )
-        device_row = device_result.scalar_one_or_none()
-        device_name = device_row.name if device_row else None
-        device_ip = device_row.ip if device_row else None
-
-        # 最近合规检查时间
-        last_check = (
-            await session.execute(
-                select(func.max(ComplianceCheck.checked_at)).where(
-                    ComplianceCheck.device_id == did
-                )
-            )
-        ).scalar()
-
-        device_scores.append({
-            "device_id": did,
-            "id": did,
-            "device_name": device_name,
-            "ip": device_ip,
-            "score": score_data["score"],
-            "passed": score_data["passed"],
-            "total": score_data["total"],
-            "checked_at": last_check,
-        })
-
-        # 收集不合规项
-        for item in score_data["details"]:
-            if item["status"] == "non_compliant":
+    for s in summaries:
+        for d in s["details"]:
+            if d["status"] == "non_compliant":
                 non_compliant_items.append({
-                    "device_id": did,
-                    "device_name": device_name,
-                    "control_id": item["control_id"],
-                    "desc": item["desc"],
-                    "evidence": item["evidence"],
+                    "device_id": s["device_id"],
+                    "device_name": s["device_name"],
+                    "control_id": d["control_id"],
+                    "desc": d["desc"],
+                    "evidence": d["evidence"],
+                    "source": d["source"],
                 })
 
-    if not device_scores:
-        return {
-            "devices": [],
-            "overall_avg": 0.0,
-            "total_devices": 0,
-            "non_compliant_items": [],
-        }
-
-    overall_avg = round(
-        sum(d["score"] for d in device_scores) / len(device_scores), 1
-    )
-
-    total_devices = len(device_scores)
-    # 分页：devices 只返回当前页；total_devices / overall_avg / non_compliant_items 仍为全局统计
+    total_devices = len(summaries)
     if page is not None and page_size is not None and page_size > 0:
         start = (page - 1) * page_size
-        page_devices = device_scores[start:start + page_size]
+        page_devices = summaries[start:start + page_size]
     else:
-        page_devices = device_scores
+        page_devices = summaries
 
     return {
         "devices": page_devices,
-        "overall_avg": overall_avg,
         "total_devices": total_devices,
+        "overall_avg": overall,
+        "overall_score": overall,
+        "compliant_devices": compliant,
+        "categories": category_scores,
         "non_compliant_items": non_compliant_items,
     }

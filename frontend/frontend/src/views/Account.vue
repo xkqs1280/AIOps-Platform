@@ -197,6 +197,20 @@
                   >
                     {{ user.is_active ? '停用' : '启用' }}
                   </button>
+                  <button
+                    v-if="canDelete(user)"
+                    @click="openDeleteModal(user)"
+                    class="rounded-md px-2 py-1 text-xs text-red-400 transition-colors hover:bg-red-600/20 hover:text-red-300"
+                  >
+                    删除
+                  </button>
+                  <span
+                    v-else
+                    class="rounded-md px-2 py-1 text-xs text-ink-faint/60 cursor-not-allowed"
+                    :title="deleteBlockedReason(user)"
+                  >
+                    删除
+                  </span>
                 </div>
               </td>
             </tr>
@@ -249,13 +263,50 @@
         </div>
       </div>
     </div>
+
+    <!-- 删除账号 Modal -->
+    <div
+      v-if="showDeleteModal"
+      class="fixed inset-0 z-50 flex items-center justify-center bg-black/60"
+      @click.self="closeDeleteModal"
+    >
+      <div class="w-full max-w-sm rounded-xl border border-line bg-surface shadow-2xl">
+        <div class="border-b border-line px-6 py-4">
+          <h2 class="text-lg font-semibold text-red-400">删除账号</h2>
+        </div>
+        <div class="px-6 py-4">
+          <p class="mb-2 text-sm text-ink-muted">
+            确定要删除账号
+            <span class="font-medium text-ink">{{ deleteTarget?.username }}</span>
+            （角色 {{ deleteTarget?.role }}）吗？
+          </p>
+          <p class="text-sm text-red-400/90">删除后该账号立即无法登录，且不可恢复。</p>
+          <p v-if="deleteMsg" class="mt-2 text-sm text-red-400">{{ deleteMsg }}</p>
+        </div>
+        <div class="flex justify-end gap-3 border-t border-line px-6 py-4">
+          <button
+            @click="closeDeleteModal"
+            class="btn btn-outline"
+          >
+            取消
+          </button>
+          <button
+            @click="confirmDelete"
+            :disabled="deleteSubmitting"
+            class="btn btn-danger"
+          >
+            {{ deleteSubmitting ? '删除中...' : '确认删除' }}
+          </button>
+        </div>
+      </div>
+    </div>
   </div>
 </template>
 
 <script setup>
 import { ref, computed, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
-import { getMe, getUsers, createUser, updateUser, changePassword, logout } from '../api/index.js'
+import { getMe, getUsers, createUser, updateUser, deleteUser, changePassword, logout } from '../api/index.js'
 
 const router = useRouter()
 const me = ref({ username: '', role: '' })
@@ -292,6 +343,12 @@ const resetPwd = ref('')
 const resetSubmitting = ref(false)
 const resetMsg = ref('')
 const resetMsgOk = ref(false)
+
+// 删除账号
+const showDeleteModal = ref(false)
+const deleteTarget = ref(null)
+const deleteSubmitting = ref(false)
+const deleteMsg = ref('')
 
 const PWD_HINT = '至少 12 位，且同时包含大写字母、小写字母和数字'
 
@@ -420,6 +477,42 @@ async function toggleActive(user) {
   } catch (e) {
     alert(e.response?.data?.detail || '操作失败')
   }
+}
+
+// 内置 admin 与当前登录账号不可删除（后端同样有校验，这里只做展示层拦截）
+function canDelete(user) {
+  return user.username !== 'admin' && user.username !== me.value.username
+}
+
+function deleteBlockedReason(user) {
+  if (user.username === 'admin') return '内置管理员账号不可删除'
+  if (user.username === me.value.username) return '当前登录账号不可删除'
+  return ''
+}
+
+function openDeleteModal(user) {
+  deleteTarget.value = user
+  deleteMsg.value = ''
+  showDeleteModal.value = true
+}
+
+function closeDeleteModal() {
+  showDeleteModal.value = false
+  deleteTarget.value = null
+}
+
+async function confirmDelete() {
+  if (!deleteTarget.value) return
+  deleteMsg.value = ''
+  deleteSubmitting.value = true
+  try {
+    await deleteUser(deleteTarget.value.id)
+    closeDeleteModal()
+    await loadUsers()
+  } catch (e) {
+    deleteMsg.value = e.response?.data?.detail || '删除失败'
+  }
+  deleteSubmitting.value = false
 }
 
 onMounted(() => {

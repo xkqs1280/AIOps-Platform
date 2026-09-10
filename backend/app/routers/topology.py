@@ -13,6 +13,7 @@ from app.database import get_db
 from app.models.device import Device
 from app.models.topology_link import TopologyLink
 from app.models.alert import Alert
+from app.services.topology_dependency_service import describe_dependencies
 
 router = APIRouter(prefix="/topology", tags=["拓扑发现"])
 
@@ -80,6 +81,19 @@ async def get_topology(db: AsyncSession = Depends(get_db)):
         })
 
     return {"code": 0, "message": "success", "data": {"nodes": nodes, "edges": edges}}
+
+
+@router.get("/dependencies")
+async def get_dependencies(db: AsyncSession = Depends(get_db)):
+    """自动推导的设备依赖关系。
+
+    依赖**完全由拓扑连线推导**（不再手工配置）：
+    - 层级不同：层级低的一方为下游（firewall > router > load_balancer > switch > wireless > server）；
+    - 同层级：按拓扑连接数判断，连接数接近则视为对等互联、不建立依赖。
+
+    该结果同时用于告警收敛的「拓扑依赖抑制」：上游不可达时抑制下游连带告警。
+    """
+    return {"code": 0, "message": "success", "data": await describe_dependencies(db)}
 
 
 @router.get("/links")

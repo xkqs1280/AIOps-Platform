@@ -1,0 +1,8 @@
+# 开发/CI 依赖（运行测试与静态检查）。生产运行不需要这些。
+-r backend/requirements.txt
+
+pytest>=8.3
+pytest-asyncio>=0.24
+# 单元测试默认跑在 SQLite 内存库上，无需外部 PostgreSQL
+aiosqlite>=0.20
+ruff>=0.6

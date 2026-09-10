@@ -158,6 +158,60 @@
           </div>
           <div v-else class="mt-3 text-xs text-ink-faint">暂无自定义连线</div>
         </div>
+
+        <!-- 依赖关系（自动推导）：依赖由上方连线推导，告警抑制据此判断上下游 -->
+        <div class="mt-5 border-t border-line pt-4">
+          <div class="mb-2 flex items-center justify-between">
+            <p class="text-xs font-medium text-ink-faint">依赖关系（自动推导）</p>
+            <button
+              @click="depsCollapsed = !depsCollapsed"
+              class="text-xs text-ink-faint transition-colors hover:text-ink-muted"
+            >
+              {{ depsCollapsed ? '展开' : '收起' }}
+            </button>
+          </div>
+
+          <div v-if="!depsCollapsed">
+            <p class="mb-2 text-[11px] leading-relaxed text-ink-faint">
+              按设备类型层级判定（防火墙 &gt; 路由器 &gt; 负载均衡 &gt; 交换机 &gt; 无线 &gt; 服务器）；类型未填或同类型时按连接数判断，接近则视为对等。上游不可达时，下游的连带告警会被自动抑制。
+            </p>
+
+            <div
+              v-if="suppressedDownstreams"
+              class="mb-2 rounded-lg border border-red-500/30 bg-red-500/10 px-2 py-1.5 text-[11px] text-red-400"
+            >
+              当前有 {{ suppressedDownstreams }} 台设备的告警正因上游不可达被抑制
+            </div>
+
+            <div v-if="topologyDeps.length" class="max-h-56 space-y-1.5 overflow-y-auto custom-scrollbar">
+              <div
+                v-for="(d, i) in topologyDeps"
+                :key="i"
+                class="rounded-lg bg-surface-2/60 px-2 py-1.5 text-xs"
+                :title="d.reason"
+              >
+                <div class="flex items-center gap-1.5">
+                  <span class="truncate text-ink-muted">{{ d.downstream_name }}</span>
+                  <span class="shrink-0 text-ink-faint">→</span>
+                  <span
+                    class="truncate font-medium"
+                    :class="d.upstream_status === 'offline' ? 'text-red-400' : 'text-ink-muted'"
+                  >{{ d.upstream_name }}</span>
+                  <span
+                    v-if="d.upstream_status === 'offline'"
+                    class="ml-auto shrink-0 rounded bg-red-500/15 px-1 text-[10px] text-red-400"
+                  >抑制中</span>
+                </div>
+                <div class="mt-0.5 truncate text-[10px] text-ink-faint">{{ d.reason }}</div>
+              </div>
+            </div>
+            <p v-else class="text-xs text-ink-faint">暂无可推导的依赖，请先在下方添加连线</p>
+
+            <div v-if="depPeers.length" class="mt-2 text-[11px] text-ink-faint">
+              另有 {{ depPeers.length }} 对设备判定为对等互联（不建立依赖）
+            </div>
+          </div>
+        </div>
         </div>
       </div>
     </div>
@@ -167,10 +221,10 @@
 <script setup>
 import { chartTheme } from '../utils/chartTheme'
 const cc = chartTheme()
-import { ref, onMounted, onBeforeUnmount, nextTick } from 'vue'
+import { ref, computed, onMounted, onBeforeUnmount, nextTick } from 'vue'
 import { useRouter } from 'vue-router'
 import * as echarts from 'echarts'
-import { getTopology, getDevices, getTopologyLinks, createTopologyLink, deleteTopologyLink } from '../api/index.js'
+import { getTopology, getDevices, getTopologyLinks, createTopologyLink, deleteTopologyLink, getTopologyDependencies } from '../api/index.js'
 import { buildTopologyNodes, buildTopologyEdges, getStatusColor } from '../utils/topologyConfig.js'
 
 const router = useRouter()
@@ -362,7 +416,7 @@ const addLink = async () => {
     })
     linkForm.value.sourceId = ''
     linkForm.value.targetId = ''
-    await Promise.all([fetchLinks(), fetchTopology()])
+    await Promise.all([fetchLinks(), fetchTopology(), fetchDependencies()])
   } catch (err) {
     const msg = err?.response?.data?.detail || '添加连线失败'
     alert(msg)
@@ -372,9 +426,32 @@ const addLink = async () => {
 const removeLink = async (linkId) => {
   try {
     await deleteTopologyLink(linkId)
-    await Promise.all([fetchLinks(), fetchTopology()])
+    await Promise.all([fetchLinks(), fetchTopology(), fetchDependencies()])
   } catch (err) {
     alert('删除连线失败')
+  }
+}
+
+// ---- 依赖关系（由拓扑连线自动推导；告警抑制据此判断上下游）----
+const topologyDeps = ref([])
+const depPeers = ref([])
+const depsCollapsed = ref(false)
+
+// 上游当前离线 → 这些下游设备的连带告警正在被抑制
+const suppressedDownstreams = computed(
+  () => topologyDeps.value.filter((d) => d.upstream_status === 'offline').length
+)
+
+const fetchDependencies = async () => {
+  try {
+    const res = await getTopologyDependencies()
+    const data = res?.data || res || {}
+    topologyDeps.value = data.dependencies || []
+    depPeers.value = data.peer_pairs || []
+  } catch (err) {
+    console.error('Fetch dependencies error:', err)
+    topologyDeps.value = []
+    depPeers.value = []
   }
 }
 
@@ -407,6 +484,7 @@ onMounted(async () => {
   fetchManagedDevices()
   fetchLinks()
   fetchTopology()
+  fetchDependencies()
 })
 
 onBeforeUnmount(() => {

@@ -30,6 +30,21 @@ from app.models.alert import Alert, AlertRule
 from app.services.discovery_service import snmp_get
 from app.services.credential_service import reveal_secret
 from app.services.metrics_collector import snmp_walk
+from app.services.baseline_service import (
+    LOCAL_TZ_OFFSET,
+    evaluate_baseline_violation,
+    load_baseline_map,
+)
+from app.services.alert_suppressor import (
+    FLAP_WINDOW_SECONDS,
+    alert_count_within_window,
+    build_dependency_context,
+    ensure_storm_summary,
+    evaluate_suppression,
+    record_alert_created,
+    record_resolution,
+)
+from app.services.notify_service import dispatch_alert
 
 logger = logging.getLogger(__name__)
 
@@ -110,6 +125,9 @@ def cleanup_device_state(device_id: int) -> None:
     for key in list(_if_err_since.keys()):
         if key[0] == device_id:
             _if_err_since.pop(key, None)
+    # 收敛模块的抖动/风暴窗口同样按设备维度缓存
+    from app.services.alert_suppressor import cleanup_device_state as _cleanup_suppressor_state
+    _cleanup_suppressor_state(device_id)
 
 
 def _to_num(val) -> float | None:
@@ -177,6 +195,25 @@ def _scalar_message(device: Device, rule: AlertRule, value: float) -> str:
     return (
         f"设备 {device.name}({device.ip}) {metric_label} {value}{unit}，"
         f"超过阈值 {rule.threshold}{unit}（持续 {rule.duration}s），触发「{rule.name}」告警"
+    )
+
+
+def _baseline_message(device: Device, rule: AlertRule, value: float, bl: dict, z: float | None) -> str:
+    """动态基线告警文案：把「当前值 / 同时段基线 / 偏离倍数」一起给出，便于判断是否真异常。"""
+    metric_label = {
+        "cpu_usage": "CPU 利用率",
+        "memory_usage": "内存利用率",
+        "temperature": "温度",
+    }.get(rule.metric, rule.metric)
+    unit = "%" if rule.metric in ("cpu_usage", "memory_usage") else "°C" if rule.metric == "temperature" else ""
+    p50 = bl.get("p50")
+    p50_txt = f"{p50:.1f}{unit}" if isinstance(p50, (int, float)) else "未知"
+    z_txt = f"{z:+.1f}" if isinstance(z, (int, float)) else "?"
+    direction_txt = {"upper": "高于", "lower": "低于", "both": "偏离"}.get(rule.baseline_direction, "偏离")
+    return (
+        f"设备 {device.name}({device.ip}) {metric_label} {value}{unit}，"
+        f"{direction_txt}同时段基线 {p50_txt} 达 {z_txt} 倍标准差"
+        f"（阈值 ±{rule.baseline_sigma}σ，持续 {rule.duration}s），触发「{rule.name}」告警"
     )
 
 
@@ -313,6 +350,7 @@ async def _collect_if_errors(device: Device, community: str) -> dict[int, dict[s
 async def _eval_if_errors(
     db: AsyncSession, device: Device, rule: AlertRule,
     err_deltas: dict[int, dict[str, int]], if_names: dict[int, str],
+    ctx: dict | None = None,
 ) -> None:
     """接口错包/丢弃速率告警。
 
@@ -368,7 +406,7 @@ async def _eval_if_errors(
             f"共 {len(alerted_ifaces)} 个接口超过阈值 {rule.threshold}/s"
         )
         st["extra"] = msg
-        await _ensure_alert(db, device, rule, msg)
+        await _ensure_alert(db, device, rule, msg, ctx)
     else:
         if st["violating"]:
             st["violating"] = False
@@ -378,57 +416,94 @@ async def _eval_if_errors(
 
 
 
-async def _ensure_alert(db: AsyncSession, device: Device, rule: AlertRule, message: str):
-    """创建告警（按 device+rule 去重）；已存在则仅更新消息。"""
+async def _ensure_alert(
+    db: AsyncSession, device: Device, rule: AlertRule, message: str,
+    ctx: dict | None = None,
+):
+    """创建告警（按 device+rule 去重）；已存在则仅更新消息。
+
+    创建前先过告警收敛判定（依赖抑制 / 抖动抑制 / 风暴聚合）：
+    - 被抑制：以 status='suppressed' 落库并记录原因，不推送通知；
+    - 抖动：正常创建，消息里标注抖动次数，但压掉通知（避免反复打扰）；
+    - 风暴：折叠非 critical 告警，并维护一条「告警风暴」汇总告警。
+    """
     res = await db.execute(
         select(Alert).where(
             Alert.device_id == device.id,
             Alert.rule_name == rule.name,
-            Alert.status == "active",
+            Alert.status.in_(("active", "suppressed")),
         )
     )
     existing = res.scalars().first()
+    decision = evaluate_suppression(device, rule.name, rule.severity, ctx)
+    flap = decision.get("flap_count") or 0
+
+    final_message = message
+    if flap:
+        final_message = (
+            f"{message}（链路抖动：{FLAP_WINDOW_SECONDS // 60} 分钟内已恢复 {flap} 次，"
+            f"建议检查链路质量或调大持续时长）"
+        )
+
     if existing is not None:
-        if existing.message != message:
-            existing.message = message
+        if existing.message != final_message:
+            existing.message = final_message
+        # 此前因上游离线被抑制，现在上游已恢复而本设备条件仍满足 → 升级为活动告警并补发通知
+        if existing.status == "suppressed" and not decision["suppressed"]:
+            existing.status = "active"
+            existing.suppress_reason = None
+            existing.suppressed_by_device_id = None
+            existing.triggered_at = datetime.now(timezone.utc)
+            logger.warning(
+                "Alert un-suppressed: %s(%s) %s: %s", device.name, device.ip, rule.name, final_message
+            )
+            await dispatch_alert(
+                db,
+                device_name=device.name, device_ip=device.ip, rule_name=rule.name,
+                severity=rule.severity, message=final_message,
+                dedup_key=f"rule:{device.id}:{rule.id}", notify=True,
+            )
         return
+
     db.add(Alert(
         device_id=device.id,
         rule_name=rule.name,
         severity=rule.severity,
-        message=message,
-        status="active",
+        message=final_message,
+        status="suppressed" if decision["suppressed"] else "active",
         triggered_at=datetime.now(timezone.utc),
+        flap_count=flap,
+        suppressed_by_device_id=decision["by_device_id"],
+        suppress_reason=decision["reason"],
     ))
-    logger.warning(f"Alert triggered: {device.name}({device.ip}) {rule.name}: {message}")
-    # 邮件告警（异步发送，失败不影响业务；同设备同规则 5 分钟防轰炸窗口）
-    from app.services.mail_service import send_alert_email
-    try:
-        await send_alert_email(
-            db,
-            subject=f"[{rule.severity}] {rule.name} - {device.name}",
-            body=(
-                f"告警时间：{datetime.now(timezone(timedelta(hours=8))).strftime('%Y-%m-%d %H:%M:%S')}\n"
-                f"设备名称：{device.name}\n"
-                f"IP 地址：{device.ip}\n"
-                f"规则名称：{rule.name}\n"
-                f"严重级别：{rule.severity}\n"
-                f"告警内容：{message}\n\n"
-                f"—— AIOps 智能运维托管平台"
-            ),
-            dedup_key=f"rule:{device.id}:{rule.id}",
+    record_alert_created(device.id)
+
+    if decision["suppressed"]:
+        logger.info(
+            "Alert suppressed: %s(%s) %s - %s",
+            device.name, device.ip, rule.name, decision["reason"],
         )
-    except Exception as e:
-        logger.warning(f"alert email failed: {e}")
+        if decision["reason"] and "告警风暴" in decision["reason"]:
+            await ensure_storm_summary(db, device, alert_count_within_window(device.id))
+        return
+
+    logger.warning(f"Alert triggered: {device.name}({device.ip}) {rule.name}: {final_message}")
+    await dispatch_alert(
+        db,
+        device_name=device.name, device_ip=device.ip, rule_name=rule.name,
+        severity=rule.severity, message=final_message,
+        dedup_key=f"rule:{device.id}:{rule.id}",
+        notify=decision["notify"],
+    )
 
 
 async def _resolve_alert(db: AsyncSession, device: Device, rule_name: str):
-    """将该设备该规则的所有 active 告警置为 resolved。"""
+    """将该设备该规则的所有活动/被抑制告警置为 resolved。"""
     res = await db.execute(
         select(Alert).where(
             Alert.device_id == device.id,
             Alert.rule_name == rule_name,
-            Alert.status == "active",
+            Alert.status.in_(("active", "suppressed")),
         )
     )
     now = datetime.now(timezone.utc)
@@ -438,11 +513,23 @@ async def _resolve_alert(db: AsyncSession, device: Device, rule_name: str):
         alert.resolved_at = now
         resolved += 1
     if resolved:
+        # 记录恢复时刻，供抖动抑制统计窗口内的反复次数
+        record_resolution(device.id, rule_name)
         logger.info(f"Alert resolved: {device.name}({device.ip}) {rule_name} x{resolved}")
 
 
-async def _eval_scalar(db: AsyncSession, device: Device, rule: AlertRule, value: float | None):
-    """CPU/内存/温度 等标量阈值规则的状态机评估。"""
+async def _eval_scalar(
+    db: AsyncSession, device: Device, rule: AlertRule, value: float | None,
+    baseline: dict | None = None, ctx: dict | None = None,
+):
+    """CPU/内存/温度 等标量指标的状态机评估。
+
+    两种判定模式（rule.mode）：
+      - threshold（默认）：与 rule.threshold 静态比较，存量规则行为不变；
+      - baseline：与「同设备同指标同时段历史基线」比较，|z| 超过 rule.baseline_sigma 判为异常。
+        该时段尚无基线（采集数据不足）时跳过本轮评估——不产生告警，也不撤销已有告警，
+        避免基线预热期反复横跳。
+    """
     key = (device.id, rule.id)
     st = _state.get(key)
     if st is None:
@@ -451,15 +538,41 @@ async def _eval_scalar(db: AsyncSession, device: Device, rule: AlertRule, value:
     st["value"] = value
 
     now = datetime.now(timezone.utc)
-    violating = value is not None and _check_condition(rule.condition, value, rule.threshold)
+
+    # 防御性读取：mode 为 4.6.0 新增字段，存量规则对象/测试替身可能缺失，缺省按阈值模式。
+    mode = getattr(rule, "mode", None) or "threshold"
+
+    if mode == "baseline":
+        if not baseline or baseline.get("p50") is None:
+            # 基线未就绪：本轮不判定（保持既有状态，不新建也不恢复）
+            return
+        violating, z = evaluate_baseline_violation(
+            value,
+            baseline.get("p50"),
+            baseline.get("stddev"),
+            sigma=getattr(rule, "baseline_sigma", None) or 3.0,
+            direction=getattr(rule, "baseline_direction", None) or "upper",
+            min_abs=rule.threshold or 0.0,
+        )
+        st["z"] = z
+        st["baseline"] = baseline
+    else:
+        violating = value is not None and _check_condition(rule.condition, value, rule.threshold)
 
     if violating:
         if not st["violating"]:
             st["violating"] = True
             st["violation_start"] = now
-            logger.info(f"[{device.name}] {rule.name} 进入违规：{value} (阈值 {rule.threshold})")
+            logger.info(
+                f"[{device.name}] {rule.name} 进入违规：{value} "
+                f"(模式 {mode}, 阈值 {rule.threshold})"
+            )
         elif (now - st["violation_start"]).total_seconds() >= rule.duration:
-            await _ensure_alert(db, device, rule, _scalar_message(device, rule, value))
+            if mode == "baseline":
+                msg = _baseline_message(device, rule, value, baseline or {}, st.get("z"))
+            else:
+                msg = _scalar_message(device, rule, value)
+            await _ensure_alert(db, device, rule, msg, ctx)
     else:
         if st["violating"]:
             logger.info(f"[{device.name}] {rule.name} 恢复：{value}")
@@ -471,7 +584,10 @@ async def _eval_scalar(db: AsyncSession, device: Device, rule: AlertRule, value:
         await _resolve_alert(db, device, rule.name)
 
 
-async def _eval_uptime(db: AsyncSession, device: Device, rule: AlertRule, value_ticks: float):
+async def _eval_uptime(
+    db: AsyncSession, device: Device, rule: AlertRule, value_ticks: float,
+    ctx: dict | None = None,
+):
     """sys_uptime 重启检测：运行时间显著回退即视为重启，持续 rule.duration 后触发。"""
     key = (device.id, rule.id)
     st = _state.get(key)
@@ -502,7 +618,7 @@ async def _eval_uptime(db: AsyncSession, device: Device, rule: AlertRule, value_
                 f"设备 {device.name}({device.ip}) 疑似重启：{st['extra']}，"
                 f"运行时间发生重置，请检查设备状态与业务连续性"
             )
-            await _ensure_alert(db, device, rule, msg)
+            await _ensure_alert(db, device, rule, msg, ctx)
             # 触发后进入冷却期：期间 uptime 增长不撤销告警
             st["violating"] = False
             st["violation_start"] = None
@@ -518,6 +634,7 @@ async def _eval_uptime(db: AsyncSession, device: Device, rule: AlertRule, value_
 async def _eval_if_status(
     db: AsyncSession, device: Device, rule: AlertRule,
     if_status: dict[int, tuple[int, int]], if_names: dict[int, str],
+    ctx: dict | None = None,
 ):
     """if_oper_status 接口 Down 检测：仅「由 up 转为 down」的接口告警；
     一直处于 down（如未接线端口）只建基线，永不触发。"""
@@ -539,7 +656,7 @@ async def _eval_if_status(
             f"设备 {device.name}({device.ip}) 接口由 UP 转为 DOWN（管理状态 up）：{name_str}，"
             f"共 {len(alerted_idx)} 个接口"
         )
-        await _ensure_alert(db, device, rule, msg)
+        await _ensure_alert(db, device, rule, msg, ctx)
     else:
         if st["violating"]:
             st["violating"] = False
@@ -548,7 +665,10 @@ async def _eval_if_status(
         await _resolve_alert(db, device, rule.name)
 
 
-async def _evaluate_device(db: AsyncSession, device: Device, rules: list[AlertRule]):
+async def _evaluate_device(
+    db: AsyncSession, device: Device, rules: list[AlertRule],
+    baseline_map: dict | None = None, ctx: dict | None = None,
+):
     """评估单台设备的全部支持规则。"""
     community = reveal_secret(device.snmp_community) or "aiops"
 
@@ -580,15 +700,16 @@ async def _evaluate_device(db: AsyncSession, device: Device, rules: list[AlertRu
         metric = rule.metric
         if metric == "sys_uptime":
             if uptime_ticks is not None:
-                await _eval_uptime(db, device, rule, uptime_ticks)
+                await _eval_uptime(db, device, rule, uptime_ticks, ctx)
         elif metric == "if_oper_status":
-            await _eval_if_status(db, device, rule, if_status, if_names)
+            await _eval_if_status(db, device, rule, if_status, if_names, ctx)
         elif metric in ERROR_METRIC_OID:
-            await _eval_if_errors(db, device, rule, err_deltas, if_names)
+            await _eval_if_errors(db, device, rule, err_deltas, if_names, ctx)
         else:
             # cpu/memory/temperature：直接使用采集循环刚写入的 device 字段
             value = _device_metric_value(device, metric)
-            await _eval_scalar(db, device, rule, value)
+            bl = (baseline_map or {}).get((device.id, metric))
+            await _eval_scalar(db, device, rule, value, bl, ctx)
 
 
 async def evaluate_rules(db: AsyncSession, devices: list[Device] | None = None):
@@ -615,14 +736,62 @@ async def evaluate_rules(db: AsyncSession, devices: list[Device] | None = None):
     if not online_devices:
         return
 
+    # ---- 每轮一次性构建共享上下文，避免逐条告警查库 ----
+    # 1) 拓扑依赖上下文：哪些上游处于不可达，需要抑制其下游告警
+    try:
+        dep_ctx = await build_dependency_context(db)
+        ctx = {"deps": dep_ctx["deps"], "upstream_down": dep_ctx["upstream_down"]}
+    except Exception as e:
+        logger.error("build dependency context failed: %s", e)
+        ctx = {"deps": {}, "upstream_down": {}}
+
+    # 2) 动态基线：仅当存在 baseline 模式规则时按「东八区当前小时」批量加载
+    baseline_map: dict = {}
+    if any(r.mode == "baseline" for r in rules):
+        local_hour = datetime.now(timezone(LOCAL_TZ_OFFSET)).hour
+        try:
+            baseline_map = await load_baseline_map(
+                db, local_hour, [d.id for d in online_devices]
+            )
+            logger.debug("基线加载：hour=%s，命中 %s 条", local_hour, len(baseline_map))
+        except Exception as e:
+            logger.error("load baseline map failed: %s", e)
+            baseline_map = {}
+
     sem = asyncio.Semaphore(MAX_CONCURRENT)
 
     async def _eval(d: Device):
         async with sem:
             try:
-                await _evaluate_device(db, d, rules)
+                await _evaluate_device(db, d, rules, baseline_map, ctx)
             except Exception as e:
                 logger.error(f"Rule evaluate error {d.name}({d.ip}): {e}")
 
     await asyncio.gather(*[_eval(d) for d in online_devices])
+
+    # ---- 上游恢复收尾：解除下游设备的依赖抑制标记 ----
+    try:
+        await _release_dependency_suppression(db, ctx)
+    except Exception as e:
+        logger.error("release dependency suppression failed: %s", e)
+
     await db.commit()
+
+
+async def _release_dependency_suppression(db: AsyncSession, ctx: dict) -> None:
+    """上游已全部恢复的下游设备：清理其「因依赖被抑制」的告警。
+
+    只解除抑制标记（置为 resolved 并标注原因），不直接重新触发——由下一轮评估
+    按设备真实指标决定是否再次告警。这样既不会掩盖真实故障，也不会在解除瞬间
+    又刷一批告警。
+    """
+    from app.services.alert_suppressor import resolve_suppressed_alerts
+
+    deps = ctx.get("deps") or {}
+    up_down = ctx.get("upstream_down") or {}
+    if not deps:
+        return  # 未配置任何依赖，无需收尾
+    for device_id, ups in deps.items():
+        if any(u in up_down for u in ups):
+            continue  # 仍有上游异常，继续抑制
+        await resolve_suppressed_alerts(db, device_id)

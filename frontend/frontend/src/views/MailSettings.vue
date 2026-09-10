@@ -1,3 +1,7 @@
+<!--
+  已并入「通知通道」页（views/NotifyChannels.vue，2026-09-10）。
+  路由 /settings/mail 已重定向到 /settings/notify-channels，本文件仅作保留备份，不再被引用。
+-->
 <template>
   <div class="p-6 max-w-3xl mx-auto animate-in">
     <div class="flex items-center justify-between mb-6">

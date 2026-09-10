@@ -30,12 +30,15 @@
     </div>
 
     <!-- 评估方式说明 -->
-    <div class="px-2 -mt-1 text-xs text-ink-faint">
-      <span class="inline-flex items-center gap-1 mr-4">
-        <span class="w-2 h-2 rounded-full bg-cyan-400"></span> SSH 真实配置核查（等保二级交换机）
+    <div class="px-2 -mt-1 text-xs text-ink-faint flex flex-wrap items-center gap-x-4 gap-y-1">
+      <span class="inline-flex items-center gap-1">
+        <span class="w-2 h-2 rounded-full bg-cyan-400"></span> 运行态核查（SSH 采集设备当前状态：服务是否在跑、日志是否落地）
       </span>
       <span class="inline-flex items-center gap-1">
-        <span class="w-2 h-2 rounded-full bg-ink-faint"></span> 平台指标推断（设备未配置 SSH 时回退）
+        <span class="w-2 h-2 rounded-full bg-amber-400"></span> 配置核查（解析已备份的配置全文：口令是否明文、Telnet 是否开启等）
+      </span>
+      <span class="inline-flex items-center gap-1 text-ink-faint/70">
+        两类结果合并计分；未采集到配置的设备按「不适用」处理，不计入分母
       </span>
     </div>
 
@@ -106,15 +109,31 @@
                   </div>
                 </td>
                 <td class="px-4 py-2.5">
-                  <span
-                    class="px-2 py-0.5 rounded text-xs font-medium"
-                    :class="device.method === 'ssh_config' ? 'bg-cyan-500/15 text-cyan-400 border border-cyan-500/30' : 'bg-line-strong/20 text-ink-muted border border-line-strong/30'"
-                  >
-                    {{ device.method === 'ssh_config' ? 'SSH 核查' : (device.method === 'snmp_fallback' ? '指标推断' : '待评估') }}
-                  </span>
+                  <div class="flex flex-wrap gap-1">
+                    <span
+                      v-for="m in methodBadges(device)"
+                      :key="m.label"
+                      class="px-2 py-0.5 rounded text-xs font-medium border"
+                      :class="m.cls"
+                    >
+                      {{ m.label }}
+                    </span>
+                  </div>
                 </td>
                 <td class="px-4 py-2.5">
-                  <span class="px-2 py-0.5 rounded text-xs font-medium" :class="complianceScoreBadge(device.score != null ? device.score : device.compliance_score)">{{ device.score != null ? device.score : device.compliance_score }}%</span>
+                  <span
+                    v-if="deviceScore(device) === null"
+                    class="px-2 py-0.5 rounded text-xs font-medium bg-line-strong/20 text-ink-faint border border-line-strong/30"
+                  >
+                    未核查
+                  </span>
+                  <span
+                    v-else
+                    class="px-2 py-0.5 rounded text-xs font-medium"
+                    :class="complianceScoreBadge(deviceScore(device))"
+                  >
+                    {{ deviceScore(device) }}%
+                  </span>
                 </td>
                 <td class="px-4 py-2.5 text-ink-muted">{{ device.passed != null ? device.passed : (device.passed_checks || 0) }} / {{ device.total != null ? device.total : (device.total_checks || 0) }}</td>
                 <td class="px-4 py-2.5 text-ink-faint text-xs">{{ formatTime(device.checked_at || device.last_checked) }}</td>
@@ -125,6 +144,13 @@
                   <div v-if="expandedLoading" class="text-ink-faint text-sm py-4 text-center">加载中...</div>
                   <div v-else-if="expandedChecks.length === 0" class="text-ink-faint text-sm py-4 text-center">暂无检查项数据</div>
                   <div v-else>
+                    <!-- 配置未采集提示：不给结论，也不判不合规 -->
+                    <div
+                      v-if="expandedConfigNote"
+                      class="mb-3 px-3 py-2 rounded-lg text-xs bg-amber-500/10 text-amber-400 border border-amber-500/30"
+                    >
+                      {{ expandedConfigNote }}
+                    </div>
                     <!-- 分类得分 -->
                     <div v-if="expandedCategories && Object.keys(expandedCategories).length" class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-2 mb-4">
                       <div
@@ -134,6 +160,7 @@
                       >
                         <div class="text-xs text-ink-muted">{{ cat.label }}</div>
                         <div class="text-sm font-semibold mt-0.5" :class="scoreColorClass(cat.score)">{{ cat.score }}%</div>
+                        <div class="text-[11px] text-ink-faint mt-0.5">{{ cat.passed != null ? `${cat.passed} / ${cat.total}` : '' }}</div>
                       </div>
                     </div>
                     <div class="grid grid-cols-1 gap-2 max-h-60 overflow-y-auto custom-scrollbar">
@@ -145,7 +172,16 @@
                         <div class="flex items-start gap-3 min-w-0">
                           <span class="w-2 h-2 rounded-full mt-1.5 shrink-0" :class="checkStatusDot(check.status)"></span>
                           <div class="min-w-0">
-                            <div class="text-sm text-ink-muted">{{ check.desc || check.name || check.control_name }}</div>
+                            <div class="text-sm text-ink-muted flex items-center gap-2 flex-wrap">
+                              <span>{{ check.desc || check.name || check.control_name }}</span>
+                              <span
+                                v-if="check.source"
+                                class="px-1.5 py-0.5 rounded text-[11px] font-normal shrink-0"
+                                :class="check.source === 'config' ? 'bg-amber-500/10 text-amber-400' : 'bg-cyan-500/10 text-cyan-400'"
+                              >
+                                {{ check.source === 'config' ? '配置核查' : '运行态核查' }}
+                              </span>
+                            </div>
                             <div v-if="check.evidence" class="text-xs text-ink-faint mt-0.5 break-words">{{ check.evidence }}</div>
                           </div>
                         </div>
@@ -371,6 +407,7 @@ const complianceTotalPages = computed(() =>
 const expandedId = ref(null)
 const expandedChecks = ref([])
 const expandedCategories = ref(null)
+const expandedConfigNote = ref(null)
 const expandedLoading = ref(false)
 const checking = ref(false)
 const selectedIds = ref(new Set())
@@ -401,6 +438,31 @@ function complianceScoreBadge(score) {
   if (s >= 90) return 'bg-green-500/15 text-green-400'
   if (s >= 70) return 'bg-yellow-500/15 text-yellow-400'
   return 'bg-red-500/15 text-red-400'
+}
+
+// 数据来源标签：一次核查可能同时含运行态与配置两类结论
+const METHOD_META = {
+  ssh_config: { label: '运行态核查', cls: 'bg-cyan-500/15 text-cyan-400 border-cyan-500/30' },
+  config_backup: { label: '配置核查', cls: 'bg-amber-500/15 text-amber-400 border-amber-500/30' },
+  snmp_fallback: { label: '指标推断', cls: 'bg-line-strong/20 text-ink-muted border-line-strong/30' },
+}
+
+function methodBadges(device) {
+  let list = Array.isArray(device.methods) ? device.methods : []
+  if (list.length === 0 && device.method && device.method !== 'none' && device.method !== 'unavailable') {
+    list = [device.method]
+  }
+  if (list.length === 0) {
+    return [{ label: '未核查', cls: 'bg-line-strong/20 text-ink-faint border-line-strong/30' }]
+  }
+  return list.map((m) => METHOD_META[m] || { label: m, cls: 'bg-line-strong/20 text-ink-muted border-line-strong/30' })
+}
+
+// total 为 0 表示没有任何适用检查项（配置未采集且运行态也不可用）→ 不显示成 0 分
+function deviceScore(device) {
+  if (!device.total) return null
+  const v = device.score != null ? device.score : device.compliance_score
+  return v == null ? null : v
 }
 
 function checkStatusDot(status) {
@@ -490,10 +552,17 @@ function renderRadarChart() {
   if (!radarChartRef.value) return
   if (!radarChart) radarChart = echarts.init(radarChartRef.value)
 
-  // 从已展开设备或默认构造五大类
+  // 从已展开设备或默认构造五大类。
+  // 分类数据有两种形态：全局统计是扁平数值（{key: 85}），设备明细是对象
+  // （{key: {label, score, passed, total}}）。统一归一化成数值，否则把对象
+  // 塞进雷达图会得到 NaN。
   const cats = expandedCategories.value || overallStats.value.categories || {}
   const defaultCats = { identity_auth: 0, access_control: 0, security_audit: 0, intrusion_prevention: 0, data_confidentiality: 0 }
-  const merged = { ...defaultCats, ...cats }
+  const merged = { ...defaultCats }
+  Object.keys(merged).forEach((key) => {
+    const v = cats[key]
+    merged[key] = typeof v === 'number' ? v : (v && typeof v.score === 'number' ? v.score : 0)
+  })
   const labels = { identity_auth: '身份鉴别', access_control: '访问控制', security_audit: '安全审计', intrusion_prevention: '入侵防范', data_confidentiality: '数据保密性' }
 
   const indicators = Object.keys(merged).map((key) => ({ name: labels[key] || key, max: 100 }))
@@ -527,6 +596,7 @@ async function toggleExpand(deviceId) {
     expandedId.value = null
     expandedChecks.value = []
     expandedCategories.value = null
+    expandedConfigNote.value = null
     return
   }
   expandedId.value = deviceId
@@ -544,6 +614,11 @@ async function toggleExpand(deviceId) {
       expandedChecks.value = d.checks || d.details || d || []
       expandedCategories.value = d.categories || null
     }
+    // 配置没采集到时要说清楚，否则用户看到一排"不适用"会以为设备有问题
+    const noConfig = device && device.config_available === false
+    expandedConfigNote.value = noConfig
+      ? '该设备尚未采集到配置备份，配置类核查项按「不适用」处理，不计入评分。可先在「配置备份」中对本设备执行一次备份后重新评估。'
+      : null
     await nextTick()
     renderRadarChart()
   } catch (err) {
