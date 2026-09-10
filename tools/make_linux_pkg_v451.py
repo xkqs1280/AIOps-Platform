@@ -58,14 +58,15 @@ print("== 复制前端 dist（v4.5.1） ==")
 n = copy_tree(os.path.join(ROOT, "frontend", "dist"), os.path.join(PKG_DIR, "frontend", "dist"))
 print("  frontend/dist 文件:", n)
 
-print("== 复制升级脚本 ==")
+print("== 复制 deploy 脚本 ==")
 os.makedirs(os.path.join(PKG_DIR, "deploy"), exist_ok=True)
-upgrade_sh = os.path.join(ROOT, "deploy", "upgrade_apply.sh")
-if os.path.isfile(upgrade_sh):
-    shutil.copy2(upgrade_sh, os.path.join(PKG_DIR, "deploy", "upgrade_apply.sh"))
-    print("  deploy/upgrade_apply.sh 已复制")
-else:
-    print("  [!] 未找到 deploy/upgrade_apply.sh")
+for _fname in ("upgrade_apply.sh", "reset_admin.sh"):
+    _src = os.path.join(ROOT, "deploy", _fname)
+    if os.path.isfile(_src):
+        shutil.copy2(_src, os.path.join(PKG_DIR, "deploy", _fname))
+        print("  deploy/%s 已复制" % _fname)
+    else:
+        print("  [!] 未找到 deploy/%s" % _fname)
 
 # ---------------- install.sh ----------------
 install_sh = r'''#!/usr/bin/env bash
@@ -410,6 +411,7 @@ echo "  登录账号 : ${ADMIN_USER}"
 echo "  登录密码 : ${ADMIN_PASS}"
 echo ""
 echo "  凭证备份 : $(pwd)/admin-credentials.txt"
+echo "  忘记密码 : sudo ./deploy/reset_admin.sh   (重置为 .env 中的初始密码，或追加参数指定新密码)"
 if [ "$SERVICE_OK" = 1 ]; then
 echo "  服务管理 : systemctl status|restart|stop aiops-backend  (已开机自启)"
 echo "  运行日志 : journalctl -u aiops-backend -f  /  backend/uvicorn.log"
@@ -556,6 +558,18 @@ journalctl -u aiops-backend -f      # 实时日志（等价于 backend/uvicorn.l
 > - 若安装环境无 systemd（如容器），脚本自动回退为普通进程方式，改用 `./start.sh` / `./stop.sh` 管理，**重启机器后需手工执行 `./start.sh`**。
 > - 手工部署（未执行 install.sh）时，可按上述服务名与路径自行编写 unit 文件，安装目录按实际路径替换。
 
+### 忘记管理员密码（重置 admin）
+```bash
+cd AIOps
+sudo ./deploy/reset_admin.sh                   # 重置为 backend/.env 中的 BOOTSTRAP_ADMIN_PASSWORD
+sudo ./deploy/reset_admin.sh 'NewPass@2026'    # 重置为指定密码
+sudo ./deploy/reset_admin.sh -u ops 'Pass@2026'  # 重置指定账号（不存在则创建为管理员）
+sudo ./deploy/reset_admin.sh -y 'Pass@2026'    # 跳过确认（脚本化调用）
+```
+> - 脚本直接更新数据库中的 `password_hash`（与平台登录校验同源 bcrypt），**不清库、不删账号**，也**无需安装 psql 客户端**（复用 backend/.venv 的 passlib + psycopg）。
+> - 执行后会自动重启 `aiops-backend` 服务使新密码立即生效，并打印使用的账号与密码。
+> - 密码含特殊字符时请用单引号包裹；bcrypt 上限 72 字节。
+
 ---
 
 ## 三、平台授权激活（两种部署方式一致）
@@ -578,6 +592,7 @@ journalctl -u aiops-backend -f      # 实时日志（等价于 backend/uvicorn.l
 | PostgreSQL 连接失败 | 检查 backend/.env 的 DATABASE_URL；Windows 跑 fix_after_upgrade.bat |
 | 激活码"验签失败" | 激活工具必须与 vendor_keys 同目录使用 |
 | 修改端口 | start.sh / 一键部署中调整 8000 并同步 .env CORS |
+| 忘记 admin 密码 / 初始密码登录失败 | 执行 `sudo ./deploy/reset_admin.sh`（见上文「忘记管理员密码」） |
 | 重启服务器后平台没自动起来 | 先看 `systemctl status aiops-backend`；若 unit 不存在说明安装时无 systemd，需手工 `./start.sh`，或按上文手工注册服务 |
 
 ---
