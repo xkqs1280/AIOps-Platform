@@ -63,7 +63,9 @@ os.makedirs(os.path.join(PKG_DIR, "deploy"), exist_ok=True)
 for _fname in ("upgrade_apply.sh", "reset_admin.sh"):
     _src = os.path.join(ROOT, "deploy", _fname)
     if os.path.isfile(_src):
-        shutil.copy2(_src, os.path.join(PKG_DIR, "deploy", _fname))
+        # 行尾归一化为 LF：Windows 工作区（core.autocrlf=true）可能把 .sh 签出成 CRLF
+        _text = io.open(_src, encoding="utf-8", newline="").read().replace("\r\n", "\n")
+        io.open(os.path.join(PKG_DIR, "deploy", _fname), "w", encoding="utf-8", newline="\n").write(_text)
         print("  deploy/%s 已复制" % _fname)
     else:
         print("  [!] 未找到 deploy/%s" % _fname)
