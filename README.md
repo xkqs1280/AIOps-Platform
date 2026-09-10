@@ -205,7 +205,9 @@ Linux 系统建议使用 **Rocky Linux 9 / AlmaLinux 9 / Ubuntu 22.04+**（需 P
 
 服务管理：`systemctl status|restart|stop aiops-backend`，日志 `journalctl -u aiops-backend -f`（或 `backend/uvicorn.log`）。若安装环境无 systemd（如容器），脚本自动回退为普通进程方式，改用 `./start.sh` / `./stop.sh` 管理。
 
-手动启动：`uvicorn app.main:app --host 0.0.0.0 --port 8000`（可加 `--ssl-*` 参数启用 HTTPS），浏览器打开 `https://<服务器IP>:8000`（未启用 HTTPS 时用 `http://<服务器IP>:8000`）。
+手动启动：`uvicorn app.main:app --host 0.0.0.0 --port 8000 --timeout-graceful-shutdown 5`（可加 `--ssl-*` 参数启用 HTTPS），浏览器打开 `https://<服务器IP>:8000`（未启用 HTTPS 时用 `http://<服务器IP>:8000`）。
+
+> `--timeout-graceful-shutdown 5` 用于避免停止服务时被告警 SSE 长连接（`/api/v1/alerts/stream`）拖住——没有它，uvicorn 会一直等连接关闭，最终被 systemd 超时 SIGKILL，服务状态显示为 failed。
 
 ## 升级
 
