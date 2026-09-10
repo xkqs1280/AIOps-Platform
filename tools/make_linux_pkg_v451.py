@@ -75,7 +75,7 @@ install_sh = r'''#!/usr/bin/env bash
 #  AIOps Platform  Linux 一键安装脚本
 #  适用: Ubuntu 22.04+ / Debian 12+ / Rocky·AlmaLinux 9+
 #  功能: 自动检查/安装 Python 3.10+ → 下载 Python 依赖 → 准备 PostgreSQL
-#        → 生成 .env → 启动服务 → 打印访问地址 / 登录账号 / 密码
+#        → 生成 .env → 注册 systemd 开机自启 → 启动服务 → 打印访问地址 / 登录账号 / 密码
 #  (CentOS 7 不支持：自带 Python 3.6 过低且已 EOL)
 # ============================================
 set -e
@@ -104,7 +104,7 @@ port_open() {
 }
 
 # ---------- 1/6 Python ----------
-say "1/6 检查 / 安装 Python 3.10+"
+say "1/7 检查 / 安装 Python 3.10+"
 PY=""
 for c in python3.13 python3.12 python3.11 python3.10 python3; do
   if command -v "$c" >/dev/null 2>&1 && "$c" -c 'import sys; sys.exit(0 if sys.version_info>=(3,10) else 1)' >/dev/null 2>&1; then PY="$c"; break; fi
@@ -141,7 +141,7 @@ PYV="$("$PY" -c 'import sys; print("%d.%d" % sys.version_info[:2])')"
 info "使用 Python: $PY ($PYV)"
 
 # ---------- 2/6 venv + 依赖 ----------
-say "2/6 创建虚拟环境并下载依赖（首次约 3~8 分钟，视网速而定）"
+say "2/7 创建虚拟环境并下载依赖（首次约 3~8 分钟，视网速而定）"
 
 # 编译环境自检：Python 3.12+ 部分依赖（如 numpy）无预编译 wheel 时需源码编译，
 # 必须保证 gcc + Python 头文件(python*-dev) 可用，否则会报 Unknown compiler / Python.h not found
@@ -211,7 +211,7 @@ pip_install -r backend/requirements.txt || die "后端依赖下载/安装失败�
 info "依赖安装完成"
 
 # ---------- 3/6 PostgreSQL ----------
-say "3/6 准备 PostgreSQL（优先: 已有实例 -> Docker -> 系统包安装）"
+say "3/7 准备 PostgreSQL（优先: 已有实例 -> Docker -> 系统包安装）"
 DB_OK=0
 if port_open; then
   DB_OK=1
@@ -294,7 +294,7 @@ fi
 [ "$DB_OK" = 1 ] || die "PostgreSQL 未能就绪。请先安装 PostgreSQL（或 Docker）后重新运行本脚本，详见 README。"
 
 # ---------- 4/6 .env ----------
-say "4/6 生成运行配置 backend/.env"
+say "4/7 生成运行配置 backend/.env"
 if [ ! -f backend/.env ]; then
   SECRET="$(head -c 32 /dev/urandom | base64 | tr -d '\n')"
   FERNET="$(backend/.venv/bin/python -c 'from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())' 2>/dev/null || head -c 32 /dev/urandom | base64 | tr '+/' '-_')"
@@ -322,13 +322,65 @@ ADMIN_PASS="$(grep -E '^BOOTSTRAP_ADMIN_PASSWORD=' backend/.env | tail -n 1 | cu
 printf 'AIOps 平台登录凭证\n访问地址: http://<本机IP>:8000\n登录账号: %s\n登录密码: %s\n' "$ADMIN_USER" "$ADMIN_PASS" > admin-credentials.txt
 chmod 600 admin-credentials.txt
 
-# ---------- 5/6 启动 ----------
-say "5/6 启动 AIOps 服务"
+# ---------- 5/7 注册开机自启（systemd） ----------
+say "5/7 注册开机自启服务"
+SERVICE_OK=0
+UNIT_FILE=/etc/systemd/system/aiops-backend.service
+# 先清理历史上手工 nohup 起的裸进程，避免与 systemd 争抢 8000 端口导致反复重启
 pkill -f '[u]vicorn app.main:app' 2>/dev/null || true
 sleep 1
-cd backend
-nohup .venv/bin/uvicorn app.main:app --host 0.0.0.0 --port 8000 >> uvicorn.log 2>&1 &
-cd "$ROOT"
+if command -v systemctl >/dev/null 2>&1 && [ -d /run/systemd/system ]; then
+  SYSD_VER="$(systemctl --version 2>/dev/null | head -n1 | awk '{print $2}')"
+  if [ -n "$SYSD_VER" ] && [ "$SYSD_VER" -ge 240 ] 2>/dev/null; then
+    LOG_DIRECTIVES="StandardOutput=append:${ROOT}/backend/uvicorn.log
+StandardError=append:${ROOT}/backend/uvicorn.log"
+  else
+    LOG_DIRECTIVES="# 日志由 journald 收集: journalctl -u aiops-backend -f"
+  fi
+  TMP_UNIT="$(mktemp)"
+  cat > "$TMP_UNIT" <<UNITEOF
+[Unit]
+Description=AIOps Platform Backend (v4.5.1)
+Documentation=file://${ROOT}/README.md
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=${ROOT}/backend
+ExecStart=${ROOT}/backend/.venv/bin/uvicorn app.main:app --host 0.0.0.0 --port 8000
+Restart=always
+RestartSec=5
+TimeoutStopSec=20
+${LOG_DIRECTIVES}
+
+[Install]
+WantedBy=multi-user.target
+UNITEOF
+  if $SUDO cp "$TMP_UNIT" "$UNIT_FILE" 2>/dev/null; then
+    if $SUDO systemctl daemon-reload >/dev/null 2>&1 && $SUDO systemctl enable aiops-backend >/dev/null 2>&1; then
+      SERVICE_OK=1
+      info "已注册 systemd 服务 aiops-backend（开机自启 + 进程崩溃自动拉起）"
+    else
+      warn "systemd 服务注册失败，将回退为普通进程方式启动"
+    fi
+  else
+    warn "无权限写入 ${UNIT_FILE}，将回退为普通进程方式启动"
+  fi
+  rm -f "$TMP_UNIT"
+else
+  warn "当前环境无 systemd（容器 / 精简系统），跳过开机自启，回退为普通进程方式启动"
+fi
+
+# ---------- 6/7 启动 ----------
+say "6/7 启动 AIOps 服务"
+if [ "$SERVICE_OK" = 1 ]; then
+  $SUDO systemctl restart aiops-backend >/dev/null 2>&1 || true
+else
+  cd backend
+  nohup .venv/bin/uvicorn app.main:app --host 0.0.0.0 --port 8000 >> uvicorn.log 2>&1 &
+  cd "$ROOT"
+fi
 OK=0
 for i in $(seq 1 20); do
   if (command -v ss >/dev/null 2>&1 && ss -tln 2>/dev/null | grep -q ':8000') || (command -v netstat >/dev/null 2>&1 && netstat -tln 2>/dev/null | grep -q ':8000'); then OK=1; break; fi
@@ -340,11 +392,12 @@ if [ "$OK" = 1 ]; then
   command -v ufw >/dev/null 2>&1 && { $SUDO ufw allow 8000/tcp >/dev/null 2>&1 || true; }
 else
   warn "端口 8000 未监听成功，请查看 backend/uvicorn.log；也可稍后手动运行 ./start.sh"
+  [ "$SERVICE_OK" = 1 ] && warn "可执行 systemctl status aiops-backend 查看失败原因"
 fi
 
-# ---------- 6/6 完成 ----------
+# ---------- 7/7 完成 ----------
 chmod +x start.sh stop.sh 2>/dev/null || true
-say "6/6 安装完成"
+say "7/7 安装完成"
 IP="$(hostname -I 2>/dev/null | awk '{print $1}')"
 [ -z "$IP" ] && IP="127.0.0.1"
 echo ""
@@ -356,16 +409,37 @@ echo "  登录账号 : ${ADMIN_USER}"
 echo "  登录密码 : ${ADMIN_PASS}"
 echo ""
 echo "  凭证备份 : $(pwd)/admin-credentials.txt"
-echo "  日常运维 : ./start.sh 启动 / ./stop.sh 停止"
+if [ "$SERVICE_OK" = 1 ]; then
+echo "  服务管理 : systemctl status|restart|stop aiops-backend  (已开机自启)"
+echo "  运行日志 : journalctl -u aiops-backend -f  /  backend/uvicorn.log"
+else
+echo "  日常运维 : ./start.sh 启动 / ./stop.sh 停止  (未配置开机自启，重启后需手动执行)"
 echo "  运行日志 : backend/uvicorn.log"
+fi
 echo "  提示     : 首次登录后请在「授权管理」页激活授权（试用版 3 个月 / 全功能版永久）"
-echo "=============================================="'''
+echo "=============================================="
+'''
 io.open(os.path.join(PKG_DIR, "install.sh"), "w", encoding="utf-8", newline="\n").write(install_sh.replace("\r\n", "\n"))
 
 # ---------------- start.sh ----------------
 start_sh = r'''
 #!/usr/bin/env bash
+# AIOps 平台启动脚本：若已注册 systemd 服务则走 systemctl（与开机自启一致），否则回退为直接启动
 ROOT="$(cd "$(dirname "$0")" && pwd)"
+SVC="aiops-backend"
+if command -v systemctl >/dev/null 2>&1 && [ -f "/etc/systemd/system/${SVC}.service" ]; then
+  if [ "$(id -u)" -eq 0 ]; then SUDO=""; else SUDO="sudo"; fi
+  if $SUDO systemctl restart "$SVC" >/dev/null 2>&1; then
+    sleep 3
+    if $SUDO systemctl is-active --quiet "$SVC"; then
+      IP=$(hostname -I 2>/dev/null | awk '{print $1}')
+      echo "AIOps v4.5.1 已启动: http://${IP:-127.0.0.1}:8000"
+      echo "  服务: ${SVC}.service（已开机自启）  日志: journalctl -u ${SVC} -f"
+      exit 0
+    fi
+  fi
+  echo "systemd 服务未启动成功，回退为直接启动…"
+fi
 cd "$ROOT/backend"
 pkill -f '[u]vicorn app.main:app' 2>/dev/null || true
 sleep 1
@@ -388,7 +462,19 @@ fi
 io.open(os.path.join(PKG_DIR, "start.sh"), "w", encoding="utf-8", newline="\n").write(start_sh.replace("\r\n", "\n"))
 
 # ---------------- stop.sh ----------------
-stop_sh = '#!/usr/bin/env bash\npkill -f "[u]vicorn app.main:app" 2>/dev/null && echo "AIOps 已停止" || echo "AIOps 未在运行"\n'
+stop_sh = r'''
+#!/usr/bin/env bash
+SVC="aiops-backend"
+if command -v systemctl >/dev/null 2>&1 && [ -f "/etc/systemd/system/${SVC}.service" ]; then
+  if [ "$(id -u)" -eq 0 ]; then SUDO=""; else SUDO="sudo"; fi
+  if $SUDO systemctl stop "$SVC" >/dev/null 2>&1; then
+    echo "AIOps 已停止（systemd 服务 ${SVC}）"
+    echo "  提示: 该服务已开机自启，下次重启机器仍会自动拉起；如需永久禁用请执行 systemctl disable ${SVC}"
+    exit 0
+  fi
+fi
+pkill -f "[u]vicorn app.main:app" 2>/dev/null && echo "AIOps 已停止" || echo "AIOps 未在运行"
+'''
 io.open(os.path.join(PKG_DIR, "stop.sh"), "w", encoding="utf-8", newline="\n").write(stop_sh.replace("\r\n", "\n"))
 
 print("== 写 README ==")
@@ -441,7 +527,7 @@ chmod +x install.sh && ./install.sh
 
 # 3. 访问（脚本已自动启动服务）
 # http://<本机IP>:8000   （默认账号 admin，密码见结尾提示或 admin-credentials.txt）
-# 以后重启服务: ./start.sh  /  ./stop.sh
+# 安装脚本已自动注册开机自启：服务器重启后平台会自动拉起，无需手工启动
 ```
 
 ### 手动安装（不依赖一键脚本）
@@ -456,23 +542,20 @@ cp .env.example .env   # 修改 SECRET_KEY 与数据库连接
 nohup .venv/bin/uvicorn app.main:app --host 0.0.0.0 --port 8000 >> uvicorn.log 2>&1 &
 ```
 
-### systemd 服务（可选）
-```ini
-# /etc/systemd/system/aiops.service
-[Unit]
-Description=AIOps Platform
-After=network.target postgresql.service
-[Service]
-WorkingDirectory=/opt/AIOps/backend
-ExecStart=/opt/AIOps/backend/.venv/bin/uvicorn app.main:app --host 0.0.0.0 --port 8000
-Restart=always
-User=admin1
-[Install]
-WantedBy=multi-user.target
-```
+### 服务管理（安装脚本已自动注册 systemd 服务，无需手工配置）
+`install.sh` 会自动生成 `/etc/systemd/system/aiops-backend.service` 并 `enable`：
+**服务器重启后平台自动启动，进程异常退出 5 秒后自动拉起。**
+
 ```bash
-sudo systemctl daemon-reload && sudo systemctl enable --now aiops
+systemctl status  aiops-backend     # 查看运行状态
+systemctl restart aiops-backend     # 重启平台
+systemctl stop    aiops-backend     # 停止（重启机器后仍会自动启动）
+systemctl disable aiops-backend     # 取消开机自启
+journalctl -u aiops-backend -f      # 实时日志（等价于 backend/uvicorn.log）
 ```
+
+> - 若安装环境无 systemd（如容器），脚本自动回退为普通进程方式，改用 `./start.sh` / `./stop.sh` 管理，**重启机器后需手工执行 `./start.sh`**。
+> - 手工部署（未执行 install.sh）时，可按上述服务名与路径自行编写 unit 文件，安装目录按实际路径替换。
 
 ---
 
@@ -496,6 +579,7 @@ sudo systemctl daemon-reload && sudo systemctl enable --now aiops
 | PostgreSQL 连接失败 | 检查 backend/.env 的 DATABASE_URL；Windows 跑 fix_after_upgrade.bat |
 | 激活码"验签失败" | 激活工具必须与 vendor_keys 同目录使用 |
 | 修改端口 | start.sh / 一键部署中调整 8000 并同步 .env CORS |
+| 重启服务器后平台没自动起来 | 先看 `systemctl status aiops-backend`；若 unit 不存在说明安装时无 systemd，需手工 `./start.sh`，或按上文手工注册服务 |
 
 ---
 *© 2026 AIOps Platform v4.5.1*

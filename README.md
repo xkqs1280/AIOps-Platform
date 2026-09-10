@@ -201,7 +201,9 @@ npm run dev                               # 默认 5173，已配置代理到后�
 
 Linux 系统建议使用 **Rocky Linux 9 / AlmaLinux 9 / Ubuntu 22.04+**（需 Python 3.10+；CentOS 7 已停止维护，不支持）。
 
-生产环境推荐直接使用 Release 中的 `aiops-vX.Y.Z-linux.zip` 源码包：解压后执行 `chmod +x install.sh && ./install.sh` 一键安装（自动补齐 Python/PostgreSQL 环境与依赖、生成 `.env` 并启动服务，结尾打印访问地址与登录账号密码）。
+生产环境推荐直接使用 Release 中的 `aiops-vX.Y.Z-linux.zip` 源码包：解压后执行 `chmod +x install.sh && ./install.sh` 一键安装（自动补齐 Python/PostgreSQL 环境与依赖、生成 `.env`、启动服务，并注册 `aiops-backend` systemd 服务实现**开机自启**，进程异常退出 5 秒自动拉起；结尾打印访问地址与登录账号密码）。
+
+服务管理：`systemctl status|restart|stop aiops-backend`，日志 `journalctl -u aiops-backend -f`（或 `backend/uvicorn.log`）。若安装环境无 systemd（如容器），脚本自动回退为普通进程方式，改用 `./start.sh` / `./stop.sh` 管理。
 
 手动启动：`uvicorn app.main:app --host 0.0.0.0 --port 8000`（可加 `--ssl-*` 参数启用 HTTPS），浏览器打开 `https://<服务器IP>:8000`（未启用 HTTPS 时用 `http://<服务器IP>:8000`）。
 
