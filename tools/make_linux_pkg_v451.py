@@ -348,10 +348,11 @@ Wants=network-online.target
 [Service]
 Type=simple
 WorkingDirectory=${ROOT}/backend
-ExecStart=${ROOT}/backend/.venv/bin/uvicorn app.main:app --host 0.0.0.0 --port 8000
+ExecStart=${ROOT}/backend/.venv/bin/uvicorn app.main:app --host 0.0.0.0 --port 8000 --timeout-graceful-shutdown 5
 Restart=always
 RestartSec=5
 TimeoutStopSec=20
+SuccessExitStatus=143
 ${LOG_DIRECTIVES}
 
 [Install]
@@ -378,7 +379,7 @@ if [ "$SERVICE_OK" = 1 ]; then
   $SUDO systemctl restart aiops-backend >/dev/null 2>&1 || true
 else
   cd backend
-  nohup .venv/bin/uvicorn app.main:app --host 0.0.0.0 --port 8000 >> uvicorn.log 2>&1 &
+  nohup .venv/bin/uvicorn app.main:app --host 0.0.0.0 --port 8000 --timeout-graceful-shutdown 5 >> uvicorn.log 2>&1 &
   cd "$ROOT"
 fi
 OK=0
@@ -443,7 +444,7 @@ fi
 cd "$ROOT/backend"
 pkill -f '[u]vicorn app.main:app' 2>/dev/null || true
 sleep 1
-nohup .venv/bin/uvicorn app.main:app --host 0.0.0.0 --port 8000 >> uvicorn.log 2>&1 &
+nohup .venv/bin/uvicorn app.main:app --host 0.0.0.0 --port 8000 --timeout-graceful-shutdown 5 >> uvicorn.log 2>&1 &
 # 端口探测确认成功（进程存活不代表应用启动成功，pgrep 会误报“已启动”）
 OK=0
 for i in $(seq 1 12); do
@@ -539,7 +540,7 @@ python3 -m venv .venv
 .venv/bin/pip install -r requirements.txt
 # 准备 PostgreSQL（库/用户 aiops/aiops123，或改 .env 的 DATABASE_URL）
 cp .env.example .env   # 修改 SECRET_KEY 与数据库连接
-nohup .venv/bin/uvicorn app.main:app --host 0.0.0.0 --port 8000 >> uvicorn.log 2>&1 &
+nohup .venv/bin/uvicorn app.main:app --host 0.0.0.0 --port 8000 --timeout-graceful-shutdown 5 >> uvicorn.log 2>&1 &
 ```
 
 ### 服务管理（安装脚本已自动注册 systemd 服务，无需手工配置）
