@@ -1,0 +1,16 @@
+# 统一行尾，避免 Windows 工作区（core.autocrlf=true）把 shell 脚本签出成 CRLF，
+# 导致 Linux 上报 `$'\r': command not found`。
+*.sh    text eol=lf
+*.bash  text eol=lf
+*.service text eol=lf
+*.bat   text eol=crlf
+*.ps1   text eol=crlf
+*.cmd   text eol=crlf
+
+# 二进制/产物不做行尾转换
+*.png   binary
+*.ico   binary
+*.zip   binary
+*.apk   binary
+*.exe   binary
+*.pem   binary
