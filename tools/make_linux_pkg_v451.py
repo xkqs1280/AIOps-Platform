@@ -420,11 +420,10 @@ fi
 echo "  提示     : 首次登录后请在「授权管理」页激活授权（试用版 3 个月 / 全功能版永久）"
 echo "=============================================="
 '''
-io.open(os.path.join(PKG_DIR, "install.sh"), "w", encoding="utf-8", newline="\n").write(install_sh.replace("\r\n", "\n"))
+io.open(os.path.join(PKG_DIR, "install.sh"), "w", encoding="utf-8", newline="\n").write(install_sh.replace("\r\n", "\n").lstrip("\n"))
 
 # ---------------- start.sh ----------------
-start_sh = r'''
-#!/usr/bin/env bash
+start_sh = r'''#!/usr/bin/env bash
 # AIOps 平台启动脚本：若已注册 systemd 服务则走 systemctl（与开机自启一致），否则回退为直接启动
 ROOT="$(cd "$(dirname "$0")" && pwd)"
 SVC="aiops-backend"
@@ -460,11 +459,10 @@ else
   tail -25 uvicorn.log
 fi
 '''
-io.open(os.path.join(PKG_DIR, "start.sh"), "w", encoding="utf-8", newline="\n").write(start_sh.replace("\r\n", "\n"))
+io.open(os.path.join(PKG_DIR, "start.sh"), "w", encoding="utf-8", newline="\n").write(start_sh.replace("\r\n", "\n").lstrip("\n"))
 
 # ---------------- stop.sh ----------------
-stop_sh = r'''
-#!/usr/bin/env bash
+stop_sh = r'''#!/usr/bin/env bash
 SVC="aiops-backend"
 if command -v systemctl >/dev/null 2>&1 && [ -f "/etc/systemd/system/${SVC}.service" ]; then
   if [ "$(id -u)" -eq 0 ]; then SUDO=""; else SUDO="sudo"; fi
@@ -476,7 +474,7 @@ if command -v systemctl >/dev/null 2>&1 && [ -f "/etc/systemd/system/${SVC}.serv
 fi
 pkill -f "[u]vicorn app.main:app" 2>/dev/null && echo "AIOps 已停止" || echo "AIOps 未在运行"
 '''
-io.open(os.path.join(PKG_DIR, "stop.sh"), "w", encoding="utf-8", newline="\n").write(stop_sh.replace("\r\n", "\n"))
+io.open(os.path.join(PKG_DIR, "stop.sh"), "w", encoding="utf-8", newline="\n").write(stop_sh.replace("\r\n", "\n").lstrip("\n"))
 
 print("== 写 README ==")
 readme = """# AIOps 智能运维托管平台 v4.5.1
@@ -494,7 +492,7 @@ readme = """# AIOps 智能运维托管平台 v4.5.1
 ### 方式 A：解压版（推荐，无需安装 Python）
 1. 解压 `aiops-v4.0.zip` 到任意目录（如 `D:\\AIOps`）
 2. 双击 **`一键部署.bat`**：自动安装 PostgreSQL + 启动服务
-3. 浏览器访问 **http://本机IP:8000**，默认账号 `admin`（初始密码见 `backend\.env` 的 `BOOTSTRAP_ADMIN_PASSWORD`）
+3. 浏览器访问 **http://本机IP:8000**，默认账号 `admin`（初始密码见 `backend/.env` 的 `BOOTSTRAP_ADMIN_PASSWORD`）
 4. 若数据库连接失败，运行 `deploy\\fix_after_upgrade.bat`（自动修复连接串）
 
 ### 方式 B：源码运行（开发/调试）
