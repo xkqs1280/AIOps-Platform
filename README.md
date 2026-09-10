@@ -209,6 +209,8 @@ Linux 系统建议使用 **Rocky Linux 9 / AlmaLinux 9 / Ubuntu 22.04+**（需 P
 
 > `--timeout-graceful-shutdown 5` 用于避免停止服务时被告警 SSE 长连接（`/api/v1/alerts/stream`）拖住——没有它，uvicorn 会一直等连接关闭，最终被 systemd 超时 SIGKILL，服务状态显示为 failed。
 
+忘记管理员密码（或初始密码登录失败）时，执行 `sudo ./deploy/reset_admin.sh`：默认把 admin 重置为 `backend/.env` 中的 `BOOTSTRAP_ADMIN_PASSWORD`，也可追加参数指定新密码或账号（`./deploy/reset_admin.sh -u ops 'Pass@2026'`）。脚本直接更新数据库中的 `password_hash`（与登录校验同源 bcrypt），**不清库、不删账号、无需 psql 客户端**，执行后自动重启服务。
+
 ## 升级
 
 平台内置「系统设置 → 系统升级」：上传厂商签名升级包（`tools/build_upgrade_package.py` 制作）→ 自动备份程序/配置/数据库快照 → 替换 → 重启 → 健康自检 → 失败自动回滚。数据（PostgreSQL）与 `.env` 加密密钥全程保留。
