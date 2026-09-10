@@ -87,11 +87,13 @@ const routes = [
     redirect: '/settings/alert-rules',
     meta: { title: '系统设置' },
     children: [
+      // 「邮件告警」已并入「通知通道」（2026-09-10）：保留旧路径重定向，避免旧书签失效
+      { path: 'mail', redirect: '/settings/notify-channels' },
       {
-        path: 'mail',
-        name: 'MailSettings',
-        component: () => import('../views/MailSettings.vue'),
-        meta: { title: '邮件告警' },
+        path: 'notify-channels',
+        name: 'NotifyChannels',
+        component: () => import('../views/NotifyChannels.vue'),
+        meta: { title: '通知通道' },
       },
       {
         path: 'alert-rules',
@@ -99,6 +101,8 @@ const routes = [
         component: () => import('../views/AlertRules.vue'),
         meta: { title: '告警规则' },
       },
+      // 「设备依赖」模块已取消（2026-09-10）：依赖改由拓扑连线自动推导，入口在「拓扑发现」页
+      { path: 'device-dependencies', redirect: '/topology' },
       {
         path: 'account',
         name: 'Account',

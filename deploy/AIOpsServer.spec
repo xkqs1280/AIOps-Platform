@@ -57,6 +57,13 @@ datas = []
 if os.environ.get("AIOPS_EMBED_FRONTEND") == "1":
     datas.append((os.path.join(_ROOT, "frontend", "dist"), "frontend/dist"))
 
+# 等保配置基线规则集：config_audit_engine 以 __file__ 相对定位 app/data/，
+# onefile 运行时 __file__ 位于解包临时目录，必须显式随包携带，否则生产环境
+# 「配置基线核查」会因规则集缺失直接失败。
+_DATA_DIR = os.path.join(_BACKEND_DIR, "app", "data")
+if os.path.isdir(_DATA_DIR):
+    datas.append((_DATA_DIR, "app/data"))
+
 a = Analysis(
     [os.path.join(_BACKEND_DIR, "aiops_entry.py")],
     pathex=[_BACKEND_DIR],

@@ -18,6 +18,7 @@ from app.models.device import Device
 from app.models.alert import Alert
 from app.services.discovery_service import snmp_get
 from app.services.credential_service import reveal_secret
+from app.services.notify_service import dispatch_alert
 
 logger = logging.getLogger(__name__)
 
@@ -162,8 +163,10 @@ async def _check_single_device(db: AsyncSession, device: Device):
                     f"Device {device.name}({device.ip}) -> offline "
                     f"(failed {current} consecutive checks)"
                 )
-                # 状态刚转变为离线：生成不可达告警（自动去重）
-                await _ensure_offline_alert(db, device)
+            # 每次探测到离线都尝试确保告警存在（内部去做重 + 5 分钟防抖）。
+            # 不再只在「状态刚转变」时调用：上游恢复时被抑制的离线告警会被解除，
+            # 若设备其实仍在离线，仅靠状态转换门将永远无法重新生成告警。
+            await _ensure_offline_alert(db, device)
             device.status = "offline"
         # 1~2 次失败：可能是瞬时抖动，不降级状态（保持 online），
         # 连续 3 次双失败才判定离线，避免状态闪烁
@@ -217,6 +220,14 @@ async def _ensure_snmp_alert(db: AsyncSession, device: Device):
     )
     db.add(alert)
     logger.warning(f"Created SNMP-unreachable alert for {device.name}({device.ip})")
+    from app.services.alert_suppressor import record_alert_created
+    record_alert_created(device.id)
+    await dispatch_alert(
+        db,
+        device_name=device.name, device_ip=device.ip,
+        rule_name=SNMP_RULE_NAME, severity="warning",
+        message=alert.message, dedup_key=f"snmp:{device.id}",
+    )
 
 
 async def _resolve_snmp_alerts(db: AsyncSession, device: Device):
@@ -239,16 +250,19 @@ async def _resolve_snmp_alerts(db: AsyncSession, device: Device):
 
 
 async def _ensure_offline_alert(db: AsyncSession, device: Device):
-    """若该设备尚无 active 的离线告警，则创建一条 critical 告警（去重 + 防抖，避免反复弹）"""
+    """若该设备尚无 active 的离线告警，则创建一条 critical 告警（去重 + 防抖，避免反复弹）。
+
+    额外经过拓扑依赖抑制：若本设备的上游已不可达，则本次离线很可能是失去上联的连带
+    结果，标记为 suppressed（仍然落库可查），避免一台核心设备掉线刷出全网离线告警。
+    """
     existing = await db.execute(
         select(Alert).where(
             Alert.device_id == device.id,
             Alert.rule_name == OFFLINE_RULE_NAME,
-            Alert.status == "active",
+            Alert.status.in_(("active", "suppressed")),
         )
     )
-    if existing.scalars().first() is not None:
-        return
+    existing_row = existing.scalars().first()
     # 防抖：DEBOUNCE_MINUTES 内该设备已触发过离线告警（含已恢复）→ 抑制，避免反复横跳刷屏
     cutoff = datetime.now(timezone.utc) - timedelta(minutes=DEBOUNCE_MINUTES)
     recent = await db.execute(
@@ -258,43 +272,76 @@ async def _ensure_offline_alert(db: AsyncSession, device: Device):
             Alert.triggered_at >= cutoff,
         )
     )
-    if recent.scalars().first() is not None:
+    recent_row = recent.scalars().first()
+
+    from app.services.alert_suppressor import (
+        build_dependency_context,
+        evaluate_suppression,
+        record_alert_created,
+    )
+
+    try:
+        dep_ctx = await build_dependency_context(db)
+    except Exception as e:
+        logger.warning("build dependency context failed in health check: %s", e)
+        dep_ctx = None
+
+    decision = evaluate_suppression(device, OFFLINE_RULE_NAME, "critical", dep_ctx)
+
+    if existing_row is not None:
+        # 已存在：若此前被依赖抑制、现在上游已恢复，则升级为活动告警并补发通知
+        if existing_row.status == "suppressed" and not decision["suppressed"]:
+            existing_row.status = "active"
+            existing_row.suppress_reason = None
+            existing_row.suppressed_by_device_id = None
+            existing_row.triggered_at = datetime.now(timezone.utc)
+            logger.warning(f"Offline alert un-suppressed for {device.name}({device.ip})")
+            await dispatch_alert(
+                db,
+                device_name=device.name, device_ip=device.ip,
+                rule_name=OFFLINE_RULE_NAME, severity="critical",
+                message=existing_row.message, dedup_key=f"offline:{device.id}",
+            )
+        return
+
+    if recent_row is not None and not decision["suppressed"]:
         logger.info(
             f"Suppress offline alert for {device.name}({device.ip}): "
             f"re-triggered within {DEBOUNCE_MINUTES}min debounce window"
         )
         return
+
+    message = (
+        f"设备 {device.name}({device.ip}) 不可达："
+        f"SNMP 与 ping 均连续 {MAX_FAILURES} 次无响应，判定为离线"
+    )
     alert = Alert(
         device_id=device.id,
         rule_name=OFFLINE_RULE_NAME,
         severity="critical",
-        message=(
-            f"设备 {device.name}({device.ip}) 不可达："
-            f"SNMP 与 ping 均连续 {MAX_FAILURES} 次无响应，判定为离线"
-        ),
-        status="active",
+        message=message,
+        status="suppressed" if decision["suppressed"] else "active",
         triggered_at=datetime.now(timezone.utc),
+        suppressed_by_device_id=decision["by_device_id"],
+        suppress_reason=decision["reason"],
     )
     db.add(alert)
-    logger.warning(f"Created offline alert for {device.name}({device.ip})")
-    # 邮件告警（异步发送，失败不影响业务；同设备 5 分钟防轰炸窗口）
-    from app.services.mail_service import send_alert_email
-    try:
-        await send_alert_email(
-            db,
-            subject=f"[严重] 设备离线 - {device.name}",
-            body=(
-                f"告警时间：{datetime.now(tz_8).strftime('%Y-%m-%d %H:%M:%S')}\n"
-                f"设备名称：{device.name}\n"
-                f"IP 地址：{device.ip}\n"
-                f"严重级别：严重\n"
-                f"告警内容：设备不可达，SNMP 与 ping 均连续 {MAX_FAILURES} 次无响应，判定为离线\n\n"
-                f"—— AIOps 智能运维托管平台"
-            ),
-            dedup_key=f"offline:{device.id}",
+    record_alert_created(device.id)
+
+    if decision["suppressed"]:
+        logger.info(
+            f"Offline alert suppressed for {device.name}({device.ip}): {decision['reason']}"
         )
-    except Exception as e:
-        logger.warning(f"offline alert email failed: {e}")
+        return
+
+    logger.warning(f"Created offline alert for {device.name}({device.ip})")
+    await dispatch_alert(
+        db,
+        device_name=device.name, device_ip=device.ip,
+        rule_name=OFFLINE_RULE_NAME, severity="critical",
+        message=message, dedup_key=f"offline:{device.id}",
+        notify=decision["notify"],
+    )
 
 
 async def _resolve_offline_alerts(db: AsyncSession, device: Device):
@@ -303,34 +350,40 @@ async def _resolve_offline_alerts(db: AsyncSession, device: Device):
         select(Alert).where(
             Alert.device_id == device.id,
             Alert.rule_name == OFFLINE_RULE_NAME,
-            Alert.status == "active",
+            Alert.status.in_(("active", "suppressed")),
         )
     )
     now = datetime.now(timezone.utc)
     resolved = 0
+    suppressed_only = True
     for alert in result.scalars().all():
+        if alert.status == "active":
+            suppressed_only = False
         alert.status = "resolved"
         alert.resolved_at = now
         resolved += 1
     if resolved:
         logger.info(f"Resolved {resolved} offline alert(s) for {device.name}({device.ip})")
-        # 邮件通知恢复（异步发送，失败不影响业务；同设备 5 分钟防轰炸窗口）
-        from app.services.mail_service import send_alert_email
+        from app.services.alert_suppressor import record_resolution
+        record_resolution(device.id, OFFLINE_RULE_NAME)
+        if suppressed_only:
+            # 仅解除了被依赖抑制的告警：设备此前并未真正"恢复在线"的对外告警，
+            # 不发恢复通知，避免误导值班人员以为故障已解除。
+            return
+        from app.services.notify_service import dispatch_alert
         try:
-            await send_alert_email(
+            await dispatch_alert(
                 db,
-                subject=f"[恢复] 设备恢复在线 - {device.name}",
-                body=(
-                    f"恢复时间：{now.astimezone(tz_8).strftime('%Y-%m-%d %H:%M:%S')}\n"
-                    f"设备名称：{device.name}\n"
-                    f"IP 地址：{device.ip}\n"
-                    f"设备已恢复正常。\n\n"
-                    f"—— AIOps 智能运维托管平台"
+                device_name=device.name, device_ip=device.ip,
+                rule_name=OFFLINE_RULE_NAME, severity="critical",
+                message=(
+                    f"设备 {device.name}({device.ip}) 已恢复正常，"
+                    f"SNMP 与 ping 探测均可达。"
                 ),
                 dedup_key=f"recover:{device.id}",
             )
         except Exception as e:
-            logger.warning(f"recover alert email failed: {e}")
+            logger.warning(f"recover alert notify failed: {e}")
 
 
 async def run_health_check():

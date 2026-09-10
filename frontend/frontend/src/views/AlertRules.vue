@@ -24,6 +24,7 @@
             <tr>
               <th class="px-4 py-3 font-medium">规则名称</th>
               <th class="px-4 py-3 font-medium">监控指标</th>
+              <th class="px-4 py-3 font-medium">判定模式</th>
               <th class="px-4 py-3 font-medium">条件</th>
               <th class="px-4 py-3 font-medium">阈值</th>
               <th class="px-4 py-3 font-medium">持续时间</th>
@@ -44,11 +45,22 @@
               </td>
               <td class="px-4 py-3 text-ink-muted">{{ metricLabel(rule.metric) }}</td>
               <td class="px-4 py-3">
-                <span class="inline-flex items-center rounded-md bg-surface-2 px-2 py-1 text-xs font-medium text-ink-muted">
-                  {{ conditionLabel(rule.condition) }}
+                <span
+                  class="inline-flex items-center rounded-md px-2 py-1 text-xs font-medium border"
+                  :class="isBaseline(rule)
+                    ? 'bg-cyan-500/10 text-cyan-400 border-cyan-500/30'
+                    : 'bg-surface-2 text-ink-muted border-line'"
+                  :title="isBaseline(rule) ? '与同时段历史基线比较，偏离超过设定倍数才告警' : '与固定阈值比较（原有行为）'"
+                >
+                  {{ isBaseline(rule) ? '动态基线' : '静态阈值' }}
                 </span>
               </td>
-              <td class="px-4 py-3 font-mono text-ink">{{ rule.threshold }}</td>
+              <td class="px-4 py-3">
+                <span class="inline-flex items-center rounded-md bg-surface-2 px-2 py-1 text-xs font-medium text-ink-muted">
+                  {{ conditionLabelOf(rule) }}
+                </span>
+              </td>
+              <td class="px-4 py-3 font-mono text-ink">{{ thresholdLabel(rule) }}</td>
               <td class="px-4 py-3 text-ink-muted">{{ rule.duration }}s</td>
               <td class="px-4 py-3">
                 <span :class="severityBadgeClass(rule.severity)" class="inline-flex items-center rounded-md px-2 py-1 text-xs font-medium">
@@ -85,7 +97,7 @@
               </td>
             </tr>
             <tr v-if="rules.length === 0">
-              <td colspan="8" class="px-4 py-12 text-center text-ink-faint">
+              <td colspan="9" class="px-4 py-12 text-center text-ink-faint">
                 暂无告警规则，点击"添加规则"创建
               </td>
             </tr>
@@ -135,7 +147,42 @@
             </select>
             <p class="mt-1 text-xs text-ink-faint">错包/丢弃指标：检测接口计数器增长速率，需设备支持 IF-MIB</p>
           </div>
-          <div class="grid grid-cols-2 gap-4">
+          <div>
+            <label class="mb-1 block text-sm font-medium text-ink-muted">判定模式</label>
+            <div class="flex gap-2">
+              <button
+                type="button"
+                @click="formData.mode = 'threshold'"
+                class="flex-1 rounded-lg border px-3 py-2 text-sm transition-colors"
+                :class="formData.mode !== 'baseline'
+                  ? 'border-blue-500 bg-blue-500/10 text-blue-300'
+                  : 'border-line bg-surface-2 text-ink-muted hover:bg-hover'"
+              >
+                静态阈值
+                <span class="block text-xs text-ink-faint mt-0.5">与固定阈值比较（原有行为）</span>
+              </button>
+              <button
+                type="button"
+                :disabled="!supportsBaseline(formData.metric)"
+                @click="formData.mode = 'baseline'"
+                class="flex-1 rounded-lg border px-3 py-2 text-sm transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+                :class="formData.mode === 'baseline'
+                  ? 'border-cyan-500 bg-cyan-500/10 text-cyan-300'
+                  : 'border-line bg-surface-2 text-ink-muted hover:bg-hover'"
+              >
+                动态基线
+                <span class="block text-xs text-ink-faint mt-0.5">偏离同时段历史基线才告警</span>
+              </button>
+            </div>
+            <p v-if="!supportsBaseline(formData.metric)" class="mt-1 text-xs text-ink-faint">
+              当前指标（重启 / 接口类）仅支持静态阈值判定
+            </p>
+            <p v-else-if="formData.mode === 'baseline'" class="mt-1 text-xs text-cyan-400/80">
+              需先积累足够采样（每时段 ≥20 条，约 1~2 天）才会生效；数据不足时该规则自动跳过、不产生告警
+            </p>
+          </div>
+          <!-- 静态阈值：条件 + 阈值 -->
+          <div v-if="formData.mode !== 'baseline'" class="grid grid-cols-2 gap-4">
             <div>
               <label class="mb-1 block text-sm font-medium text-ink-muted">条件</label>
               <select
@@ -158,6 +205,45 @@
               />
             </div>
           </div>
+
+          <!-- 动态基线：偏离倍数 + 方向 + 绝对下限 -->
+          <template v-else>
+            <div class="grid grid-cols-2 gap-4">
+              <div>
+                <label class="mb-1 block text-sm font-medium text-ink-muted">偏离倍数（σ）</label>
+                <input
+                  v-model.number="formData.baseline_sigma"
+                  type="number" step="0.5" min="1"
+                  class="input"
+                  placeholder="3"
+                />
+                <p class="mt-1 text-xs text-ink-faint">偏离基线的标准偏差倍数，常用 2 ~ 3</p>
+              </div>
+              <div>
+                <label class="mb-1 block text-sm font-medium text-ink-muted">偏离方向</label>
+                <select
+                  v-model="formData.baseline_direction"
+                  class="w-full rounded-lg border border-line bg-surface-2 px-3 py-2 text-sm text-ink-strong focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
+                >
+                  <option value="upper">仅高于基线</option>
+                  <option value="lower">仅低于基线</option>
+                  <option value="both">双向偏离</option>
+                </select>
+              </div>
+            </div>
+            <div>
+              <label class="mb-1 block text-sm font-medium text-ink-muted">绝对下限</label>
+              <input
+                v-model.number="formData.threshold"
+                type="number"
+                class="input"
+                placeholder="0"
+              />
+              <p class="mt-1 text-xs text-ink-faint">
+                指标绝对值低于此值时不判定（避免低负载下的正常抖动误报）；填 0 表示不限。CPU / 内存常设 30
+              </p>
+            </div>
+          </template>
           <div class="grid grid-cols-2 gap-4">
             <div>
               <label class="mb-1 block text-sm font-medium text-ink-muted">持续时间 (秒)</label>
@@ -290,7 +376,11 @@ const defaultForm = () => ({
   duration: 60,
   severity: 'warning',
   enabled: true,
-  description: ''
+  description: '',
+  // 判定模式：threshold=静态阈值（默认）/ baseline=同时段动态基线
+  mode: 'threshold',
+  baseline_sigma: 3,
+  baseline_direction: 'upper',
 })
 
 const formData = reactive(defaultForm())
@@ -303,6 +393,31 @@ const conditionMap = {
 }
 
 const conditionLabel = (condition) => conditionMap[condition] || condition
+
+// 仅标量指标支持动态基线（重启 / 接口类走独立判定路径，不支持基线模式）
+const BASELINE_METRICS = ['cpu_usage', 'memory_usage', 'temperature']
+const supportsBaseline = (metric) => BASELINE_METRICS.includes(metric)
+const isBaseline = (rule) => rule?.mode === 'baseline'
+
+const baselineDirMap = { upper: '高于', lower: '低于', both: '双向偏离' }
+
+// 条件列：基线规则展示「高于 ±3σ」，阈值规则展示原有条件
+function conditionLabelOf(rule) {
+  if (isBaseline(rule)) {
+    const dir = baselineDirMap[rule.baseline_direction] || '偏离'
+    return `${dir} ±${rule.baseline_sigma ?? 3}σ`
+  }
+  return conditionLabel(rule.condition)
+}
+
+// 阈值列：基线规则的 threshold 是「绝对下限」，0 表示不限
+function thresholdLabel(rule) {
+  if (isBaseline(rule)) {
+    const t = Number(rule.threshold || 0)
+    return t > 0 ? `下限 ${t}` : '不限'
+  }
+  return rule.threshold
+}
 
 const severityMap = {
   critical: { label: '严重', class: 'bg-red-600/20 text-red-400 border border-red-600/30' },
@@ -358,7 +473,11 @@ const openEditModal = (rule) => {
     duration: rule.duration,
     severity: rule.severity,
     enabled: rule.enabled,
-    description: rule.description || ''
+    description: rule.description || '',
+    // 存量规则无 mode 字段时按静态阈值处理，行为不变
+    mode: rule.mode === 'baseline' ? 'baseline' : 'threshold',
+    baseline_sigma: rule.baseline_sigma ?? 3,
+    baseline_direction: rule.baseline_direction || 'upper',
   })
   showModal.value = true
 }
@@ -371,9 +490,19 @@ const submitForm = async () => {
   if (!formData.name || !formData.metric) {
     return
   }
+  // 指标不支持基线时强制回落静态阈值，避免提交出永不生效的规则
+  const mode = formData.mode === 'baseline' && supportsBaseline(formData.metric)
+    ? 'baseline'
+    : 'threshold'
   formSubmitting.value = true
   try {
-    const payload = { ...formData }
+    const payload = {
+      ...formData,
+      mode,
+      threshold: Number(formData.threshold) || 0,
+      duration: Number(formData.duration) || 0,
+      baseline_sigma: Number(formData.baseline_sigma) || 3,
+    }
     if (isEditing.value) {
       await updateAlertRule(editingId.value, payload)
     } else {

@@ -11,3 +11,12 @@ AIOps 可选外部依赖
 
 [2] Net-SNMP
     不需要：平台 SNMP 采集/发现已内置 pysnmp 实现，无需安装任何外部 SNMP 工具。
+
+[3] 离线配置合规巡检 CLI（可选，随包附带）
+    tools\config_audit.py —— 纯标准库、零依赖，无需连设备也不需要授权，
+    离线分析设备配置全文并按等保 2.0 规则出报告（默认打码敏感值）。
+    用法：
+        python tools\config_audit.py 配置.txt
+        python tools\config_audit.py 配置目录\ --md 巡检报告.md
+        python tools\config_audit.py --list-rules        # 查看规则清单
+    规则集为同目录 config_baseline_rules.json（与平台内置规则同源）。

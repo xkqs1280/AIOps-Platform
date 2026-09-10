@@ -260,17 +260,24 @@ onMounted(async () => {
   //   （设备中断请通过命令行输入 quit / exit 等命令实现）
   // - Ctrl+Shift+C：复制选中文本
   // - Ctrl+V / Ctrl+Shift+V：粘贴剪贴板内容，仅做粘贴用
+  //
+  // ⚠️ 关键：xterm 会在 keydown / keypress / keyup 三处都回调本处理器。
+  // 若不做判断就执行粘贴，Ctrl+V 会被执行两次（keydown + keyup），
+  // 现象就是「粘贴两遍」；Ctrl+C 因为写剪贴板是幂等的所以看不出来。
+  // 因此这里只在 keydown 时生效，其余事件原样放行。
   terminal.attachCustomKeyEventHandler((event) => {
+    if (event.type !== 'keydown') return true
+
     const mod = event.ctrlKey || event.metaKey
     if (mod && event.key.toLowerCase() === 'c') {
       if (terminal.hasSelection()) {
-        navigator.clipboard.writeText(terminal.getSelection()).catch(() => {})
+        navigator.clipboard?.writeText(terminal.getSelection()).catch(() => {})
       }
       event.preventDefault()
       return false // 始终拦截，不发送给设备
     }
     if (mod && event.key.toLowerCase() === 'v') {
-      navigator.clipboard.readText().then((text) => {
+      navigator.clipboard?.readText().then((text) => {
         if (text) terminal.paste(text)
       }).catch(() => {})
       event.preventDefault()

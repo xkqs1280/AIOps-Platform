@@ -11,6 +11,8 @@ from app.models.external_threat import ExternalThreatSnapshot
 from app.models.user import User
 from app.models.business_monitor import BusinessGroup, BusinessTerminal, BusinessAlert
 from app.models.license import LicenseInfo
+from app.models.device_dependency import DeviceDependency
+from app.models.notify_channel import NotifyChannel
 
 __all__ = [
     "Device", "DeviceComponent", "Alert", "AlertRule",
@@ -20,5 +22,5 @@ __all__ = [
     "InspectionTask", "InspectionDeviceResult",
     "TopologyLink", "ExternalThreatSnapshot", "User",
     "BusinessGroup", "BusinessTerminal", "BusinessAlert",
-    "LicenseInfo",
+    "LicenseInfo", "DeviceDependency", "NotifyChannel",
 ]
