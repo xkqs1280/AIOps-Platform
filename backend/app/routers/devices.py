@@ -22,8 +22,10 @@ from app.schemas.device import (
     DeviceCreate, DeviceUpdate, DeviceResponse, DeviceListResponse,
     DeviceDiscoverRequest, DeviceDiscoverResponse, DiscoveredDevice,
     DeviceBatchCreate, BatchDeviceDeleteRequest,
+    DeviceTestRequest, DeviceTestResponse,
 )
 from app.services.discovery_service import discover_device, collect_entity_components, pick_chassis_serial
+from app.services.device_test_service import test_device_connection
 from app.services.credential_service import protect_device_secrets, reveal_secret
 from app.routers.auth import admin_only, current_user
 from app.services.audit_service import record_audit, get_client_ip
@@ -276,6 +278,63 @@ async def create_device(data: DeviceCreate, actor: dict = Depends(current_user),
     await _enrich_device(db, device)
     await record_audit(db, actor, "device", "create", f"添加设备 {device.name}({device.ip})")
     return DeviceResponse.model_validate(device)
+
+
+@router.post("/test-connection", response_model=DeviceTestResponse)
+async def test_connection(
+    data: DeviceTestRequest,
+    user: dict = Depends(current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """测试设备远程管理凭据（SSH/Telnet 登录）与 SNMP 是否可通。
+
+    纯探测：不写库、不改设备状态，也不产生告警。
+    凭据留空时回落到该设备已保存的值（编辑页不回显密钥），
+    返回结果中会标注 used_saved_credential 供前端提示用户。
+    """
+    username = (data.mgmt_username or "").strip()
+    password = (data.mgmt_password or "").strip()
+    community = (data.snmp_community or "").strip()
+    port = data.mgmt_port
+    password_from_db = community_from_db = False
+
+    if data.device_id:
+        device = (await db.execute(
+            select(Device).where(Device.id == data.device_id)
+        )).scalar_one_or_none()
+        if device:
+            if not username and device.mgmt_username:
+                username = device.mgmt_username
+            if not port and device.mgmt_port:
+                port = device.mgmt_port
+            if not password and device.mgmt_password:
+                try:
+                    password = reveal_secret(device.mgmt_password) or ""
+                    password_from_db = bool(password)
+                except RuntimeError as e:
+                    logger.warning("测试连接：取设备 %s 已保存口令失败：%s", data.device_id, e)
+            if not community and device.snmp_community:
+                try:
+                    community = reveal_secret(device.snmp_community) or ""
+                    community_from_db = bool(community)
+                except RuntimeError as e:
+                    logger.warning("测试连接：取设备 %s 已保存 community 失败：%s", data.device_id, e)
+
+    result = await test_device_connection(
+        ip=data.ip,
+        protocol=data.mgmt_protocol or "ssh",
+        port=port,
+        username=username,
+        password=password,
+        snmp_version=data.snmp_version or "v2c",
+        community=community,
+        timeout=data.timeout,
+        password_from_db=password_from_db,
+        community_from_db=community_from_db,
+    )
+    logger.info("设备连通性测试 %s（by %s）：%s", data.ip, user.get("sub"),
+                result["summary"])
+    return DeviceTestResponse(ip=data.ip, **result)
 
 
 @router.put("/{device_id}", response_model=DeviceResponse)

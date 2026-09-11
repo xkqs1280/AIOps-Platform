@@ -4,7 +4,7 @@ const cc = chartTheme()
 import { ref, computed, onMounted, watch, nextTick } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import * as echarts from 'echarts'
-import { getDevice, getAlerts, updateDevice, getMetricHistory, syncDevice, getDeviceInterfaces, getDeviceComponents } from '../api/index.js'
+import { getDevice, getAlerts, updateDevice, getMetricHistory, syncDevice, getDeviceInterfaces, getDeviceComponents, testDeviceConnection } from '../api/index.js'
 
 const route = useRoute()
 const router = useRouter()
@@ -319,12 +319,50 @@ function startEdit() {
     status: device.value.status || ''
   }
   editError.value = null
+  clearTestResult()
   isEditing.value = true
 }
 
 function cancelEdit() {
   isEditing.value = false
   editError.value = null
+  clearTestResult()
+}
+
+// === 测试连接：验证远程管理凭据（SSH/Telnet 登录）与 SNMP 是否可通 ===
+const testing = ref(false)
+const testResult = ref(null)
+const testError = ref('')
+
+function clearTestResult() {
+  testResult.value = null
+  testError.value = ''
+}
+
+async function testConnection() {
+  if (testing.value) return
+  if (!editForm.value.ip) {
+    testError.value = '请先填写 IP 地址'
+    return
+  }
+  testing.value = true
+  clearTestResult()
+  try {
+    testResult.value = await testDeviceConnection({
+      device_id: Number(deviceId.value),
+      ip: editForm.value.ip,
+      mgmt_protocol: editForm.value.mgmt_protocol,
+      mgmt_port: editForm.value.mgmt_port,
+      mgmt_username: editForm.value.mgmt_username,
+      mgmt_password: editForm.value.mgmt_password,
+      snmp_version: editForm.value.snmp_version,
+      snmp_community: editForm.value.snmp_community
+    })
+  } catch (err) {
+    testError.value = err.response?.data?.detail || err.message || '测试请求失败'
+  } finally {
+    testing.value = false
+  }
 }
 
 async function saveDevice() {
@@ -565,11 +603,60 @@ watch(deviceId, () => {
               </button>
               <button
                 type="button"
+                :disabled="testing || saving"
+                @click="testConnection"
+                class="px-5 py-2 bg-surface-2 border border-line hover:bg-hover disabled:opacity-50
+                       disabled:cursor-not-allowed text-ink rounded-lg transition-colors text-sm"
+              >
+                {{ testing ? '测试中...' : '测试连接' }}
+              </button>
+              <button
+                type="button"
                 @click="cancelEdit"
                 class="px-5 py-2 bg-hover hover:bg-line-strong text-ink rounded-lg transition-colors text-sm"
               >
                 取消
               </button>
+            </div>
+
+            <!-- 测试连接结果：逐项显示 SSH/Telnet 登录与 SNMP 的探测结论 -->
+            <div
+              v-if="testError"
+              class="mt-3 rounded-lg border border-red-500/40 bg-red-500/10 px-4 py-3 text-sm text-red-500 dark:text-red-400"
+            >
+              {{ testError }}
+            </div>
+            <div
+              v-else-if="testResult"
+              class="mt-3 rounded-lg border px-4 py-3"
+              :class="testResult.ok
+                ? 'border-green-500/40 bg-green-500/10'
+                : 'border-yellow-500/40 bg-yellow-500/10'"
+            >
+              <div class="flex items-center gap-2 flex-wrap text-sm font-medium"
+                   :class="testResult.ok ? 'text-green-600 dark:text-green-400' : 'text-yellow-600 dark:text-yellow-400'">
+                <span>{{ testResult.ok ? '连接测试通过' : '连接测试未全部通过' }}</span>
+                <span class="font-normal text-ink-muted">{{ testResult.summary }}</span>
+                <span class="ml-auto text-xs font-normal text-ink-faint">{{ testResult.ip }}</span>
+              </div>
+              <ul class="mt-2 space-y-2">
+                <li v-for="item in testResult.items" :key="item.target" class="flex items-start gap-2 text-sm">
+                  <span class="mt-0.5 shrink-0 font-bold"
+                        :class="item.ok ? 'text-green-600 dark:text-green-400' : 'text-red-500'">
+                    {{ item.ok ? '✓' : '✗' }}
+                  </span>
+                  <div class="min-w-0">
+                    <span class="text-ink font-medium">{{ item.label }}</span>
+                    <span class="text-ink-muted"> · {{ item.message }}</span>
+                    <span v-if="item.latency_ms != null" class="text-xs text-ink-faint">（{{ item.latency_ms }} ms）</span>
+                    <span v-if="item.used_saved_credential" class="text-xs text-ink-faint">［沿用已保存的凭据］</span>
+                    <div v-if="item.detail" class="mt-0.5 text-xs text-ink-faint break-all">{{ item.detail }}</div>
+                  </div>
+                </li>
+              </ul>
+              <div class="mt-2 text-xs text-ink-faint">
+                测试直接使用当前表单里的值（未保存也生效）；密码 / Community 留空时沿用该设备已保存的凭据。
+              </div>
             </div>
           </form>
         </div>

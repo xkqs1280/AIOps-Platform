@@ -143,3 +143,47 @@ class DeviceDiscoverResponse(BaseModel):
 
 class DeviceBatchCreate(BaseModel):
     devices: list[DeviceCreate]
+
+
+# === 连通性测试（编辑设备 → 测试连接）===
+
+class DeviceTestRequest(BaseModel):
+    """测试远程管理凭据与 SNMP 是否可用。
+
+    编辑页不回显密钥（DeviceResponse 不返回 snmp_community / mgmt_password），
+    因此 mgmt_password / snmp_community 留空时，若带 device_id 则回落到库里
+    已保存的值——用户只改 IP 或端口时不必重输密码。
+    """
+
+    device_id: int | None = Field(None, description="编辑已有设备时传入，用于回落已保存凭据")
+    ip: str = Field(..., max_length=45)
+    mgmt_protocol: str | None = "ssh"
+    mgmt_port: int | None = None
+    mgmt_username: str | None = None
+    mgmt_password: str | None = None
+    snmp_version: str | None = "v2c"
+    snmp_community: str | None = None
+    timeout: float = Field(8.0, ge=1.0, le=30.0, description="单项探测超时（秒）")
+
+    @field_validator("ip")
+    @classmethod
+    def _check_ip(cls, v: str) -> str:
+        return _validate_ip(v)
+
+
+class DeviceTestItem(BaseModel):
+    target: str
+    label: str
+    ok: bool
+    message: str
+    detail: str | None = None
+    latency_ms: int | None = None
+    used_saved_credential: bool = False
+    skipped: bool = False
+
+
+class DeviceTestResponse(BaseModel):
+    ok: bool
+    summary: str
+    ip: str
+    items: list[DeviceTestItem] = Field(default_factory=list)

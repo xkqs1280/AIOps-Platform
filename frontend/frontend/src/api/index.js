@@ -41,6 +41,8 @@ export const getDeviceComponents = (id) => api.get(`/devices/${id}/components`)
 export const getDeviceInterfaces = (id, top = 10) => api.get(`/devices/${id}/interfaces`, { params: { top }, timeout: 60000 })
 export const createDevice = (data) => api.post('/devices', data)
 export const updateDevice = (id, data) => api.put(`/devices/${id}`, data)
+// 编辑设备页「测试连接」：探测 SSH/Telnet 凭据与 SNMP 是否可通（后端会并行探测，放宽超时）
+export const testDeviceConnection = (data) => api.post('/devices/test-connection', data, { timeout: 60000 })
 export const deleteDevice = (id) => api.delete(`/devices/${id}`)
 export const batchDeleteDevices = (data) => api.post('/devices/batch-delete', data)
 export const syncDevice = (id) => api.post(`/devices/${id}/sync`, null, { timeout: 120000 })
