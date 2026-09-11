@@ -105,9 +105,19 @@ def main():
     if args.backend_src:
         backend_src = Path(args.backend_src)
         if backend_src.is_dir():
+            # 必须排除 __pycache__/.pyc/.pyo：工作区里既有本机 Python 的字节码，
+            # 也有历史别的版本（cpython-313/314 混在一起）——打进去会覆盖目标机
+            # 既有字节码、白涨几十 MB，且与 Python 版本不匹配时可能加载到陈旧/损坏代码。
+            _NOISE_DIRS = {"__pycache__", ".pytest_cache", ".mypy_cache", ".ruff_cache"}
+            _NOISE_SUFFIX = (".pyc", ".pyo", ".pyd")
             for p in sorted(backend_src.rglob("*")):
-                if p.is_file():
-                    file_map[f"backend/app/{p.relative_to(backend_src).as_posix()}"] = p
+                if not p.is_file():
+                    continue
+                if any(part in _NOISE_DIRS for part in p.relative_to(backend_src).parts):
+                    continue
+                if p.name.lower().endswith(_NOISE_SUFFIX):
+                    continue
+                file_map[f"backend/app/{p.relative_to(backend_src).as_posix()}"] = p
         else:
             print(f"[!] --backend-src 目录不存在，跳过: {backend_src}")
 
