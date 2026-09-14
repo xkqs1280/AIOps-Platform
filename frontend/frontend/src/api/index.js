@@ -110,7 +110,8 @@ export const getExternalThreatHistory = (params) => api.get('/security/external/
 // 等保合规
 export const getComplianceStatus = () => api.get('/compliance/status')
 export const getComplianceScore = (deviceId) => api.get(`/compliance/score/${deviceId}`)
-export const runComplianceCheck = () => api.post('/compliance/check')
+// 核查会逐台 SSH 采集运行态命令，远超默认 15s（当前无调用方，防后续接上又踩坑）
+export const runComplianceCheck = () => api.post('/compliance/check', null, { timeout: 600000 })
 
 // 指标时序（真实 SNMP 采集）
 export const getMetricHistory = (params) => api.get('/metrics/history', { params })
