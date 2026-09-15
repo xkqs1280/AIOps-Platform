@@ -188,10 +188,6 @@
   /* ============ 动画 keyframes ============ */
   @keyframes fade-in-up {
     from { opacity: 0; transform: translateY(10px); }
-    /* 终态必须是 none（而非 translateY(0)）：animation-fill-mode=both 会让元素在动画结束后
-       长期持有 transform，从而成为 position:fixed 后代的包含块 —— 弹窗会脱离视口居中、
-       相对页面内容盒定位，并被 overflow 祖先裁切。改为 none 后动效不变（none 与
-       translateY(0) 视觉等价），但不再劫持 fixed 定位。 */
     to   { opacity: 1; transform: none; }
   }
   @keyframes fade-in {
@@ -203,9 +199,19 @@
     50%      { opacity: 1; }
   }
 
+  /* 页面进入动效。fill-mode 必须是 backwards，**不能用 both/forwards**：
+     keyframes 里含 transform，只要动画"填充"在结束后仍然生效，Chrome 就会让元素
+     长期持有 transform: matrix(1, 0, 0, 1, 0, 0)（即使终态写的是 transform: none，
+     它也不会还原成 none）。而计算值只要不是 none，该元素就成了 position:fixed
+     后代的包含块 —— 页面内的抽屉/弹窗会改为相对**页面内容盒**定位：滚动后
+     getBoundingClientRect().top 变成负的滚动量，看起来"要滚回顶部才看得到内容"。
+     曾误以为"终态写成 transform:none 就没事"，实测无效（2026-09-15 实测：
+     overlay top=-1650 而视口只有 1144）。改为 backwards 后动画结束即无残留，
+     动效视觉完全不变。 */
   .animate-in {
-    animation: fade-in-up 0.45s var(--ease-smooth) both;
+    animation: fade-in-up 0.45s var(--ease-smooth) backwards;
   }
+  /* 只动 opacity，不产生包含块，故保留 both（避免首帧闪一下） */
   .animate-fade {
     animation: fade-in 0.3s var(--ease-smooth) both;
   }
