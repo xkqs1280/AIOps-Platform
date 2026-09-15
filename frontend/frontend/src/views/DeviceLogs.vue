@@ -52,7 +52,7 @@
     <div class="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-5">
       <div class="card card-lift p-4">
         <div class="flex items-center justify-between">
-          <span class="card-title">近 {{ rangeHours }} 小时日志量</span>
+          <span class="card-title">{{ statsRangeLabel }}</span>
           <DocumentTextIcon class="w-4 h-4 text-cyan-400" />
         </div>
         <div class="text-2xl font-bold mt-2 tabular-nums">{{ fmtNum(stats?.total) }}</div>
@@ -689,10 +689,14 @@ const droppedTotal = computed(() =>
 const stats = ref(null)
 const missingTotal = ref(0)
 
-const rangeHours = computed(() => {
-  const map = { '1h': 1, '24h': 24, '7d': 168, '30d': 720 }
-  return map[f.range] ?? 0
-})
+// 时间范围下拉的"小时数"真源（rangeToParams 也复用，避免两处各写一份对不上）
+const RANGE_HOURS = { '1h': 1, '24h': 24, '7d': 168, '30d': 720 }
+
+const rangeHours = computed(() => RANGE_HOURS[f.value.range] ?? 0)
+
+// 自定义范围下没有"近 N 小时"概念，别显示成"近 0 小时"
+const statsRangeLabel = computed(() =>
+  f.value.range === 'custom' ? '自定义范围日志量' : `近 ${rangeHours.value} 小时日志量`)
 
 const errorCount = computed(() =>
   (stats.value?.by_severity || [])
@@ -744,7 +748,7 @@ function rangeToParams() {
       end: f.value.endLocal ? new Date(f.value.endLocal).toISOString() : undefined,
     }
   }
-  const hours = { '1h': 1, '24h': 24, '7d': 168, '30d': 720 }[f.value.range]
+  const hours = RANGE_HOURS[f.value.range]
   if (!hours) return {}
   return { start: new Date(Date.now() - hours * 3600_000).toISOString() }
 }
