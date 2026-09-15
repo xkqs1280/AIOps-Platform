@@ -68,6 +68,12 @@ const routes = [
     meta: { title: '配置备份' },
   },
   {
+    path: '/device-logs',
+    name: 'DeviceLogs',
+    component: () => import('../views/DeviceLogs.vue'),
+    meta: { title: '设备日志中心' },
+  },
+  {
     path: '/inspection',
     name: 'Inspection',
     component: () => import('../views/Inspection.vue'),

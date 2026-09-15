@@ -139,6 +139,22 @@ export const updateUser = (id, data) => api.patch(`/auth/users/${id}`, data)
 export const deleteUser = (id) => api.delete(`/auth/users/${id}`)
 export const changePassword = (data) => api.post('/auth/change-password', data)
 
+// 设备日志中心（内置 syslog UDP 接收 → device_logs 留存）
+export const getDeviceLogs = (params) => api.get('/device-logs', { params })
+export const getDeviceLogStats = (params) => api.get('/device-logs/stats', { params })
+export const getDeviceLogFilters = (params) => api.get('/device-logs/filters', { params })
+export const getDeviceLogReceiver = () => api.get('/device-logs/receiver')
+// 导出按筛选条件流式拼 CSV，条数多时可能超过默认 15s（后端有 5 万条上限）
+export const exportDeviceLogs = (params) => api.get('/device-logs/export', { params, responseType: 'blob', timeout: 120000 })
+// 日志主机（loghost）下发：真实改动设备配置，属高危运维操作
+export const getLoghostCandidates = () => api.get('/device-logs/loghost/candidates')
+export const previewLoghost = (data) => api.post('/device-logs/loghost/preview', data)
+// 每台设备要连 SSH 下发 7 条命令并前后各取一次快照，单台最长 2 分钟；
+// 前端按 ≤30 台分块提交，单块最坏情况 ≈ (30/4) × 15s ≈ 2 分钟，5 分钟超时留足余量
+export const applyLoghost = (data) => api.post('/device-logs/loghost/apply', data, { timeout: 300000 })
+export const rollbackLoghost = (data) => api.post('/device-logs/loghost/rollback', data, { timeout: 300000 })
+export const getLoghostStatus = () => api.get('/device-logs/loghost/status')
+
 // 系统设置
 export const getMailSetting = () => api.get('/settings/mail')
 export const saveMailSetting = (data) => api.post('/settings/mail', data)

@@ -1,10 +1,12 @@
 """核心业务表保留期清理（P1-6）。
 
-alerts / ai_logs / security_events / business_alerts 原无保留期清理，长期运行
-会导致表无限膨胀。本模块提供每日分批清理：
+alerts / ai_logs / security_events / business_alerts / device_logs 原无保留期清理，
+长期运行会导致表无限膨胀。本模块提供每日分批清理：
 - alerts：仅删除已 resolved 且超过 ALERTS_RESOLVED_DAYS(90) 天的记录（active 告警保留）；
 - ai_logs / business_alerts：删除超过对应保留天数的记录；
-- security_events：按事件时间 timestamp 删除超过保留天数的记录。
+- security_events：按事件时间 timestamp 删除超过保留天数的记录；
+- device_logs：按平台接收时间 received_at 删除超过 DEVICE_LOGS_DAYS(180) 天的记录
+  （等保 6 个月；用接收时间而非设备时间，避免设备时钟不准导致误删）。
 
 与 backup_service.cleanup_old_backups 同一批删模式：每批取主键 →
 DELETE ... WHERE id IN (...) → 提交，避免全表载入内存与超长事务。
@@ -18,6 +20,7 @@ from app.models.alert import Alert
 from app.models.ai import AiLog
 from app.models.p3_security import SecurityEvent
 from app.models.business_monitor import BusinessAlert
+from app.models.device_log import DeviceLog
 
 logger = logging.getLogger(__name__)
 
@@ -25,6 +28,9 @@ ALERTS_RESOLVED_DAYS = 90      # 已恢复告警保留 90 天
 AI_LOGS_DAYS = 180             # AI 调用日志保留 180 天
 SECURITY_EVENTS_DAYS = 180     # 安全事件保留 180 天
 BUSINESS_ALERTS_DAYS = 180     # 业务监控告警保留 180 天
+# 设备日志保留 180 天：对齐《网络安全法》第 21 条与等保 2.0 三级"网络日志留存 ≥ 6 个月"。
+# 这是本表存在的首要理由——设备本地缓冲区仅 512 条且重启即丢，平台是唯一留存手段。
+DEVICE_LOGS_DAYS = 180
 BATCH_SIZE = 500
 
 
@@ -51,6 +57,7 @@ async def cleanup_expired_core_data(
     ai_logs_days: int = AI_LOGS_DAYS,
     security_events_days: int = SECURITY_EVENTS_DAYS,
     business_alerts_days: int = BUSINESS_ALERTS_DAYS,
+    device_logs_days: int = DEVICE_LOGS_DAYS,
     batch_size: int = BATCH_SIZE,
 ) -> dict[str, int]:
     """清理各核心业务表的过期记录，返回 {表名: 删除条数}。"""
@@ -81,6 +88,12 @@ async def cleanup_expired_core_data(
         stats["business_alerts"] = await _batch_delete(
             db, BusinessAlert,
             BusinessAlert.created_at < now - timedelta(days=business_alerts_days),
+            batch_size,
+        )
+        # 5) 设备日志（等保 6 个月留存；按平台接收时间计，避免设备时钟不准导致误删）
+        stats["device_logs"] = await _batch_delete(
+            db, DeviceLog,
+            DeviceLog.received_at < now - timedelta(days=device_logs_days),
             batch_size,
         )
     total = sum(stats.values())

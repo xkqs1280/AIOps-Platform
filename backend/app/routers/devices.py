@@ -435,7 +435,8 @@ async def _cleanup_device_relations(db: AsyncSession, device_ids: list[int]) -> 
 
     - Alert.device_id / ComplianceCheck.device_id / TopologyLink(source|target)_device_id
       为 NOT NULL + NO ACTION，直接删设备会触发 NotNullViolation → 先删除关联行；
-    - SecurityEvent.device_id 为 nullable，置 NULL 即可。
+    - SecurityEvent.device_id / DeviceLog.device_id / DeviceLogHostConfig.device_id 为 nullable，
+      置 NULL 即可（日志与变更记录属审计数据，必须保留）。
     """
     if not device_ids:
         return
@@ -477,9 +478,26 @@ async def _cleanup_device_relations(db: AsyncSession, device_ids: list[int]) -> 
         await db.execute(sa_delete(PredictionResult).where(PredictionResult.device_id.in_(device_ids)))
         await db.execute(sa_delete(DeviceHealthScore).where(DeviceHealthScore.device_id.in_(device_ids)))
         await db.execute(sa_delete(InspectionDeviceResult).where(InspectionDeviceResult.device_id.in_(device_ids)))
+        # 设备日志与 loghost 下发记录：**保留数据、仅解除设备关联**（device_id 置 NULL）。
+        # 设备日志是《网络安全法》第 21 条 / 等保 2.0 要求的审计留存，绝不能因为
+        # 设备从平台移除就一并删除——那等于销毁审计证据。loghost 记录同理（变更留痕）。
+        from app.models.device_log import DeviceLog, DeviceLogHostConfig
+        await db.execute(
+            DeviceLog.__table__.update()
+            .where(DeviceLog.device_id.in_(device_ids))
+            .values(device_id=None)
+        )
+        await db.execute(
+            DeviceLogHostConfig.__table__.update()
+            .where(DeviceLogHostConfig.device_id.in_(device_ids))
+            .values(device_id=None)
+        )
         await db.flush()
-    except Exception:
-        # 关联清理失败不致命：交由下方约束校验兜底
+    except Exception as e:
+        # 关联清理失败不致命：交由下方约束校验兜底。
+        # 但**必须留痕**——静默回滚会让"日志/变更记录没被解除关联"这种问题
+        # 一路潜伏到删设备时才以 NotNullViolation 的形式爆发，极难定位。
+        logger.warning("删除设备前清理关联数据失败（device_ids=%s）：%s", device_ids, e)
         await db.rollback()
 
 

@@ -1,11 +1,14 @@
 # -*- coding: utf-8 -*-
 """P1-6 回归：核心业务表保留期每日分批清理。
 
-alerts / ai_logs / security_events / business_alerts 原无保留期清理，
+alerts / ai_logs / security_events / business_alerts / device_logs 原无保留期清理，
 表无限膨胀。retention_service.cleanup_expired_core_data 复用 P1-4 分批删
 模式：每批取主键 → DELETE IN → commit，循环直至清空，返回 {表: 删除数}。
-本测试用假 DB（按语句目标表返回剩余 id）验证：四表各按其条件分批删除、
+本测试用假 DB（按语句目标表返回剩余 id）验证：五表各按其条件分批删除、
 alerts 仅清 resolved、边界与终止、总删除计数正确。
+
+⚠️ 新增受管表时必须同步扩充 ``TABLE_OF`` 与各用例的 per_table 字典，否则
+_FakeDB 对未知表返回 Mock（``'Mock' object is not iterable``）导致用例失败。
 """
 import sys
 import unittest
@@ -17,7 +20,10 @@ from sqlalchemy.sql.expression import Select  # noqa: E402
 
 from app.services.retention_service import cleanup_expired_core_data, BATCH_SIZE  # noqa: E402
 
-TABLE_OF = {"alerts", "ai_logs", "security_events", "business_alerts"}
+TABLE_OF = {"alerts", "ai_logs", "security_events", "business_alerts", "device_logs"}
+
+# 全部受管表的初始行数（0 = 空表用例）
+EMPTY = {name: 0 for name in TABLE_OF}
 
 
 class _FakeResult:
@@ -95,27 +101,35 @@ def _run(per_table: dict[str, int]):
 
 
 class TestRetentionCleanup(unittest.TestCase):
-    def test_all_four_tables_deleted_and_counted(self):
+    def test_all_tables_deleted_and_counted(self):
         stats, db = _run({
-            "alerts": 1200, "ai_logs": 3, "security_events": 0, "business_alerts": BATCH_SIZE,
+            **EMPTY,
+            "alerts": 1200, "ai_logs": 3, "business_alerts": BATCH_SIZE, "device_logs": 700,
         })
         self.assertEqual(stats["alerts"], 1200)          # 3 批
         self.assertEqual(stats["ai_logs"], 3)            # 1 批尾批
         self.assertEqual(stats["security_events"], 0)    # 空表
         self.assertEqual(stats["business_alerts"], BATCH_SIZE)  # 恰好整批 → 再查一次空后退出
+        self.assertEqual(stats["device_logs"], 700)      # 500 + 200
         self.assertEqual(db.deleted["alerts"], 1200)
         self.assertEqual(db.deleted["business_alerts"], BATCH_SIZE)
+        self.assertEqual(db.deleted["device_logs"], 700)
 
     def test_batch_termination_and_commit_count(self):
         # 1200 = 500+500+200 → alerts 3 次 delete + 3 次 commit
-        _, db = _run({"alerts": 1200, "ai_logs": 0, "security_events": 0, "business_alerts": 0})
+        _, db = _run({**EMPTY, "alerts": 1200})
         self.assertEqual(db.commits, 3)
         self.assertEqual(db.deleted["alerts"], 1200)
 
     def test_returns_empty_for_no_data(self):
-        stats, db = _run({"alerts": 0, "ai_logs": 0, "security_events": 0, "business_alerts": 0})
+        stats, db = _run(dict(EMPTY))
         self.assertEqual(sum(stats.values()), 0)
         self.assertEqual(db.commits, 0)
+
+    def test_device_logs_retention_is_six_months(self):
+        """等保要求网络日志留存 ≥ 6 个月，默认值不能被悄悄改小。"""
+        from app.services import retention_service
+        self.assertGreaterEqual(retention_service.DEVICE_LOGS_DAYS, 180)
 
 
 if __name__ == "__main__":

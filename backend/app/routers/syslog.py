@@ -5,6 +5,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import get_session
+from app.config import settings
 from app.models.p3_security import SecurityEvent
 from app.services.syslog_service import ingest_syslog, generate_sample_logs
 from app.services.security_service import get_attack_stats
@@ -51,7 +52,18 @@ async def generate_sample_logs_endpoint(
     body: SyslogGenerateRequest,
     session: AsyncSession = Depends(get_session),
 ):
-    """批量生成示例 syslog 数据用于测试和演示。"""
+    """批量生成示例 syslog 数据用于测试和演示。
+
+    **默认关闭**（``DEMO_DATA_ENABLED=False``）：造出来的演示数据会混进安全事件与审计数据，
+    在等保场景下是硬伤（审计数据必须真实可追溯）。需要在测试环境演示时，在 .env 显式
+    设置 ``DEMO_DATA_ENABLED=true``。
+    """
+    if not settings.DEMO_DATA_ENABLED:
+        raise HTTPException(
+            status_code=403,
+            detail="演示数据接口已关闭（生产环境默认禁用，避免演示数据混入审计数据）。"
+                   "如确需在测试环境使用，请在 .env 设置 DEMO_DATA_ENABLED=true",
+        )
     count = await generate_sample_logs(session, device_id=body.device_id, count=body.count)
     return {"generated": count}
 

@@ -158,6 +158,38 @@ class Settings(BaseSettings):
     # 授权模块开关：true 时未激活/测试版到期会锁定平台（仅授权页可用）
     LICENSE_ENABLED: bool = True
 
+    # ------------------------------------------------------------------
+    # 设备日志中心（P0）
+    # ------------------------------------------------------------------
+    # 内置 syslog 接收器（UDP）。平台此前所有"接收类"能力都是 HTTP 端点 + 外部转发组件，
+    # 而部署包里并没有转发组件 → Trap/syslog 在生产上没有真实入口。本开关补上真实入口。
+    SYSLOG_UDP_ENABLED: bool = True
+    SYSLOG_UDP_HOST: str = "0.0.0.0"
+    # 514 是 syslog 标准端口。Linux 下 <1024 需 CAP_NET_BIND_SERVICE
+    # （install.sh 生成的 systemd unit 已加 AmbientCapabilities），Windows 无需提权。
+    # 端口被占用时可改（如 5514），但设备侧也要指向同一端口。
+    SYSLOG_UDP_PORT: int = 514
+    # 设备时钟相对 UTC 的偏移小时数。实测 H3C 出厂 `display clock` 返回 UTC，故默认 0；
+    # 若设备已配 `clock timezone Beijing add 08:00:00`，应改为 8。设错只影响 device_time
+    # 的展示（received_at 恒为平台接收时间，不受影响）。
+    SYSLOG_DEVICE_TZ_OFFSET_HOURS: float = 0.0
+    # 接收队列上限与批量入库参数（绝不可一条日志一次 commit）
+    SYSLOG_QUEUE_MAX: int = 50_000
+    SYSLOG_BATCH_SIZE: int = 500
+    SYSLOG_FLUSH_INTERVAL: float = 2.0
+    # 单来源 IP 限流，防设备环路/广播风暴把库和前端一起拖死
+    SYSLOG_RATE_WINDOW_SECONDS: int = 10
+    SYSLOG_RATE_MAX_PER_WINDOW: int = 2_000
+    # 单条报文最大字节数，超长截断（防畸形报文撑爆内存）
+    SYSLOG_MAX_MESSAGE_BYTES: int = 8_192
+    # 下发给设备的"日志主机"地址（即设备要回连的平台地址）。留空时由 API 调用方显式指定。
+    SYSLOG_ADVERTISE_ADDRESS: str = ""
+    # 设备日志留存天数（等保 2.0 三级要求网络日志留存 ≥ 6 个月）
+    DEVICE_LOGS_DAYS: int = 180
+    # 演示数据接口（POST /syslog/generate）开关。**生产应保持 false**：
+    # 造出来的演示数据会混进安全事件/审计数据，在等保场景下是硬伤。
+    DEMO_DATA_ENABLED: bool = False
+
     @property
     def cors_origins(self) -> list[str]:
         if self.CORS_ORIGINS.strip() == "*":

@@ -32,6 +32,7 @@ from app.routers import settings as settings_router
 from app.routers import ai as ai_router
 from app.routers import system
 from app.routers import notify_channels, device_dependencies
+from app.routers import device_logs
 
 logger = logging.getLogger(__name__)
 
@@ -187,6 +188,15 @@ async def lifespan(app: FastAPI):
     # 启动动态基线计算（每 6 小时，支撑告警规则的 baseline 判定模式）
     baseline_task = start_supervised("baseline-calc", _baseline_loop)
     logger.info("Dynamic baseline service started")
+    # 启动内置 syslog UDP 接收器（设备日志中心 P0）：
+    # 平台此前"接收类"能力都是 HTTP 端点 + 外部转发组件，而部署包里并无转发组件，
+    # 导致 Trap/syslog 在生产上没有真实入口。此处直接监听 UDP，做到开箱即用。
+    from app.services.syslog_receiver import syslog_udp_loop
+    syslog_task = start_supervised("syslog-udp", syslog_udp_loop)
+    logger.info(
+        "Syslog UDP receiver starting (bind %s:%s)",
+        settings.SYSLOG_UDP_HOST, settings.SYSLOG_UDP_PORT,
+    )
     yield
     scheduler_task.cancel()
     health_check_task.cancel()
@@ -195,6 +205,7 @@ async def lifespan(app: FastAPI):
     biz_monitor_task.cancel()
     cleanup_task.cancel()
     baseline_task.cancel()
+    syslog_task.cancel()
     try:
         await scheduler_task
     except asyncio.CancelledError:
@@ -221,6 +232,10 @@ async def lifespan(app: FastAPI):
         pass
     try:
         await baseline_task
+    except asyncio.CancelledError:
+        pass
+    try:
+        await syslog_task
     except asyncio.CancelledError:
         pass
 
@@ -260,7 +275,7 @@ async def add_security_headers(request: Request, call_next):
     # /license/* 与 /auth/* 不做路径级强制鉴权（授权锁定 403002 时须能进入授权/登录流程）；
     # 但 /license 各端点自身仍用 Depends(current_user) 校验登录（fingerprint/status/activate 均需登录）。
     protected = path.startswith(f"{api_prefix}/") and not path.startswith(f"{api_prefix}/auth/") and not path.startswith(f"{api_prefix}/license/")
-    ingest_path = path in {f"{api_prefix}/traps", f"{api_prefix}/syslog"}
+    ingest_path = path in {f"{api_prefix}/traps", f"{api_prefix}/syslog", f"{api_prefix}/device-logs/ingest"}
     if settings.AUTH_ENABLED and protected:
         ingest_key = request.headers.get("X-Ingest-Key")
         if ingest_path and settings.INGEST_API_KEY and ingest_key == settings.INGEST_API_KEY:
@@ -331,6 +346,7 @@ app.include_router(ai_router.router, prefix=settings.API_PREFIX)
 app.include_router(system.router, prefix=settings.API_PREFIX)
 app.include_router(notify_channels.router, prefix=settings.API_PREFIX)
 app.include_router(device_dependencies.router, prefix=settings.API_PREFIX)
+app.include_router(device_logs.router, prefix=settings.API_PREFIX)
 
 
 @app.get("/health")

@@ -128,6 +128,7 @@ const mainNav = [
   { path: '/alerts', label: '告警管理', icon: BellAlertIcon },
   { path: '/topology', label: '拓扑发现', icon: ShareIcon },
   { path: '/config-backup', label: '配置备份', icon: ArchiveBoxIcon },
+  { path: '/device-logs', label: '设备日志中心', icon: DocumentTextIcon },
   { path: '/inspection', label: 'H3C 巡检', icon: MagnifyingGlassIcon },
   { path: '/business-monitor', label: '重要业务监控', icon: EyeIcon },
   { path: '/lifecycle', label: '生命周期', icon: ArrowsRightLeftIcon },
