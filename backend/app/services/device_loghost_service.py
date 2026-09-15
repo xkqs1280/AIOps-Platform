@@ -561,26 +561,94 @@ async def rollback_device(
 # 批量编排 + 落库
 # ---------------------------------------------------------------------------
 
+def _device_failure(device: Device, message: str) -> dict:
+    """构造一条「本台未完成」的结果。
+
+    字段必须与 ``apply_to_device`` / ``rollback_device`` 的返回结构完全一致：
+    调用方（落库、前端渲染）都按这些键取值，少一个键就会在收尾阶段炸成 500。
+    """
+    return {
+        "device_id": getattr(device, "id", None),
+        "device_name": getattr(device, "name", None),
+        "ip": getattr(device, "ip", None),
+        "ok": False, "before": None, "after": None, "commands": None,
+        "warnings": [], "error": message,
+    }
+
+
 async def _run_bounded(devices: list[Device], worker) -> list[dict]:
-    """按 APPLY_CONCURRENCY 限并发执行，保持结果与入参同序。"""
+    """按 APPLY_CONCURRENCY 限并发执行，保持结果与入参同序。
+
+    **每台设备必须恰好产出一条结果**。这里不能用「捕获 Exception 后 continue」
+    的写法：一是 ``asyncio.CancelledError`` 自 3.8 起继承 ``BaseException``，
+    既不会被 ``except Exception`` 接住，也不会被下面的 ``isinstance(item, Exception)``
+    认出来；二是 gather 用 ``return_exceptions=True`` 收进来的异常对象并不能
+    解包成 ``(idx, res)``。
+
+    生产事故（70 台设备批量下发/回滚 → 前端只看到
+    "Request failed with status code 500"、且 FastAPI 对未捕获异常只回纯文本
+    ``Internal Server Error``，连 detail 都没有）就是这条链路：某台设备的
+    读操作在内部被取消 → ``CancelledError`` 逃出 ``apply_to_device`` 的
+    ``except Exception`` → 被 gather 收进结果列表 → 解包报 TypeError → 500。
+    设备配置其实已经改了一半，操作人却以为整批失败。
+    """
     sem = asyncio.Semaphore(max(1, APPLY_CONCURRENCY))
     results: list[dict | None] = [None] * len(devices)
 
     async def _one(idx: int, dev: Device):
         async with sem:
-            return idx, await worker(dev)
+            try:
+                return idx, await worker(dev)
+            except asyncio.CancelledError:
+                # 只有「本任务/本请求自己被取消」（关停、客户端断开）才继续向上传播；
+                # 单台设备会话内部冒出来的取消，按本台失败处理，不能连累整批。
+                task = asyncio.current_task()
+                if task is not None and getattr(task, "cancelling", lambda: 0)():
+                    raise
+                logger.error("设备 %s(%s) 会话被中断（CancelledError），本台未完成",
+                             getattr(dev, "name", "?"), getattr(dev, "ip", "?"))
+                return idx, _device_failure(dev, "设备会话被中断（CancelledError），本台未完成")
+            except BaseException as e:  # noqa: BLE001 — 兜底：绝不让单台炸掉整批
+                logger.exception("设备 %s(%s) 批处理异常", getattr(dev, "name", "?"),
+                                 getattr(dev, "ip", "?"))
+                return idx, _device_failure(dev, f"{type(e).__name__}: {e}")
 
     outs = await asyncio.gather(
         *[_one(i, d) for i, d in enumerate(devices)], return_exceptions=True
     )
     for item in outs:
-        if isinstance(item, Exception):
-            # gather 吞掉异常会导致结果错位，这里兜底成一条失败记录
+        if isinstance(item, BaseException):
+            # 走到这里说明连上面的兜底都没接住（例如整批被取消），
+            # 记日志跳过即可——**绝不能去解包**，否则又是一个 500。
             logger.error("批量 loghost 任务异常：%r", item)
             continue
-        idx, res = item
+        try:
+            idx, res = item
+        except (TypeError, ValueError):
+            logger.error("批量 loghost 结果结构异常：%r", item)
+            continue
         results[idx] = res
     return [r for r in results if r is not None]
+
+
+async def _safe_rollback(db) -> None:
+    try:
+        await db.rollback()
+    except Exception:
+        pass
+
+
+def _mark_persist_failure(results: list[dict], exc: Exception, action: str) -> None:
+    """留痕落库失败时，把真相写到每台设备的结果里，而不是让请求变成 500。
+
+    设备配置**已经改过了**，此时回 500 只会让操作人以为没生效而重复下发
+    （对生产设备是二次真实变更，风险更高）。所以如实返回逐台结果，并把
+    「记录没落库」这件事显式挂到 warnings 上。
+    """
+    note = (f"{action}记录落库失败（{type(exc).__name__}: {exc}）；"
+            "设备配置已变更，请勿重复操作，并联系维护人员核查数据库")
+    for res in results:
+        res.setdefault("warnings", []).append(note)
 
 
 async def apply_loghost_to_devices(
@@ -601,23 +669,28 @@ async def apply_loghost_to_devices(
     )
 
     now = datetime.now(timezone.utc)
-    for res in results:
-        db.add(DeviceLogHostConfig(
-            device_id=res["device_id"],
-            device_name=res.get("device_name"),
-            device_ip=res.get("ip"),
-            loghost_address=addr,
-            loghost_port=port or 514,
-            status="applied" if res["ok"] else "failed",
-            before_config=res.get("before"),
-            after_config=res.get("after"),
-            commands=res.get("commands"),
-            tz_offset_hours=settings.SYSLOG_DEVICE_TZ_OFFSET_HOURS,
-            message=res.get("error") or ("; ".join(res.get("warnings") or []) or None),
-            applied_at=now if res["ok"] else None,
-            operator=operator,
-        ))
-    await db.commit()
+    try:
+        for res in results:
+            db.add(DeviceLogHostConfig(
+                device_id=res["device_id"],
+                device_name=res.get("device_name"),
+                device_ip=res.get("ip"),
+                loghost_address=addr,
+                loghost_port=port or 514,
+                status="applied" if res["ok"] else "failed",
+                before_config=res.get("before"),
+                after_config=res.get("after"),
+                commands=res.get("commands"),
+                tz_offset_hours=settings.SYSLOG_DEVICE_TZ_OFFSET_HOURS,
+                message=res.get("error") or ("; ".join(res.get("warnings") or []) or None),
+                applied_at=now if res["ok"] else None,
+                operator=operator,
+            ))
+        await db.commit()
+    except Exception as e:  # noqa: BLE001 — 见 _mark_persist_failure
+        logger.exception("loghost 下发记录落库失败（设备配置已变更）")
+        await _safe_rollback(db)
+        _mark_persist_failure(results, e, "下发")
     return results
 
 
@@ -649,28 +722,33 @@ async def rollback_loghost_on_devices(
     results = await _run_bounded(devices, _worker)
 
     now = datetime.now(timezone.utc)
-    for res in results:
-        rec = records.get(res["device_id"])
-        if rec is not None and res["ok"]:
-            rec.status = "rolled_back"
-            rec.rolled_back_at = now
-            rec.message = f"由 {operator or '-'} 执行回滚"
-        else:
-            addr = (rec.loghost_address if rec else None) or address
-            db.add(DeviceLogHostConfig(
-                device_id=res["device_id"],
-                device_name=res.get("device_name"),
-                device_ip=res.get("ip"),
-                loghost_address=addr,
-                status="rolled_back" if res["ok"] else "failed",
-                before_config=res.get("before"),
-                after_config=res.get("after"),
-                commands=res.get("commands"),
-                message=res.get("error") or "; ".join(res.get("warnings") or []) or None,
-                rolled_back_at=now if res["ok"] else None,
-                operator=operator,
-            ))
-    await db.commit()
+    try:
+        for res in results:
+            rec = records.get(res["device_id"])
+            if rec is not None and res["ok"]:
+                rec.status = "rolled_back"
+                rec.rolled_back_at = now
+                rec.message = f"由 {operator or '-'} 执行回滚"
+            else:
+                addr = (rec.loghost_address if rec else None) or address
+                db.add(DeviceLogHostConfig(
+                    device_id=res["device_id"],
+                    device_name=res.get("device_name"),
+                    device_ip=res.get("ip"),
+                    loghost_address=addr,
+                    status="rolled_back" if res["ok"] else "failed",
+                    before_config=res.get("before"),
+                    after_config=res.get("after"),
+                    commands=res.get("commands"),
+                    message=res.get("error") or "; ".join(res.get("warnings") or []) or None,
+                    rolled_back_at=now if res["ok"] else None,
+                    operator=operator,
+                ))
+        await db.commit()
+    except Exception as e:  # noqa: BLE001 — 见 _mark_persist_failure
+        logger.exception("loghost 回滚记录落库失败（设备配置已变更）")
+        await _safe_rollback(db)
+        _mark_persist_failure(results, e, "回滚")
     return results
 
 

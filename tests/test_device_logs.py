@@ -816,6 +816,113 @@ async def test_apply_rejects_oversized_batch(db, device_factory, monkeypatch):
         await lh.apply_loghost_to_devices(db, [dev, dev], "192.168.124.108")
 
 
+def _ok_result(device):
+    return {"device_id": device.id, "device_name": device.name, "ip": device.ip,
+            "ok": True, "before": None, "after": None, "commands": None,
+            "warnings": [], "error": None}
+
+
+async def test_batch_worker_cancelled_error_does_not_blow_up_the_request(
+    db, device_factory
+):
+    """单台设备的会话被取消，**不能**把整批请求变成 500。
+
+    真实事故（70 台设备批量下发 → 前端只看到 "Request failed with status code 500"）：
+    ``asyncio.CancelledError`` 自 Python 3.8 起继承 ``BaseException``，
+    既躲过 ``apply_to_device`` 的 ``except Exception``，也躲过
+    ``isinstance(item, Exception)`` 判定，最后在 ``idx, res = item`` 处抛
+    TypeError；操作人看到"整批失败"，而设备其实已被改了一半。
+    契约：每台设备恰好一条结果，被中断的那台按失败如实返回。
+    """
+    import asyncio
+    from app.services import device_loghost_service as lh
+
+    d1 = await device_factory(name="SW2", ip="192.168.124.66")
+    d2 = await device_factory(name="SW3", ip="192.168.124.67")
+    d3 = await device_factory(name="SW9", ip="192.168.124.69")
+
+    async def worker(dev):
+        if dev.id == d2.id:
+            # 模拟会话读操作在内部被取消（连接中断），而**请求本身没被取消**
+            raise asyncio.CancelledError("reader cancelled")
+        return _ok_result(dev)
+
+    res = await lh._run_bounded([d1, d2, d3], worker)
+
+    assert len(res) == 3, "每台设备都必须有结果，不能被 gather 悄悄吞掉"
+    assert [r["device_id"] for r in res] == [d1.id, d2.id, d3.id], "结果必须与入参同序"
+    assert [r["ok"] for r in res] == [True, False, True]
+    assert "CancelledError" in res[1]["error"]
+
+
+async def test_batch_worker_base_exception_is_contained(db, device_factory):
+    """连带 BaseException 的兜底：单台炸掉也不能连累整批（不能再出现 500）。"""
+    from app.services import device_loghost_service as lh
+
+    class _Weird(BaseException):
+        pass
+
+    d1 = await device_factory(name="SW2", ip="192.168.124.66")
+
+    async def worker(dev):
+        raise _Weird("底层库抛了 BaseException")
+
+    res = await lh._run_bounded([d1], worker)
+    assert len(res) == 1
+    assert res[0]["ok"] is False
+    assert "_Weird" in res[0]["error"]
+    assert res[0]["device_id"] == d1.id
+
+
+async def test_batch_request_cancellation_still_propagates(db, device_factory):
+    """请求（任务）自己被取消时必须继续向上抛，不能被兜底吞掉。
+
+    否则关停/断开时会把"取消"伪装成"设备失败"，既误导操作人，
+    也让 uvicorn 的优雅关停失效。
+    """
+    import asyncio
+    from app.services import device_loghost_service as lh
+
+    d1 = await device_factory(name="SW2", ip="192.168.124.66")
+
+    async def worker(dev):
+        await asyncio.sleep(5)
+        return _ok_result(dev)
+
+    task = asyncio.create_task(lh._run_bounded([d1], worker))
+    await asyncio.sleep(0.05)
+    task.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await task
+
+
+async def test_persist_failure_reports_truth_instead_of_500(
+    db, device_factory, monkeypatch
+):
+    """留痕落库失败时如实返回逐台结果 + 警告，而不是回 500。
+
+    设备配置这时**已经改过**了；回 500 会让操作人以为没生效而重复下发，
+    对生产设备等于二次真实变更。契约：结果照返，warning 里说清"记录没落库"。
+    """
+    from app.services import device_loghost_service as lh
+
+    dev = await device_factory(name="SW2", ip="192.168.124.66")
+
+    async def fake_ok(device, address, port=None, level="informational", save=True, timeout=0):
+        return _ok_result(device)
+
+    async def boom():
+        raise RuntimeError("relation \"device_loghost_configs\" does not exist")
+
+    monkeypatch.setattr(lh, "apply_to_device", fake_ok)
+    monkeypatch.setattr(db, "commit", boom, raising=False)
+
+    res = await lh.apply_loghost_to_devices(db, [dev], "192.168.124.108")
+    assert res[0]["ok"] is True, "设备侧结果不能被落库失败抹掉"
+    assert any("落库失败" in w for w in res[0]["warnings"])
+    assert res[0]["warnings"][-1].find("RuntimeError") >= 0
+
+
 async def test_apply_requires_confirm(db, device_factory):
     """未确认时必须拒绝——真实改动设备配置不能靠误点触发。"""
     from fastapi import HTTPException
