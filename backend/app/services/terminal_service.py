@@ -167,12 +167,24 @@ class DeviceTerminal:
         if not self._closed:
             await self.close("Telnet 连接已断开")
 
+    #: 退格键归一：xterm.js 的 Backspace 固定发送 DEL(0x7F)，但设备对它的
+    #: 处理并不一致（实测，见 build/remote_probe/probe_backspace.py）：
+    #:   - SSH（华为 VRP / H3C Comware）：0x7F 与 0x08 都被当退格，均正常；
+    #:   - Telnet（华为 AR，经 telnetlib3 协商 ECHO/SGA/TTYPE 之后）：
+    #:     设备把 0x7F 当作不可识别的控制字符 —— 原样回显 BEL(0x07) 且
+    #:     不删除字符，只在用户视图下拼出非法命令；而 0x08 正常工作。
+    #: 0x08 在上述全部通道、全部厂商的实测中都正确执行退格，故统一按 BS 发送。
+    _BACKSPACE_IN = "\x7f"
+    _BACKSPACE_OUT = "\x08"
+
     async def send(self, data: str) -> None:
         """发送用户输入到设备（data 为原始终端输入，含控制字符）。
 
         注意：SSH 通道以字节模式创建（encoding=None），stdin 是 bytes 流，
         必须显式编码，否则写入 str 会抛 TypeError 导致连接被关闭。
         """
+        if self._BACKSPACE_IN in data:
+            data = data.replace(self._BACKSPACE_IN, self._BACKSPACE_OUT)
         if self.protocol == "telnet":
             if self._writer:
                 self._writer.write(data.encode("utf-8", "replace"))
