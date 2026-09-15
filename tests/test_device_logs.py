@@ -551,6 +551,24 @@ async def test_http_ingest_endpoint(db, device_factory):
     assert len(rows) == 1 and rows[0].log_source == "http"
 
 
+def test_ingest_endpoint_requires_rate_limit():
+    """接入端点必须挂 ``limit_ingest``（与 /syslog、/traps 保持一致）。
+
+    队列上限（``QUEUE_MAX``）只能兜住「攒批层」，挡不住请求层突发；这条依赖
+    一旦被摘掉，接入端点就成了无限流的写入口。用断言锁死，防回归。
+    """
+    from app.routers import device_logs as mod
+    from app.services.rate_limit import limit_ingest
+
+    route = next(
+        r for r in mod.router.routes
+        if getattr(r, "path", "").endswith("/ingest")
+        and "POST" in getattr(r, "methods", set())
+    )
+    dep_calls = {d.call for d in route.dependant.dependencies}
+    assert limit_ingest in dep_calls
+
+
 # ---------------------------------------------------------------------------
 # 4. loghost 下发：命令生成与防注入
 # ---------------------------------------------------------------------------

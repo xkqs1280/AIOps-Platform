@@ -35,6 +35,7 @@ from app.services.device_log_service import (
     SEVERITY_LABELS,
     SEVERITY_NAMES,
 )
+from app.services.rate_limit import limit_ingest
 from app.services import syslog_receiver
 from app.services import device_loghost_service as loghost
 
@@ -452,6 +453,7 @@ class IngestRequest(BaseModel):
 @router.post("/ingest")
 async def ingest_device_log(
     body: IngestRequest,
+    _: None = Depends(limit_ingest),
     db: AsyncSession = Depends(get_db),
     _user: dict = Depends(current_user),
 ):
@@ -459,6 +461,9 @@ async def ingest_device_log(
 
     用途：设备只支持 TCP syslog、需要 rsyslog/syslog-ng 中转时，由外部组件转发到这里。
     正常情况下设备直发 UDP 即可，无需本接口。
+
+    限流与 ``/syslog``、``/traps`` 两个接入端点保持一致（``limit_ingest``，120 次/分/IP）：
+    队列上限只能兜住「攒批层」，挡不住请求层突发，这里必须单独限。
     """
     if not body.raw_log.strip():
         raise HTTPException(status_code=400, detail="raw_log 不能为空")
