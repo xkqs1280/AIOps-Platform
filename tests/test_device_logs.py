@@ -69,7 +69,72 @@ REAL_SAMPLES = {
         dict(module="IFNET", severity=3, hostname="SW3", category="link",
              interface="Ten-GigabitEthernet1/0/5"),
     ),
+    # 以下四条是 .108 上华为 S5700 实机直发平台的原文（2026-09-15 抓取）。
+    # 关键差异：华为把**年份放在日期之后、时间之前**（H3C 放在时间之后）。
+    # 漏认这一形态时时间戳匹配不上，hostname/正文会一起丢——真机上表现为
+    # 华为设备日志的 hostname 全为 NULL，几十条日志全成了"未纳管"。
+    "huawei_vrp_shellcmd": (
+        "<189>Sep 15 2026 21:12:23 HSW1 %%01SHELL/5/CMDRECORD(l)[125]:Record command "
+        'information. (Task=VT0 , Ip=**, User=**, Command="undo debugging all")',
+        dict(module="SHELL", severity=5, mnemonic="CMDRECORD", hostname="HSW1",
+             category="auth"),
+    ),
+    "huawei_vrp_cfm_save": (
+        "<188>Sep 15 2026 21:12:20 HSW1 %%01CFM/4/SAVE(l)[120]:The user chose Y when "
+        "deciding whether to save the configuration to the device.",
+        dict(module="CFM", severity=4, mnemonic="SAVE", hostname="HSW1", category="config"),
+    ),
+    "huawei_vrp_vtyuserlogin": (
+        "<189>Sep 15 2026 21:12:05 HSW1 LINE/5/VTYUSERLOGIN:OID "
+        "1.3.6.1.4.1.2011.5.25.207.2.2 A user login. (UserIndex=34, UserName=admin, "
+        "UserIP=192.168.124.108, UserChannel=VTY0)",
+        dict(module="LINE", severity=5, mnemonic="VTYUSERLOGIN", hostname="HSW1",
+             category="system", username="admin", src_ip="192.168.124.108"),
+    ),
+    "huawei_vrp_hwcm_traplog": (
+        "<189>Sep 15 2026 21:12:21 HSW2 %%01HWCM/5/TRAPLOG(l)[51]:OID "
+        "1.3.6.1.4.1.2011.6.10.2.1 configure changed. (EventIndex=7, CommandSource=1, "
+        "ConfigSource=2, ConfigDestination=4)",
+        dict(module="HWCM", severity=5, mnemonic="TRAPLOG", hostname="HSW2",
+             category="config", src_ip=None),
+    ),
 }
+
+
+def test_oid_is_not_mistaken_for_source_ip():
+    """SNMP OID 的前四段不是 IP。
+
+    华为报文 "OID 1.3.6.1.4.1.2011.6.10.2.1 configure changed." 实测被抓成
+    1.3.6.1 存进 src_ip（.108 上有 68 条），因为它属于 config 类、走了
+    「首个 IPv4」兜底分支。
+    """
+    oid_only = ("<189>Sep 15 2026 21:12:21 HSW2 %%01HWCM/5/TRAPLOG(l)[51]:OID "
+                "1.3.6.1.4.1.2011.6.10.2.1 configure changed.")
+    assert parse_device_log(oid_only, now=NOW)["src_ip"] is None
+
+    # 正文里的真地址仍要抓得到（不能因为加了前瞻就漏掉）
+    real = ("<188>Sep 15 2026 21:00:00 HSW1 %%01SHELL/3/SHELL_LOGINFAIL: Failed to "
+            "login as admin from 192.168.124.99.")
+    assert parse_device_log(real, now=NOW)["src_ip"] == "192.168.124.99"
+
+
+async def test_build_rows_records_datagram_source_ip(db):
+    """入库的 src_ip 必须是**报文的来源**，而不是正文里提到的地址。
+
+    否则 H3C 的 "logged in from 10.0.0.9" 会把设备自身 IP 顶掉，
+    华为的 OID 更会被误抓（见上）。正文里的地址仍完整保留在 content 中。
+    """
+    from datetime import datetime, timezone
+
+    from app.services.syslog_receiver import build_rows
+
+    raw = ("<189>Sep 15 2026 21:12:21 HSW2 %%01HWCM/5/TRAPLOG(l)[51]:OID "
+           "1.3.6.1.4.1.2011.6.10.2.1 configure changed.")
+    rows, _flags = await build_rows(
+        [("192.168.124.204", raw, datetime.now(timezone.utc), "udp")])
+    assert rows[0]["src_ip"] == "192.168.124.204"
+    assert rows[0]["hostname"] == "HSW2"
+    assert rows[0]["module"] == "HWCM"
 
 
 # ---------------------------------------------------------------------------
@@ -512,6 +577,149 @@ def test_build_apply_and_rollback_commands():
     assert "undo info-center enable" in rb2
 
 
+def test_huawei_uses_plain_save_instead_of_save_force():
+    """华为 VRP 没有 `save force`：force 会被当成文件名而报错。
+
+    实测 S5700-28C-HI(V200R001C00) / AR(VRP V500R011)：
+        save force -> Error: Invalid file name or Invalid extension ( *.cfg, *.zip ).
+    故华为必须用 `save`（交互确认由会话自动应答），H3C 继续用 `save force`。
+    """
+    from app.services.device_loghost_service import (
+        build_apply_commands, build_rollback_commands,
+    )
+    hw = build_apply_commands("192.168.124.108", huawei=True)
+    assert hw[-1] == "save"
+    assert not any("save force" in c for c in hw)
+    # 华为的 source 命令语法也不同：必须带 channel + log
+    # （实测直接套用 H3C 写法会报 Unrecognized command 并把 ^ 指向 loghost）
+    assert "info-center source default channel loghost log level informational" in hw
+    assert "info-center source default loghost level informational" not in hw
+
+    # 对照：H3C 仍是 save force + 短语法 source
+    plain = build_apply_commands("192.168.124.108")
+    assert plain[-1] == "save force"
+    assert "info-center source default loghost level informational" in plain
+    assert "channel loghost log level" not in plain
+
+    # 两家共通的步骤完全一致，命令条数也一致（只差那两条的写法）
+    for c in ("system-view", "info-center enable",
+              "info-center loghost 192.168.124.108", "return"):
+        assert c in hw and c in plain
+    assert len(hw) == len(plain)
+
+    hw_rb = build_rollback_commands("192.168.124.108", huawei=True)
+    assert hw_rb[-1] == "save"
+    assert not any("save force" in c for c in hw_rb)
+    assert "undo info-center loghost 192.168.124.108" in hw_rb
+
+    # 不保存（灰度下发）时两家都不带保存命令
+    assert not any(c.startswith("save") for c in
+                   build_apply_commands("192.168.124.108", save=False, huawei=True))
+
+
+@pytest.mark.parametrize("vendor,model,expect", [
+    ("华为", "S5700-28C-HI", True),
+    ("Huawei", "S5700", True),
+    ("huawei", None, True),
+    (None, "AR (VRP V500R011)", True),      # 型号里带 VRP 同样按华为处理
+    ("H3C", "S6850", False),
+    ("H3C", "MSR36-20", False),
+    ("", "", False),
+    (None, None, False),
+])
+def test_is_huawei_vendor_detection(vendor, model, expect):
+    """厂商判定要同时认 vendor 与 model：AR 设备的型号写作 "AR (VRP V500R011)"。"""
+    from app.services.device_loghost_service import is_huawei
+
+    class _D:
+        pass
+
+    d = _D()
+    d.vendor, d.model = vendor, model
+    assert is_huawei(d) is expect
+
+
+def test_errors_in_ignores_huawei_save_confirm_noise():
+    """华为 save 的确认交互会先打一行 'Error: Please choose ...'，但随即保存成功。
+
+    实测该噪音与应答方式（Y / Y\\r\\n / Y\\n）无关，属固有行为。
+    只在**同时**出现保存成功标志时才忽略，避免把真正的报错一起吞掉。
+    """
+    from app.services.device_loghost_service import DeviceSession
+    s = DeviceSession.__new__(DeviceSession)   # errors_in 不依赖实例状态
+
+    noisy_ok = (
+        "save\n"
+        "The current configuration will be written to the device.\n"
+        "Are you sure to continue?[Y/N]\n"
+        "Error: Please choose 'YES' or 'NO' first before pressing 'Enter'. [Y/N]:Y\n"
+        "Now saving the current configuration to the slot 0.\n"
+        "Save the configuration successfully.\n"
+    )
+    assert s.errors_in(noisy_ok) == []
+
+    # 同样的噪音行但**没有**保存成功标志 -> 仍然报错（不掩盖真问题）
+    noisy_bad = noisy_ok.replace("Save the configuration successfully.\n", "")
+    assert s.errors_in(noisy_bad) == ["Error:"]
+
+    # 华为上 save force 的真实报错不受影响
+    real = "save force\nError: Invalid file name or Invalid extension ( *.cfg, *.zip ).\n"
+    assert s.errors_in(real) == ["Error:"]
+
+    # H3C 风格报错同样不受影响
+    assert s.errors_in("% Unrecognized command found at '^' position.") == [
+        "% Unrecognized command"]
+    # 良性噪音与真错误同时出现时，只报真错误
+    mixed = noisy_ok + "% Wrong parameter found at '^' position.\n"
+    assert s.errors_in(mixed) == ["% Wrong parameter"]
+
+
+async def test_read_until_idle_stops_at_success_marker():
+    """保存命令要靠「成功标志」结束读取，而不是干等空闲阈值。
+
+    根因：设备写盘期间会静默数秒，并发下发时按空闲阈值判定会提前收尾，
+    漏掉 "Save the configuration successfully." -> errors_in 只剩确认交互的
+    噪音行 -> 良性过滤失效 -> 明明保存成功却报 Error。
+    """
+    import asyncio
+    import time
+
+    from app.services.device_loghost_service import DeviceSession
+
+    class _Reader:
+        def __init__(self, chunks):
+            self._chunks = list(chunks)
+
+        async def read(self, _n=65536):
+            if self._chunks:
+                return self._chunks.pop(0)
+            await asyncio.sleep(30)        # 模拟设备写盘期间的静默
+            return b""
+
+    class _Writer:
+        def write(self, _b):
+            pass
+
+        async def drain(self):
+            pass
+
+    reader = _Reader([
+        b"save\nAre you sure to continue?[Y/N]\n",
+        b"Now saving the current configuration to the slot 0.\n"
+        b"Save the configuration successfully.\n",
+    ])
+    session = DeviceSession(_Writer(), reader)
+    loop = asyncio.get_running_loop()
+    started = time.monotonic()
+    out = await session._read_until_idle(
+        8.0, loop.time() + 5, until=("Save the configuration successfully",))
+    elapsed = time.monotonic() - started
+
+    assert "successfully" in out
+    assert session.errors_in(out) == []          # 噪音被识别为良性
+    assert elapsed < 3, f"应见到成功标志即刻返回，实际等了 {elapsed:.1f}s"
+
+
 @pytest.mark.parametrize("bad", [
     "192.168.1.1; reboot",              # 命令注入
     "192.168.1.1 && delete /unreserved",
@@ -613,6 +821,22 @@ async def test_loghost_preview_returns_commands(db, device_factory):
     assert "info-center loghost 192.168.124.108" in res["commands"]
     assert res["devices"][0]["name"] == "SW2"
     assert res["rollback_commands"]
+
+    # 华为与 H3C 混选时，预览必须逐台给出**实际**会执行的命令
+    # （把 save force 显示给华为设备是误导操作人）
+    hw = await device_factory(name="HSW1", ip="192.168.124.201", vendor="华为",
+                              model="S5700-28C-HI", mgmt_protocol="ssh", mgmt_port=22)
+    res2 = await loghost_preview(
+        LoghostTargetRequest(device_ids=[dev.id, hw.id], address="192.168.124.108"),
+        db=db, _user={"sub": "admin"},
+    )
+    by_name = {d["name"]: d for d in res2["devices"]}
+    assert by_name["SW2"]["huawei"] is False
+    assert by_name["SW2"]["commands"][-1] == "save force"
+    assert by_name["HSW1"]["huawei"] is True
+    assert by_name["HSW1"]["commands"][-1] == "save"
+    assert not any("save force" in c for c in by_name["HSW1"]["commands"])
+    assert {v["vendor"] for v in res2["variants"]} == {"H3C / 其他", "华为 VRP"}
 
 
 # ---------------------------------------------------------------------------

@@ -353,7 +353,7 @@
               </div>
               <label class="flex items-end gap-2 pb-2.5 text-xs text-ink-muted cursor-pointer select-none">
                 <input v-model="lhForm.save" type="checkbox" class="checkbox" @change="clearPreview" />
-                保存到启动配置（save force）
+                保存到启动配置（H3C 用 save force、华为用 save）
               </label>
             </div>
           </div>
@@ -375,9 +375,14 @@
               <div class="text-[11px] text-ink-faint">
                 目标 {{ lhPreview.devices.length }} 台设备 · {{ lhPreview.address }}:{{ lhPreview.port }}
               </div>
-              <pre class="font-mono text-xs bg-surface-2 border border-line rounded-lg p-3 overflow-x-auto text-ink">{{ (lhPreview.commands || []).join('\n') }}</pre>
-              <div class="text-[11px] text-ink-faint">回滚命令：</div>
-              <pre class="font-mono text-xs bg-surface-2 border border-line rounded-lg p-3 overflow-x-auto text-ink-muted">{{ (lhPreview.rollback_commands || []).join('\n') }}</pre>
+              <div v-for="v in lhVariants" :key="v.vendor || 'default'" class="space-y-2">
+                <div v-if="lhVariants.length > 1" class="text-[11px] text-ink font-medium">
+                  适用：{{ v.vendor }}（{{ v.devices }}）
+                </div>
+                <pre class="font-mono text-xs bg-surface-2 border border-line rounded-lg p-3 overflow-x-auto text-ink">{{ (v.commands || []).join('\n') }}</pre>
+                <div class="text-[11px] text-ink-faint">回滚命令：</div>
+                <pre class="font-mono text-xs bg-surface-2 border border-line rounded-lg p-3 overflow-x-auto text-ink-muted">{{ (v.rollback_commands || []).join('\n') }}</pre>
+              </div>
             </div>
             <p v-else class="text-xs text-ink-faint py-6 text-center">
               选择设备后点「预览命令」查看将要下发的内容（预览不会连接设备）
@@ -1016,10 +1021,37 @@ const allFilteredSelected = computed(() =>
 const canSubmit = computed(() =>
   lhSelected.value.length > 0 && /^(\d{1,3}\.){3}\d{1,3}$/.test(lhForm.value.address || ''))
 
+// 预览命令按厂商分组：华为与 H3C 仅「保存配置」一条不同（华为没有 save force），
+// 混选设备时必须分别展示，否则会把 H3C 的命令显示给华为设备。
+const lhVariants = computed(() => {
+  const p = lhPreview.value
+  if (!p) return []
+  const groups = { true: [], false: [] }
+  for (const d of p.devices || []) {
+    groups[d.huawei ? 'true' : 'false'].push(d.name)
+  }
+  const all = (p.variants && p.variants.length) ? p.variants : [{
+    vendor: '', huawei: false, commands: p.commands, rollback_commands: p.rollback_commands,
+  }]
+  const picked = all.filter((v) => groups[v.huawei ? 'true' : 'false'].length > 0)
+  return (picked.length ? picked : all).map((v) => ({
+    ...v, devices: groups[v.huawei ? 'true' : 'false'].join('、'),
+  }))
+})
+
+function variantCommandsText(rollback) {
+  return lhVariants.value.map((v) => {
+    const cmds = (rollback ? v.rollback_commands : v.commands) || []
+    return lhVariants.value.length > 1
+      ? `# ${v.vendor}（${v.devices}）\n${cmds.join('\n')}`
+      : cmds.join('\n')
+  }).join('\n\n')
+}
+
 const pendingCommandsText = computed(() => {
   if (confirmDialog.value?.commands?.length) return confirmDialog.value.commands.join('\n')
-  if (lhPreview.value) return (confirmDialog.value?.rollback ? lhPreview.value.rollback_commands : lhPreview.value.commands).join('\n')
-  return '（未预览，将使用默认命令）'
+  if (!lhPreview.value) return '（未预览，将使用默认命令）'
+  return variantCommandsText(!!confirmDialog.value?.rollback)
 })
 
 function clearPreview() {
@@ -1090,13 +1122,16 @@ async function doPreview() {
 }
 
 function copyCommands() {
-  const lines = [
-    `# 下发到 ${lhPreview.value?.devices?.length || 0} 台设备`,
-    ...(lhPreview.value?.commands || []),
-    '',
-    '# 回滚命令',
-    ...(lhPreview.value?.rollback_commands || []),
-  ]
+  const lines = [`# 下发到 ${lhPreview.value?.devices?.length || 0} 台设备`]
+  for (const v of lhVariants.value) {
+    if (lhVariants.value.length > 1) lines.push(`# ${v.vendor}（${v.devices}）`)
+    lines.push(...(v.commands || []), '')
+  }
+  lines.push('# 回滚命令')
+  for (const v of lhVariants.value) {
+    if (lhVariants.value.length > 1) lines.push(`# ${v.vendor}（${v.devices}）`)
+    lines.push(...(v.rollback_commands || []))
+  }
   copyText(lines.join('\n'))
 }
 

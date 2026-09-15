@@ -528,23 +528,48 @@ async def loghost_preview(
 ):
     """预览将要下发的命令（不连接设备、不做任何改动）。"""
     address = _resolve_address(body.address)
+    devices = await _load_devices(db, body.device_ids)
     try:
-        commands = loghost.build_apply_commands(address, body.port, body.level, body.save)
-        rollback_commands = loghost.build_rollback_commands(address, body.save)
+        # 华为与 H3C 仅「保存配置」这条不同（华为没有 save force），
+        # 预览必须给出所选设备**实际**会执行的命令，否则会误导操作人。
+        plain_commands = loghost.build_apply_commands(address, body.port, body.level, body.save)
+        plain_rollback = loghost.build_rollback_commands(address, body.save)
+        has_huawei = any(loghost.is_huawei(d) for d in devices)
+        hw_commands = hw_rollback = None
+        if has_huawei:
+            hw_commands = loghost.build_apply_commands(
+                address, body.port, body.level, body.save, huawei=True)
+            hw_rollback = loghost.build_rollback_commands(address, body.save, huawei=True)
     except ValueError as e:
         raise HTTPException(status_code=422, detail=str(e))
-    devices = await _load_devices(db, body.device_ids)
+    variants = [{
+        "vendor": "H3C / 其他",
+        "huawei": False,
+        "commands": plain_commands,
+        "rollback_commands": plain_rollback,
+    }]
+    if has_huawei:
+        variants.append({
+            "vendor": "华为 VRP",
+            "huawei": True,
+            "commands": hw_commands,
+            "rollback_commands": hw_rollback,
+        })
     return {
         "address": address,
         "port": body.port or 514,
         "level": body.level,
         "save": body.save,
-        "commands": commands,
-        "rollback_commands": rollback_commands,
+        "commands": plain_commands,
+        "rollback_commands": plain_rollback,
+        "variants": variants,
         "devices": [
             {
                 "id": d.id, "name": d.name, "ip": d.ip,
                 "protocol": d.mgmt_protocol or "ssh", "port": d.mgmt_port or 22,
+                "vendor": d.vendor, "huawei": loghost.is_huawei(d),
+                "commands": hw_commands if loghost.is_huawei(d) else plain_commands,
+                "rollback_commands": hw_rollback if loghost.is_huawei(d) else plain_rollback,
             }
             for d in devices
         ],

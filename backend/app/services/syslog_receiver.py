@@ -290,7 +290,11 @@ async def build_rows(
             "category": parsed["category"],
             "interface": parsed["interface"],
             "username": parsed["username"],
-            "src_ip": parsed["src_ip"] or source_ip,
+            # src_ip 的语义是「这条日志从哪台机器发来的」（UDP 源 / ingest 声明），
+            # 不能被正文里提到的地址覆盖：H3C 的 "logged in from 10.0.0.9" 指的是
+            # 登录发起方，而华为的 "OID 1.3.6.1.4.1.2011..." 一度被误抓成 1.3.6.1。
+            # 正文里的地址仍完整保留在 content 中，不影响审计取证。
+            "src_ip": source_ip,
             "content": parsed["content"],
             "device_time": parsed["device_time"],
             "device_time_raw": parsed["device_time_raw"],

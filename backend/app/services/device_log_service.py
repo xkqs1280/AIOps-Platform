@@ -100,6 +100,18 @@ _TS_SYSLOG_RE = re.compile(
     r"(?::(?P<ms>\d{1,3}))?"
     r"(?:\s+(?P<year>\d{4}))?"
 )
+# 3) 华为 VRP 的 RFC3164 变体：**年份在日期之后、时间之前**
+#       Sep 15 2026 21:12:23 HSW1 %%01SHELL/5/CMDRECORD(l)[125]:...
+#    H3C 是 "Sep 15 10:30:26 2026"（年份在时间之后）。两种必须都认——
+#    实测漏认华为这种时，时间戳匹配不上，连带 hostname/正文一起丢
+#    （真机上表现为华为设备日志 hostname 全为 NULL）。
+#    两个正则的命名组保持一致，命中后走同一段解析代码。
+_TS_SYSLOG_RE_HUAWEI = re.compile(
+    r"(?P<mon>[A-Z][a-z]{2})\s+(?P<day>\d{1,2})\s+"
+    r"(?P<year>\d{4})\s+"
+    r"(?P<hh>\d{2}):(?P<mm>\d{2}):(?P<ss>\d{2})"
+    r"(?::(?P<ms>\d{1,3}))?"
+)
 
 _MONTHS = {
     "Jan": 1, "Feb": 2, "Mar": 3, "Apr": 4, "May": 5, "Jun": 6,
@@ -122,17 +134,22 @@ _IFACE_RE = re.compile(
 _USER_RES = (
     re.compile(r"(?P<user>[\w.\-@\\]+)\s+logged\s+(?:in|out)", re.IGNORECASE),
     re.compile(r"User=(?P<user>[^;,\s]+)"),
+    re.compile(r"UserName=(?P<user>[^;,\s]+)"),      # 华为 VRP：UserName=admin,
     re.compile(r"user\s+(?P<user>[\w.\-@\\]+)\s+(?:logged|login)", re.IGNORECASE),
 )
 
-# 源 IP（登录来源 / 命令行审计的 -IPAddr=）
+# 源 IP（登录来源 / 命令行审计的 -IPAddr= / 华为 UserIP=）
 _SRC_IP_RES = (
     re.compile(r"from\s+(?P<ip>\d{1,3}(?:\.\d{1,3}){3})", re.IGNORECASE),
     re.compile(r"IPAddr=(?P<ip>\d{1,3}(?:\.\d{1,3}){3})"),
+    re.compile(r"UserIP=(?P<ip>\d{1,3}(?:\.\d{1,3}){3})"),   # 华为 VRP：UserIP=1.2.3.4,
     re.compile(r"source\s+(?P<ip>\d{1,3}(?:\.\d{1,3}){3})", re.IGNORECASE),
 )
 
-_IPV4_RE = re.compile(r"\b\d{1,3}(?:\.\d{1,3}){3}\b")
+# IPv4 兜底（仅认证/配置类使用）。前后都不能紧邻「.数字」——否则会把 SNMP OID
+# 的任意四段当成地址：华为报文 "OID 1.3.6.1.4.1.2011.6.10.2.1 configure changed."
+# 实测被抓成 1.3.6.1（去掉前置断言后又会抓成 6.10.2.1）。
+_IPV4_RE = re.compile(r"(?<![\d.])\d{1,3}(?:\.\d{1,3}){3}(?!\.\d)")
 
 # ---------------------------------------------------------------------------
 # 分类规则
@@ -255,7 +272,9 @@ def extract_timestamp(
                 aware = _apply_device_offset(naive, offset_hours)
             return aware, m.group(0), (m.start(), m.end())
 
-    m = _TS_SYSLOG_RE.search(text)
+    # 两种 RFC3164 排布：H3C「Mon DD HH:MM:SS [YYYY]」优先，
+    # 再试华为「Mon DD YYYY HH:MM:SS」。两者互斥，不会误匹配。
+    m = _TS_SYSLOG_RE.search(text) or _TS_SYSLOG_RE_HUAWEI.search(text)
     if m:
         try:
             month = _MONTHS[m.group("mon")]
