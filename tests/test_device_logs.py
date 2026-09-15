@@ -1254,3 +1254,194 @@ async def test_unverified_device_still_can_be_rolled_back(db, device_factory):
     recs = await lh.latest_records(db, [dev.id])
     assert recs[dev.id].status == "unverified"
     assert lh.infocenter_was_disabled(recs[dev.id].before_config) is False
+
+
+# ---------------------------------------------------------------------------
+# 8. 回验改用 `display info-center`（运行时真值）+ 「实际收到日志」并入状态
+#
+# 现场（HX-7506X / 10.236.148.1）里 `display current-configuration | include
+# info-center` 什么也读不出来，但这台设备**一直在往平台发日志**；换
+# `display info-center` 一句话就把目标地址摆出来了。教训有两条：
+#   ① 回读要优先问"运行时把日志发去哪了"，而不是去翻配置文件；
+#   ② "有没有真的收到日志"是配置生效最硬的证据，必须并进状态展示。
+# ---------------------------------------------------------------------------
+
+# 真机原文（还原为设备实际的分行形态）
+HX7506X_INFO_CENTER = (
+    "<HX-7506X>display info-center\r\n"
+    "Information Center: Enabled\r\n"
+    " Console: Enabled\r\n"
+    " Monitor: Enabled\r\n"
+    " Log host: Enabled\r\n"
+    "  10.236.148.62,port number: 514, DSCP value:0, host facility: local7\r\n"
+    " Log buffer: Enabled\r\n"
+    "  Max buffer size 1024, current buffer size 512\r\n"
+    "  Current messages 512, dropped messages 0, overwritten messages 192791\r\n"
+    " Log file: Enabled\r\n"
+    " Security log file: Disabled\r\n"
+    " Information timestamp format:\r\n"
+    "  Log host: Date\r\n"
+    "  Other output destination: Date\r\n"
+    "<HX-7506X>"
+)
+
+
+def test_display_info_center_parsing_matches_real_device_output():
+    from app.services.device_loghost_service import _has_loghost, _parse_info_center
+
+    text, hosts = _parse_info_center(HX7506X_INFO_CENTER)
+    assert hosts == ["10.236.148.62"]
+    assert _has_loghost(text, "10.236.148.62") is True
+    assert _has_loghost(text, "10.236.148.99") is False
+
+
+def test_display_info_center_parsing_drops_buffer_noise():
+    """缓冲区计数与其它字段是噪音，不进快照（否则快照字段会被撑大且干扰阅读）。"""
+    from app.services.device_loghost_service import _parse_info_center
+
+    text, _ = _parse_info_center(HX7506X_INFO_CENTER)
+    assert "Log buffer" not in text
+    assert "overwritten messages" not in text
+    assert "Information Center: Enabled" in text
+    assert "Log host: Enabled" in text
+    # timestamp 段里的 `Log host: Date` 不能被当成日志主机条目
+    assert "Date" not in text
+
+
+def test_display_info_center_handles_cr_only_line_endings():
+    """只发裸 CR 的老设备：整段不能粘成一行，否则地址行首判定全灭。"""
+    from app.services.device_loghost_service import _parse_info_center
+
+    raw = ("Information Center: Enabled\r Log host: Enabled\r"
+           "  10.1.1.1,port number: 514\r Log buffer: Enabled\r")
+    _, hosts = _parse_info_center(raw)
+    assert hosts == ["10.1.1.1"]
+
+
+def test_display_info_center_disabled_is_authoritative():
+    """`Log host: Disabled` 是权威结论：读到了就能确认"设备确实没配"。
+
+    这条决定了三态里该判 failed 还是 unverified —— 运行时状态读得到，
+    就不能再以"读法可能不对"为由挂在"待确认"上。
+    """
+    from app.services.device_loghost_service import (
+        STATE_FAILED, _judge_apply, _parse_info_center,
+    )
+    from app.services.device_loghost_service import Snapshot
+
+    text, hosts = _parse_info_center(
+        "Information Center: Enabled\n Log host: Disabled\n Log buffer: Enabled\n")
+    assert hosts == []
+    snap = Snapshot(text, "display info-center", True, [], hosts, "state")
+    assert _judge_apply("10.1.1.1", snap, [])[0] == STATE_FAILED
+
+
+async def test_snapshot_prefers_display_info_center():
+    """首选 `display info-center`：第一条就拿到运行时真值，不必再退化。"""
+    from app.services.device_loghost_service import (
+        INFO_CENTER_CMD, fetch_infocenter_snapshot,
+    )
+
+    sess = _FakeSession({INFO_CENTER_CMD: HX7506X_INFO_CENTER})
+    snap = await fetch_infocenter_snapshot(sess)
+
+    assert sess.calls == [INFO_CENTER_CMD], "第一条命中就不该再打后面几条"
+    assert snap.command == INFO_CENTER_CMD
+    assert snap.kind == "state"
+    assert snap.trusted is True
+    assert "10.236.148.62" in snap.hosts
+
+
+async def test_snapshot_falls_back_when_info_center_unsupported():
+    """个别型号没有 `display info-center`：报错后仍要退化到配置类命令。"""
+    from app.services.device_loghost_service import (
+        INFO_CENTER_CMD, SNAPSHOT_CMDS, fetch_infocenter_snapshot,
+    )
+
+    cfg_cmd = SNAPSHOT_CMDS[1]
+    err = "% Unrecognized command found at '^' position.\n"
+    sess = _FakeSession(
+        {INFO_CENTER_CMD: err, cfg_cmd: "info-center loghost 10.236.148.62 port 514\r\n"},
+        errors={err: ["% Unrecognized command"]},
+    )
+    snap = await fetch_infocenter_snapshot(sess)
+
+    assert snap.command == cfg_cmd
+    assert snap.kind == "config"
+    assert snap.trusted is True
+    assert "10.236.148.62" in snap.hosts
+
+
+def test_judge_apply_names_the_hosts_actually_in_effect():
+    """回读可信但没有目标时，消息里要写清设备**当前生效**的日志主机。
+
+    没有这句，现场只能拿到一句"没找到"，还得再爬上设备看一遍。
+    """
+    from app.services.device_loghost_service import STATE_FAILED, Snapshot, _judge_apply
+
+    snap = Snapshot("Log host: Enabled\n10.1.1.1,port number: 514", "display info-center",
+                    True, [], ["10.1.1.1"], "state")
+    state, msg = _judge_apply("10.236.148.62", snap, [])
+
+    assert state == STATE_FAILED
+    assert "10.1.1.1" in msg
+    assert "display info-center" in msg
+
+
+async def test_loghost_status_merges_devices_actually_sending_logs(db, device_factory):
+    """「实际收到日志」必须并入日志主机状态。
+
+    只在设备上手工配好、平台没有下发记录的设备，如果只按记录展示就会显示成
+    "未配置"，操作人据此重复下发 —— 对生产设备就是二次真实变更。
+    """
+    from app.routers.device_logs import loghost_status
+
+    manual = await device_factory(name="HX-7506X", ip="10.236.148.1")
+    applied = await device_factory(name="SW2", ip="192.168.124.66")
+    await device_factory(name="SW9", ip="192.168.124.69")   # 无记录也无日志
+
+    await _seed(db, manual, [REAL_SAMPLES["phy_down"][0]])
+    db.add(DeviceLogHostConfig(
+        device_id=applied.id, device_name=applied.name, device_ip=applied.ip,
+        loghost_address="192.168.124.108", status="applied",
+    ))
+    await db.commit()
+
+    res = await loghost_status(db=db, _user={"sub": "admin"})
+    by_name = {it["device_name"]: it for it in res["items"]}
+
+    assert by_name["HX-7506X"]["status"] == "receiving"
+    assert by_name["HX-7506X"]["source"] == "traffic"
+    assert by_name["HX-7506X"]["receiving"] is True
+    assert by_name["HX-7506X"]["log_count"] >= 1
+    assert by_name["HX-7506X"]["last_log_at"]
+    assert by_name["SW2"]["receiving"] is False
+    assert by_name["SW2"]["source"] == "record"
+    assert "SW9" not in by_name, "既无记录也无日志的设备不该出现在列表里"
+
+    # 卡片口径：已接入 = 确实在发日志的 + 平台确认下发但暂无日志的（并集且不重复计数）
+    assert res["summary"]["receiving"] == 1
+    assert res["summary"]["applied_silent"] == 1
+    assert res["summary"]["managed"] == 2
+
+    # 记录写着 failed、但日志确确实实在进来（.108 上的 HSW1 就是这种）：
+    # 必须算进「已接入」。否则卡片数字和明细对不上 —— 界面自相矛盾，
+    # 而且会诱导操作人对一台**工作正常**的设备重发配置。
+    stale = await device_factory(name="HSW1", ip="192.168.124.201")
+    db.add(DeviceLog(
+        device_id=stale.id, src_ip=stale.ip, hostname=stale.name,
+        content="link up", severity=6, category="link", log_source="udp",
+        received_at=datetime.now(timezone.utc),
+    ))
+    db.add(DeviceLogHostConfig(
+        device_id=stale.id, device_name=stale.name, device_ip=stale.ip,
+        loghost_address="192.168.124.108", status="failed",
+    ))
+    await db.commit()
+
+    res = await loghost_status(db=db, _user={"sub": "admin"})
+    by_name = {it["device_name"]: it for it in res["items"]}
+    assert by_name["HSW1"]["status"] == "failed"
+    assert by_name["HSW1"]["receiving"] is True
+    assert res["summary"]["managed"] == 3
+    assert res["summary"]["failed"] == 0, "日志在进来的设备不该再以「失败」面貌出现"

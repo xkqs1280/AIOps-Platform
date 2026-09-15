@@ -671,12 +671,27 @@ async def loghost_rollback(
     }
 
 
+# 「设备已在往平台发日志」的判定时间窗（天）。
+#   太短：日志稀少的设备（一天几条）会被漏判成"没配"；
+#   太长：设备早已改过配置、但缓冲区里的历史日志还在陆续到达时，会被误判成"还在发"。
+LOG_HOST_RECEIVING_DAYS = 7
+
+
 @router.get("/loghost/status")
 async def loghost_status(
     db: AsyncSession = Depends(get_db),
     _user: dict = Depends(current_user),
 ):
-    """各设备当前 loghost 配置状态（来自最近一次下发记录）。"""
+    """各设备当前的日志主机状态（下发记录 + 实际收到的日志，两个来源合并）。
+
+    1. **下发记录**（``device_loghost_configs`` 每台设备最新一条）—— 平台对它做过什么；
+    2. **实际收到的日志**（``device_logs`` 近 :data:`LOG_HOST_RECEIVING_DAYS` 天）——
+       设备**确实**把日志发到了本平台。
+
+    只看来源 1 会漏掉「有人直接在设备上配好、平台没有记录」的情况：页面显示"未配置"，
+    操作人很可能据此重复下发，对生产设备就是二次真实变更。来源 2 恰好补上这个缺口 ——
+    而且它是**唯一能证明"配置真的生效了"的证据**：命令下发成功 ≠ 日志真的发过来了。
+    """
     rows = (await db.execute(
         select(DeviceLogHostConfig)
         .options(joinedload(DeviceLogHostConfig.device))
@@ -688,11 +703,37 @@ async def loghost_status(
         key = r.device_id if r.device_id is not None else -r.id
         if key not in latest:
             latest[key] = r
-    items = []
-    for r in latest.values():
+
+    # 实际收到过日志的设备（有没有日志到达，是"配置真的生效"最硬的证据）
+    since = datetime.now(timezone.utc) - timedelta(days=LOG_HOST_RECEIVING_DAYS)
+    traffic_rows = (await db.execute(
+        select(DeviceLog.device_id, func.max(DeviceLog.received_at), func.count(DeviceLog.id))
+        .where(DeviceLog.device_id.is_not(None), DeviceLog.received_at >= since)
+        .group_by(DeviceLog.device_id)
+    )).all()
+    traffic: dict[int, tuple[datetime | None, int]] = {
+        did: (last_at, n) for did, last_at, n in traffic_rows if did is not None
+    }
+
+    # 只有日志、没有下发记录的设备（平台从没对它下过发，但它在发日志）
+    extra_ids = [did for did in traffic if did not in latest]
+    dev_map: dict[int, tuple[str, str]] = {}
+    if extra_ids:
+        for did, dname, dip in (await db.execute(
+            select(Device.id, Device.name, Device.ip).where(Device.id.in_(extra_ids))
+        )).all():
+            dev_map[did] = (dname, dip)
+
+    def _stamp(dt: datetime | None) -> str | None:
+        return dt.isoformat() if dt else None
+
+    items: list[dict] = []
+    for key, r in latest.items():
         dev = r.device
+        did = r.device_id
+        last_at, n = traffic.get(did, (None, 0)) if did is not None else (None, 0)
         items.append({
-            "device_id": r.device_id,
+            "device_id": did,
             # 设备已从平台删除时退回记录里的快照，保证"改的是哪台设备"仍可辨认
             "device_name": dev.name if dev else r.device_name,
             "device_ip": dev.ip if dev else r.device_ip,
@@ -700,13 +741,62 @@ async def loghost_status(
             "port": r.loghost_port,
             "status": r.status,
             "message": r.message,
-            "applied_at": r.applied_at.isoformat() if r.applied_at else None,
-            "rolled_back_at": r.rolled_back_at.isoformat() if r.rolled_back_at else None,
-            "created_at": r.created_at.isoformat() if r.created_at else None,
+            "source": "both" if last_at else "record",
+            "receiving": bool(last_at),
+            "last_log_at": _stamp(last_at),
+            "log_count": n,
+            "applied_at": _stamp(r.applied_at),
+            "rolled_back_at": _stamp(r.rolled_back_at),
+            "created_at": _stamp(r.created_at),
             "operator": r.operator,
         })
+
+    for did, (last_at, n) in traffic.items():
+        if did in latest:
+            continue
+        name, ip = dev_map.get(did, ("未知设备", ""))
+        items.append({
+            "device_id": did,
+            "device_name": name,
+            "device_ip": ip,
+            "address": settings.SYSLOG_ADVERTISE_ADDRESS or None,
+            "port": settings.SYSLOG_UDP_PORT,
+            # 平台没下发过，但日志确实在进来 —— 说明设备侧是配好的（手工配或历史遗留）
+            "status": "receiving",
+            "message": f"平台未记录下发操作，但近 {LOG_HOST_RECEIVING_DAYS} 天已收到该设备日志",
+            "source": "traffic",
+            "receiving": True,
+            "last_log_at": _stamp(last_at),
+            "log_count": n,
+            "applied_at": None,
+            "rolled_back_at": None,
+            "created_at": None,
+            "operator": None,
+        })
+
+    rank = {"applied": 0, "receiving": 1, "unverified": 2, "failed": 3, "rolled_back": 4}
+    items.sort(key=lambda it: (rank.get(it["status"], 9), (it["device_name"] or "").lower()))
+
+    # 「已接入」的两个来源取并集，且**不重复计数**：
+    #   ① 日志真的在进来（最硬的证据，不管下发记录写了什么）；
+    #   ② 平台确认下发成功/待确认，但还没见到日志（设备可能只是这段时间没事件）。
+    # 记成 failed 却在发日志的设备（如 HSW1）算在 ① 里 —— 它明明是通的，
+    # 若按记录只报"失败"，界面会自相矛盾（卡片数字与明细对不上）。
+    receiving_n = sum(1 for it in items if it["receiving"])
+    silent_n = sum(1 for it in items
+                   if not it["receiving"] and it["status"] in ("applied", "unverified"))
     return {
         "items": items,
+        "summary": {
+            "managed": receiving_n + silent_n,
+            "receiving": receiving_n,
+            "applied_silent": silent_n,
+            "failed": sum(1 for it in items
+                          if it["status"] == "failed" and not it["receiving"]),
+            "rolled_back": sum(1 for it in items
+                               if it["status"] == "rolled_back" and not it["receiving"]),
+        },
+        "receiving_days": LOG_HOST_RECEIVING_DAYS,
         "platform_address": settings.SYSLOG_ADVERTISE_ADDRESS or None,
         "udp_port": settings.SYSLOG_UDP_PORT,
     }

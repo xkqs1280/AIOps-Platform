@@ -51,7 +51,7 @@
     </div>
 
     <!-- ================= 统计卡片 ================= -->
-    <div class="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-5">
+    <div class="grid grid-cols-2 lg:grid-cols-3 xl:grid-cols-5 gap-4 mb-5">
       <div class="card card-lift p-4">
         <div class="flex items-center justify-between">
           <span class="card-title">{{ statsRangeLabel }}</span>
@@ -83,6 +83,25 @@
           {{ fmtNum(missingTotal) }}
         </div>
         <div class="text-[11px] text-ink-faint mt-1">来源 IP 不在设备表 → 排查漏管设备</div>
+      </button>
+
+      <!-- 日志主机：已把日志发到本平台的设备数。点开看是哪几台 —— 这张表才是
+           「配置到底生效没有」的真凭据（命令下发成功 ≠ 日志真的发过来了）。 -->
+      <button class="card card-lift p-4 text-left" @click="openLoghostDetail">
+        <div class="flex items-center justify-between">
+          <span class="card-title">日志主机</span>
+          <ServerStackIcon class="w-4 h-4 text-violet-400" />
+        </div>
+        <div class="text-2xl font-bold mt-2 tabular-nums" :class="lhManaged.length ? 'text-success' : ''">
+          {{ fmtNum(lhManaged.length) }}
+        </div>
+        <div class="text-[11px] text-ink-faint mt-1 truncate">
+          <template v-if="lhManaged.length">
+            已收到日志 {{ lhHostSummary.receiving }}
+            <template v-if="lhHostSummary.applied_silent"> · 已下发暂无日志 {{ lhHostSummary.applied_silent }}</template>
+          </template>
+          <template v-else>尚无设备把日志发到本平台</template>
+        </div>
       </button>
 
       <div class="card card-lift p-4">
@@ -471,8 +490,9 @@
                 <input type="checkbox" class="checkbox" :value="d.id" v-model="lhSelected" @change="clearPreview" />
                 <span class="text-ink flex-1 truncate">{{ d.name }}</span>
                 <span class="font-mono text-xs text-ink-faint">{{ d.ip }}</span>
-                <span class="badge shrink-0" :class="statusBadgeClass(lhStatusOf(d.id)?.status)">
-                  {{ statusLabel(lhStatusOf(d.id)?.status) }}
+                <span class="badge shrink-0" :class="statusBadgeClass(lhDisplayStatus(d.id))"
+                      :title="lhStatusHint(d.id)">
+                  {{ statusLabel(lhDisplayStatus(d.id)) }}
                 </span>
               </label>
               <div v-if="lhFilteredDevices.length === 0" class="px-3 py-10 text-center text-ink-faint text-sm">
@@ -482,7 +502,7 @@
           </div>
 
           <div class="card p-4">
-            <h3 class="card-title mb-3">日志主机配置状态（最近一次操作）</h3>
+            <h3 class="card-title mb-3">日志主机配置状态（记录 + 实际收到日志）</h3>
             <div class="max-h-72 overflow-y-auto">
               <table class="table">
                 <thead>
@@ -490,7 +510,7 @@
                     <th>设备</th>
                     <th>日志主机</th>
                     <th>状态</th>
-                    <th>时间</th>
+                    <th>最近收到日志</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -503,20 +523,100 @@
                       {{ s.address }}<span v-if="s.port && s.port !== 514">:{{ s.port }}</span>
                     </td>
                     <td>
-                      <span class="badge" :class="statusBadgeClass(s.status)">{{ statusLabel(s.status) }}</span>
+                      <span class="badge" :class="statusBadgeClass(lhDisplayStatus(s.device_id, s))"
+                            :title="lhStatusHint(s.device_id, s)">
+                        {{ statusLabel(lhDisplayStatus(s.device_id, s)) }}
+                      </span>
                       <div v-if="s.message" class="text-[11px] text-ink-faint mt-0.5 truncate max-w-[180px]" :title="s.message">
                         {{ s.message }}
                       </div>
                     </td>
-                    <td class="text-xs whitespace-nowrap">{{ fmtTime(s.applied_at || s.rolled_back_at || s.created_at) }}</td>
+                    <td class="text-xs whitespace-nowrap">
+                      <template v-if="s.last_log_at">
+                        <div>{{ fmtTime(s.last_log_at) }}</div>
+                        <div class="text-[11px] text-ink-faint">
+                          {{ fmtNum(s.log_count) }} 条 / {{ lhStatusInfo.receiving_days }} 天
+                        </div>
+                      </template>
+                      <span v-else class="text-ink-faint">—</span>
+                    </td>
                   </tr>
                   <tr v-if="lhStatus.length === 0">
-                    <td colspan="4" class="py-8 text-center text-ink-faint">暂无下发记录</td>
+                    <td colspan="4" class="py-8 text-center text-ink-faint">暂无下发记录，也未收到日志</td>
                   </tr>
                 </tbody>
               </table>
             </div>
           </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ================= 日志主机详情（顶部卡片点开） ================= -->
+    <div v-if="lhDetailOpen" class="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4"
+         @click.self="lhDetailOpen = false">
+      <div class="bg-surface border border-line rounded-xl w-full max-w-3xl max-h-[82vh] flex flex-col">
+        <div class="flex items-start justify-between gap-4 px-5 py-4 border-b border-line">
+          <div>
+            <h3 class="text-base font-bold">日志主机 · 已接入设备</h3>
+            <p class="text-[11px] text-ink-faint mt-0.5">
+              平台地址
+              <span class="font-mono">{{ lhStatusInfo.platform_address || '未配置' }}:{{ lhStatusInfo.udp_port || 514 }}</span>
+              · 近 {{ lhStatusInfo.receiving_days }} 天统计
+            </p>
+          </div>
+          <button class="btn btn-ghost btn-sm" @click="lhDetailOpen = false">关闭</button>
+        </div>
+
+        <div class="px-5 py-3 border-b border-line flex flex-wrap items-center gap-4 text-xs">
+          <span class="text-success">已收到日志 {{ lhHostSummary.receiving }}</span>
+          <span v-if="lhHostSummary.applied_silent" class="text-cyan-400">
+            已下发暂无日志 {{ lhHostSummary.applied_silent }}
+          </span>
+          <span v-if="lhHostSummary.failed" class="text-danger">失败 {{ lhHostSummary.failed }}</span>
+          <span class="text-ink-faint">合计 {{ lhManaged.length }} 台</span>
+        </div>
+
+        <div class="overflow-y-auto">
+          <table class="table">
+            <thead>
+              <tr>
+                <th>设备名称</th>
+                <th>设备 IP</th>
+                <th>状态</th>
+                <th>最近收到日志</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr v-for="(s, i) in lhManaged" :key="i">
+                <td class="text-ink">{{ s.device_name || '—' }}</td>
+                <td class="font-mono text-xs text-ink-muted">{{ s.device_ip || '—' }}</td>
+                <td>
+                  <span class="badge" :class="statusBadgeClass(lhDisplayStatus(s.device_id, s))">
+                    {{ statusLabel(lhDisplayStatus(s.device_id, s)) }}
+                  </span>
+                  <span v-if="s.source === 'traffic'" class="text-[11px] text-ink-faint ml-1.5">设备侧已配（平台无记录）</span>
+                </td>
+                <td class="text-xs whitespace-nowrap">
+                  <template v-if="s.last_log_at">
+                    {{ fmtTime(s.last_log_at) }}
+                    <span class="text-ink-faint">（{{ fmtNum(s.log_count) }} 条）</span>
+                  </template>
+                  <span v-else class="text-ink-faint">—</span>
+                </td>
+              </tr>
+              <tr v-if="lhManaged.length === 0">
+                <td colspan="4" class="py-10 text-center text-ink-faint">
+                  还没有设备把日志发到本平台。到「日志主机下发」页选择设备并下发后即会出现在这里。
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+
+        <div class="px-5 py-3 border-t border-line text-[11px] text-ink-faint">
+          「已下发」= 平台确认配置生效，或确实已收到该设备的日志；「仅收到日志」= 设备侧已经配好，但平台没有下发记录（多为手工配置）。
+          收到日志是配置真的生效的唯一硬证据 —— 命令下发成功不等于日志会来。
         </div>
       </div>
     </div>
@@ -613,6 +713,7 @@ import {
   XCircleIcon,
   ClipboardDocumentIcon,
   CloudArrowUpIcon,
+  ServerStackIcon,
 } from '@heroicons/vue/24/outline'
 import { chartTheme, onThemeChange } from '../utils/chartTheme'
 import {
@@ -1022,6 +1123,9 @@ const lhBusy = computed(() => lhApplying.value)
 const lhProgress = ref({ done: 0, total: 0, label: '' })
 const lhResults = ref([])
 const lhStatus = ref([])
+// 后端下发的汇总与平台地址（卡片数字、详情弹层表头都用它，不在前端另算一套）
+const lhStatusInfo = ref({ summary: {}, platform_address: null, udp_port: null, receiving_days: 7 })
+const lhDetailOpen = ref(false)
 const lhLoading = ref(false)
 
 const pendingIds = ref([])
@@ -1096,16 +1200,62 @@ function lhStatusOf(deviceId) {
   return lhStatus.value.find((s) => s.device_id === deviceId)
 }
 
+// 「实际收到日志」是配置真的生效的硬证据：设备在往本平台发日志，就说明它侧边
+// 确实配好了 —— 此时无论下发记录是什么状态（甚至根本没有记录），都按"已下发"呈现，
+// 否则操作人会以为没配上而重复下发（对生产设备是二次真实变更）。
+function lhDisplayStatus(deviceId, item) {
+  const s = item || lhStatusOf(deviceId)
+  if (!s) return null
+  return s.receiving ? 'applied' : s.status
+}
+
+function lhStatusHint(deviceId, item) {
+  const s = item || lhStatusOf(deviceId)
+  if (!s) return ''
+  const parts = []
+  if (s.receiving) {
+    parts.push(`近 ${lhStatusInfo.value.receiving_days} 天已收到该设备日志 ${s.log_count} 条`
+      + `（最近 ${fmtTime(s.last_log_at)}），设备侧确实在往本平台发日志`)
+  }
+  if (s.source === 'traffic') parts.push('平台没有下发记录，应为设备侧手工配置')
+  if (s.status && s.status !== 'receiving') {
+    parts.push(`下发记录：${STATUS_LABEL[s.status] || s.status}`)
+  }
+  if (s.message) parts.push(s.message)
+  return parts.join('；')
+}
+
 const STATUS_BADGE = {
   applied: 'badge-success', rolled_back: 'badge-neutral',
-  unverified: 'badge-warning', failed: 'badge-danger',
+  unverified: 'badge-warning', failed: 'badge-danger', receiving: 'badge-success',
 }
 const STATUS_LABEL = {
   applied: '已下发', rolled_back: '已回滚',
-  unverified: '待确认', failed: '失败',
+  unverified: '待确认', failed: '失败', receiving: '已下发',
 }
 const statusBadgeClass = (s) => STATUS_BADGE[s] || 'badge-neutral'
 const statusLabel = (s) => STATUS_LABEL[s] || (s ? s : '未配置')
+
+// 顶部「日志主机」卡片与详情弹层：口径与后端 /loghost/status 的 summary 完全一致
+// （两处各算一套必然对不上：曾经卡片 10 台、副标题却只凑出 9 台）。
+const lhHostSummary = computed(() => lhStatusInfo.value.summary || {})
+const lhManaged = computed(() => lhStatus.value.filter(
+  (s) => s.receiving || ['applied', 'unverified'].includes(s.status)))
+
+function applyLoghostStatus(status) {
+  lhStatus.value = status?.items || []
+  lhStatusInfo.value = {
+    summary: status?.summary || {},
+    platform_address: status?.platform_address || null,
+    udp_port: status?.udp_port ?? null,
+    receiving_days: status?.receiving_days ?? 7,
+  }
+}
+
+function openLoghostDetail() {
+  lhDetailOpen.value = true
+  loadLoghostStatus()   // 卡片数字可能是几分钟前的，点开时刷新一次
+}
 
 // 「待确认」= 命令已下发且无报错，但配置回读不可信，无法确认是否生效。
 // 不能当失败看（会诱导重复下发），也不能当成功看（数据未必落上）。
@@ -1133,7 +1283,7 @@ async function loadLoghost() {
     if (!lhForm.value.address) {
       lhForm.value.address = cand.configured || cand.candidates?.[0] || ''
     }
-    lhStatus.value = status.items || []
+    applyLoghostStatus(status)
     lhDevices.value = devs.items || []
   } catch (e) {
     console.error('加载日志主机配置失败', e)
@@ -1265,9 +1415,9 @@ async function doRollback() {
 
 async function loadLoghostStatus() {
   try {
-    lhStatus.value = (await getLoghostStatus()).items || []
+    applyLoghostStatus(await getLoghostStatus())
   } catch (e) {
-    console.error('加载下发状态失败', e)
+    console.error('加载日志主机状态失败', e)
   }
 }
 
@@ -1296,7 +1446,8 @@ function switchTab(key) {
 let timer = null
 
 onMounted(async () => {
-  await Promise.all([loadReceiver(), loadMeta()])
+  // 日志主机状态与统计卡同时在首屏加载：顶部「日志主机」卡片要立刻有数
+  await Promise.all([loadReceiver(), loadMeta(), loadLoghostStatus()])
   await Promise.all([loadLogs(), loadStats()])
   window.addEventListener('resize', onResize)
   offTheme = onThemeChange(() => nextTick(renderCharts))

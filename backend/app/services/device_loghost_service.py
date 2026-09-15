@@ -84,12 +84,15 @@ _ANSI_RE = re.compile(r"\x1b\[[0-9;?]*[ -/]*[@-~]|\x1b[()][A-Za-z0-9]|\x1b[=>]")
 # 提前结束 —— 目标行落在后面几页里就永远看不到，表现为「配置明明生效却回验不到」。
 _PAGING_MARKERS = ("---- more ----", "--more--", "<--- more --->")
 
-# 回读配置的命令候选：先窄后宽。
-#   - 窄命令靠 `| include <关键词>` 过滤，输出小、快；
-#   - 但**并非所有型号都支持该过滤语法**，有的会直接报错、有的静默返回空 ——
-#     后者无法与「设备上确实没有该配置」区分，因此只在**命令明确报错**时退化，
-#     避免对「本来就没配 info-center」的设备白白整段 dump。
+# 回读命令候选。**首选 `display info-center`** —— 它输出的是设备**运行时真值**
+# （「现在到底把日志发去哪」），不依赖 `| include` 过滤语法，也不受配置文件是否
+# 已落盘影响。现场（HX-7506X）正是 `display current-configuration | include
+# info-center` 读不出东西、而 `display info-center` 一眼就能看到
+# `Log host: Enabled` 与目标地址，才把一次已经生效的下发误报成失败。
+# 后三条配置类命令作为兜底（个别老型号没有 display info-center）。
+INFO_CENTER_CMD = "display info-center"
 SNAPSHOT_CMDS = (
+    INFO_CENTER_CMD,
     "display current-configuration | include info-center",
     "display current-configuration | include loghost",
     "display current-configuration",
@@ -103,6 +106,31 @@ _SNAPSHOT_KEEP_RE = re.compile(r"info-center|loghost|logging\s+host", re.IGNOREC
 # 判定「配置里存在目标日志主机」的行首关键字。保持严格：必须是日志主机配置行且
 # 含**完整 IP**，避免把正文里偶现的地址当成配置（曾把华为 OID 的前四段误认成 IP）。
 _LOGHOST_LINE_RE = re.compile(r"^(?:info-center\s+loghost|logging\s+host|loghost)\b", re.IGNORECASE)
+
+# `display info-center` 的字段行（H3C Comware / 华为 VRP 同构），用来切分 Log host 段。
+# 靠"下一个已知字段名"收段而不是靠缩进 —— 回传/粘贴时常把缩进吃掉，缩进判定不可靠。
+_INFO_CENTER_FIELD_RE = re.compile(
+    r"^(?:Information Center|Console|Monitor|Log host|Log buffer|Log file"
+    r"|Security log file|Information timestamp format)\b",
+    re.IGNORECASE,
+)
+# `Log host:` 段的标题行。注意 **不能只看行首是不是 "Log host"**：
+# `Information timestamp format` 段里也有个 `Log host: Date`，那样会把它也当成
+# 段首。所以拆成「状态值 + 余下内容」，只有 ①值就是 Enabled/Disabled、
+# ②值是空的（华为 `Log host:`）、③余下内容里带地址条目 —— 三者之一才算段首。
+_INFO_CENTER_LOGHOST_RE = re.compile(
+    r"^log\s*host\s*:\s*(?P<state>enabled|disabled)?\s*(?P<rest>.*)$", re.IGNORECASE
+)
+# info-center 状态里的日志主机条目形如
+#   `10.236.148.62,port number: 514, DSCP value:0, host facility: local7`（H3C）
+#   `10.1.1.1, port: 514, host facility: local7`（华为）
+# 只认「IP 后紧跟分隔符 / port / 行尾」的形态；OID 那类 `1.3.6.1.4.1.2011...`
+# 因 IP 片段后面是 `.`，会被**前后顾**排除。
+_INFO_CENTER_HOST_RE = re.compile(
+    r"(?<![\d.])(\d{1,3}(?:\.\d{1,3}){3})(?![\d.])\s*(?=,|$|\bport\b)", re.IGNORECASE
+)
+# 配置行里取完整 IP（同样前后顾）
+_IPV4_RE = re.compile(r"(?<![\d.])(\d{1,3}(?:\.\d{1,3}){3})(?![\d.])")
 
 
 def _confirm_re():
@@ -471,40 +499,136 @@ def _strip_leading_prompt(line: str) -> str:
     return re.sub(r"^(?:<[^>]*>|\[[^\[\]]*\]|\S+#)\s*", "", (line or "").strip())
 
 
+def _normalize_lines(raw) -> str:
+    """解码 + 剥 ANSI + 统一行分隔。
+
+    行分隔三种全认（CRLF / 裸 CR / LF）：老设备只发 CR 时，若按 ``split("\\n")``
+    切，整段输出会粘成一行，后续任何"行首匹配"都会失配 —— 而同文件里
+    ``errors_in`` 用的是 ``splitlines()``（认 CR），于是出现「报错检测正常、
+    内容匹配全灭」这种最难查的组合。
+    """
+    text = _strip_ansi(_decode(raw))
+    return text.replace("\r\n", "\n").replace("\r", "\n")
+
+
+def _looks_like_echo(s: str) -> bool:
+    """命令回显 / 提示符 / 报错指示符 / 分页残留 —— 都不是设备内容。"""
+    if _strip_leading_prompt(s).lower().startswith("display "):
+        return True
+    if s.startswith("%") or s.startswith("^"):
+        return True
+    if _prompt_re().match(s):
+        return True
+    return any(m in s.lower() for m in _PAGING_MARKERS)
+
+
+def _uniq(items) -> list[str]:
+    """去重（忽略大小写）并保持顺序。"""
+    seen: set[str] = set()
+    out: list[str] = []
+    for it in items:
+        s = (it or "").strip()
+        k = s.lower()
+        if s and k not in seen:
+            seen.add(k)
+            out.append(s)
+    return out
+
+
 def _snapshot_lines(raw) -> str:
     """把 `display current-configuration` 的原始回包整理成配置行文本。
 
     三处坑，任一踩中都会让后面的行首匹配失配，表现成「命令明明下发成功、回验却说
     找不到」：
-      1. **行分隔不一定是 ``\\r\\n``**：设备可能只发 ``\\r``。原实现
-         ``replace("\\r\\n", "\\n").split("\\n")`` 遇到裸 CR 会把整段粘成一行，
-         而同一文件里 ``errors_in`` 用的是 ``splitlines()``（认 CR）—— 两处口径
-         不一致，于是「报错检测正常、快照匹配全灭」；
+      1. **行分隔不一定是 ``\\r\\n``**（见 :func:`_normalize_lines`）；
       2. **控制序列**混在行内，地址被切开；
       3. 退化成整段 dump 时会把几千行都塞进快照字段。
     """
-    text = _decode(raw)
-    # 仅 CR 也是合法行分隔（老设备 telnet/串口常见），必须先归一
-    text = _strip_ansi(text).replace("\r\n", "\n").replace("\r", "\n")
     lines: list[str] = []
-    for line in text.split("\n"):
+    for line in _normalize_lines(raw).split("\n"):
         s = line.strip()
-        if not s:
-            continue
-        # 剔除命令回显（含带提示符的 `<SW>display ...`）、错误指示符（^ 指向出错位置）
-        if _strip_leading_prompt(s).lower().startswith("display "):
-            continue
-        if s.startswith("%") or s.startswith("^"):
-            continue
-        if _prompt_re().match(s):
-            continue
-        if any(m in s.lower() for m in _PAGING_MARKERS):
+        if not s or _looks_like_echo(s):
             continue
         # 只保留可能承载日志主机配置的行（见 _SNAPSHOT_KEEP_RE）
         if not _SNAPSHOT_KEEP_RE.search(s):
             continue
         lines.append(s)
     return "\n".join(lines)
+
+
+def _extract_config_hosts(text: str) -> list[str]:
+    """从配置快照里取出日志主机地址。
+
+    行首必须是日志主机配置行（``_LOGHOST_LINE_RE``），再在其中取完整 IP ——
+    不能见 IP 就抓，否则正文里偶现的地址（如华为 OID ``1.3.6.1.4.1.2011...``
+    的前四段）会被当成日志主机。
+    """
+    hosts: list[str] = []
+    for line in (text or "").split("\n"):
+        s = line.strip()
+        if _LOGHOST_LINE_RE.match(s):
+            hosts.extend(_IPV4_RE.findall(s))
+    return _uniq(hosts)
+
+
+def _extract_info_center_hosts(text: str) -> list[str]:
+    """从 `display info-center` 的日志主机条目里取地址。"""
+    return _uniq(_INFO_CENTER_HOST_RE.findall(text or ""))
+
+
+def _parse_info_center(raw) -> tuple[str, list[str]]:
+    """解析 `display info-center` 输出 → (保留文本, 其中的日志主机地址)。
+
+    设备回包结构（H3C Comware / 华为 VRP 同构）::
+
+        Information Center: Enabled
+         Console: Enabled
+         Log host: Enabled
+          10.236.148.62,port number: 514, DSCP value:0, host facility: local7
+         Log buffer: Enabled
+          Max buffer size 1024, current buffer size 512
+         ...
+
+    只保留「总开关」行与「Log host」段（含段内地址条目），缓冲区计数之类全是噪音。
+
+    **不靠缩进收段**：设备回包/人工粘贴常把缩进吃掉，改成"遇到下一个已知字段名
+    就收段"更稳。副作用是 ``Information timestamp format`` 段里的
+    `Log host: Date` 也会被当成段首，但它后面没有地址条目，不会污染地址集合。
+    """
+    keep: list[str] = []
+    hosts: list[str] = []
+    in_section = False
+    for line in _normalize_lines(raw).split("\n"):
+        s = line.strip()
+        if not s or _looks_like_echo(s):
+            continue
+        low = s.lower()
+        m = _INFO_CENTER_LOGHOST_RE.match(s)
+        if m:
+            rest = m.group("rest") or ""
+            rest_hosts = _extract_info_center_hosts(rest)
+            # 段首的三个形态：`Log host: Enabled`、`Log host:`、`Log host: Enabled <地址>`
+            if m.group("state") or not rest.strip() or rest_hosts:
+                in_section = True
+                keep.append(s)
+                hosts.extend(rest_hosts)
+                continue
+        if in_section:
+            if _INFO_CENTER_FIELD_RE.match(s):
+                in_section = False  # 下一个字段 → 段结束，交回下面的通用判断
+            else:
+                keep.append(s)
+                hosts.extend(_extract_info_center_hosts(s))
+                continue
+        if low.startswith("information center"):
+            keep.append(s)
+    return "\n".join(keep), hosts
+
+
+def _is_state_cmd(cmd: str) -> bool:
+    """是否为「运行时状态」类回读命令（``display info-center``），而非配置 dump。"""
+    low = (cmd or "").lower()
+    return "info-center" in low and "configuration" not in low
 
 
 def _summarize(text: str, limit: int = 3) -> str:
@@ -523,65 +647,93 @@ class Snapshot:
 
     ``trusted`` 是回验语义的基石：**空回读一律不可信** —— 无法区分「设备上真没有」
     与「该型号不支持这条过滤语法」，把它当成「没配」就会把已生效的下发误判成失败。
+
+    ``hosts`` 是这份回读里**实际看到的日志主机地址**（统一小写去重前的原样）。
+    回验判定只看它，不再逐行做正则匹配 —— 因为回读来源可能是配置 dump，也可能是
+    ``display info-center`` 的运行时状态，两者的承载形态完全不同。
+
+    ``kind`` 区分回读来源：``"state"``（display info-center，运行时真值）/
+    ``"config"``（配置 dump）。
     """
 
-    __slots__ = ("text", "command", "trusted", "notes")
+    __slots__ = ("text", "command", "trusted", "notes", "hosts", "kind")
 
-    def __init__(self, text: str, command: str, trusted: bool, notes: list[str] | None = None):
+    def __init__(self, text: str, command: str, trusted: bool,
+                 notes: list[str] | None = None, hosts: list[str] | None = None,
+                 kind: str = "config"):
         self.text = text
         self.command = command
         self.trusted = trusted
         self.notes = list(notes or [])
+        # 未显式给出地址集合时从文本推断：两种承载形态都试一遍。这样"只传 text"
+        # 的构造方（老代码/测试）拿到的判定与显式传入时一致，不会静默判成失败。
+        self.hosts = (_uniq(_extract_config_hosts(text) + _parse_info_center(text)[1])
+                      if hosts is None else list(hosts))
+        self.kind = kind
 
     def __repr__(self) -> str:  # pragma: no cover - 仅调试可读性
         return (f"Snapshot(command={self.command!r}, trusted={self.trusted}, "
-                f"lines={len(self.text.splitlines())}, notes={self.notes!r})")
+                f"kind={self.kind!r}, lines={len(self.text.splitlines())}, "
+                f"hosts={self.hosts!r}, notes={self.notes!r})")
 
 
 async def fetch_infocenter_snapshot(session: DeviceSession) -> Snapshot:
-    """回读设备上与 info-center / 日志主机相关的配置。
+    """回读设备的日志主机配置，按 :data:`SNAPSHOT_CMDS` 由近到远尝试。
 
-    返回 :class:`Snapshot` —— 除了文本，还带上「用了哪条命令」「是否可信」。
-    **可信 = 命令没报错且确实读到了内容**；空回读一律不可信，因为无法区分
-    「设备上真没有」与「该型号不支持这条过滤语法」。把不可信当成「没配」，
-    就会把已经生效的下发误判成失败。
+    返回 :class:`Snapshot` —— 除了文本，还带上「用了哪条命令」「是否可信」
+    「看到了哪些日志主机」。
+
+    **可信 = 命令没报错且确实读到了内容**。对 ``display info-center`` 还多一层：
+    它输出的是运行时真值，不存在"过滤语法不支持"这回事，所以只要读到内容
+    （哪怕一个地址都没有、哪怕 ``Log host: Disabled``），结论就是权威的 ——
+    此时"没有目标地址"可以直接判失败。配置类命令则保守：空回读一律不可信。
     """
     notes: list[str] = []
     text = ""
+    hosts: list[str] = []
     for cmd in SNAPSHOT_CMDS:
+        state_cmd = _is_state_cmd(cmd)
         try:
             out = await session.run(cmd, timeout=SNAPSHOT_TIMEOUT)
         except Exception as e:
             notes.append(f"`{cmd}` 读取失败：{type(e).__name__}: {e}")
             continue
         errs = session.errors_in(out)
-        got = _snapshot_lines(out)
+        if state_cmd:
+            got, got_hosts = _parse_info_center(out)
+        else:
+            got = _snapshot_lines(out)
+            got_hosts = _extract_config_hosts(got)
         if errs:
             notes.append(f"`{cmd}` 报错：{'; '.join(errs)}")
             if not text:
-                text = got
+                text, hosts = got, got_hosts
             continue
         if got:
-            return Snapshot(got, cmd, True, notes)
+            return Snapshot(got, cmd, True, notes, got_hosts,
+                            "state" if state_cmd else "config")
         notes.append(f"`{cmd}` 无输出")
         if not text:
-            text = got
-    return Snapshot(text, SNAPSHOT_CMDS[-1], False, notes)
+            text, hosts = got, got_hosts
+    return Snapshot(text, SNAPSHOT_CMDS[-1], False, notes, hosts, "state"
+                    if _is_state_cmd(SNAPSHOT_CMDS[-1]) else "config")
 
 
-def _has_loghost(config_text: str, address: str) -> bool:
-    """快照中是否已包含目标日志主机（回验用）。
+def _configured_hosts(snapshot: "Snapshot | str") -> set[str]:
+    """回读结果里**已配置**的日志主机地址集合（小写）。"""
+    if isinstance(snapshot, Snapshot):
+        return {h.lower() for h in snapshot.hosts}
+    # 兼容直接传文本的调用（测试/旧代码）：配置形态与 info-center 形态都试一遍
+    return ({h.lower() for h in _extract_config_hosts(_normalize_lines(snapshot))}
+            | {h.lower() for h in _parse_info_center(snapshot)[1]})
 
-    与 ``_decode`` 同一行分隔口径，避免「传输用 CR、匹配按 LF」互相打架。
-    """
-    addr = (address or "").lower()
-    for line in _strip_ansi(config_text or "").replace("\r\n", "\n").replace("\r", "\n").split("\n"):
-        s = line.strip()
-        if not addr or addr not in s.lower():
-            continue
-        if _LOGHOST_LINE_RE.match(s):
-            return True
-    return False
+
+def _has_loghost(snapshot: "Snapshot | str", address: str) -> bool:
+    """回读结果里是否包含目标日志主机（回验用）。"""
+    addr = (address or "").strip().lower()
+    if not addr:
+        return False
+    return addr in _configured_hosts(snapshot)
 
 
 async def _run_commands(session: DeviceSession, commands: list[str],
@@ -706,32 +858,38 @@ STATE_FAILED = "failed"            # 确认失败（命令报错，或回读可�
 def _readback_diag(after: Snapshot) -> str:
     """把「回读用了什么命令、读到了什么」压成一句，便于远程定位。"""
     lines = len(after.text.splitlines())
-    return f"（回读：`{after.command}`，{lines} 行：{_summarize(after.text)}）"
+    return (f"（回读：`{after.command}`，{lines} 行；"
+            f"看到的日志主机：{'、'.join(after.hosts) if after.hosts else '无'}；"
+            f"内容：{_summarize(after.text)}）")
 
 
 def _judge_apply(address: str, after: Snapshot, command_errors: list[str]) -> tuple[str, str | None]:
     """下发后的回验判定 → (state, message)。"""
-    if _has_loghost(after.text, address):
+    if _has_loghost(after, address):
         return STATE_APPLIED, None
     diag = _readback_diag(after)
     if command_errors:
         return STATE_FAILED, f"下发命令报错，配置很可能未生效：{'; '.join(command_errors)}{diag}"
     if after.trusted:
+        seen = "、".join(after.hosts) if after.hosts else "无"
+        where = "运行时状态" if after.kind == "state" else "配置"
         return STATE_FAILED, (
-            f"命令已下发且无报错，但回读到的配置里没有目标日志主机 {address}{diag}"
+            f"回读 `{after.command}`（{where}）可信，但没有找到目标日志主机 {address}；"
+            f"设备当前生效的日志主机：{seen}。请登录设备用 `{after.command}` 复核{diag}"
         )
     why = "；".join(after.notes) or "回读不到配置"
     return STATE_UNVERIFIED, (
         f"命令已下发且无报错，但回验不可判定（{why}）{diag}。"
         "该型号可能不支持 `display current-configuration | include ...` 过滤语法，"
         f"或回读方式与设备语法不匹配。请登录设备执行 "
-        f"`display current-configuration | include {address}` 人工确认后再决定是否重发"
+        f"`{INFO_CENTER_CMD}` 或 `display current-configuration | include {address}` "
+        "人工确认后再决定是否重发"
     )
 
 
 def _judge_rollback(address: str, after: Snapshot, command_errors: list[str]) -> tuple[str, str | None]:
     """回滚后的回验判定 → (state, message)。"""
-    still_there = _has_loghost(after.text, address)
+    still_there = _has_loghost(after, address)
     diag = _readback_diag(after)
     if command_errors:
         return STATE_FAILED, f"回滚命令报错：{'; '.join(command_errors)}{diag}"
@@ -742,7 +900,9 @@ def _judge_rollback(address: str, after: Snapshot, command_errors: list[str]) ->
             "请登录设备确认目标日志主机是否已移除"
         )
     if still_there:
-        return STATE_FAILED, f"命令已下发但回读仍能查到目标日志主机 {address}{diag}"
+        return STATE_FAILED, (
+            f"命令已下发但回读仍能查到目标日志主机 {address}{diag}"
+        )
     return STATE_ROLLED_BACK, None
 
 def _device_failure(device: Device, message: str) -> dict:
