@@ -11,9 +11,24 @@ import win32event
 import win32service
 import win32serviceutil
 
-BACKEND_DIR = Path(__file__).resolve().parent
-PROJECT_DIR = BACKEND_DIR.parent
-LOG_DIR = PROJECT_DIR / "deploy"
+def _resolve_dirs() -> tuple[Path, Path]:
+    """定位 (部署根目录, 后端配置目录)。
+
+    冻结（onefile）后 ``__file__`` 指向临时解包目录 ``_MEIxxxx``，进程退出即被
+    清理 —— 若以它为基准，``cwd`` 与日志目录都会落到临时目录里，日志随进程一起
+    消失（「装成服务后也找不到 deploy\\backend-service.log」的一类成因）。
+    因此冻结时必须用可执行文件所在目录；判定口径与 app/config.py 保持一致。
+    """
+    if getattr(sys, "frozen", False):
+        base = Path(sys.executable).resolve().parent
+        backend = base / "backend" if (base / "backend" / ".env").is_file() else base
+        return base, backend
+    backend = Path(__file__).resolve().parent          # 源码模式：backend/
+    return backend.parent, backend
+
+
+BASE_DIR, BACKEND_DIR = _resolve_dirs()
+LOG_DIR = BASE_DIR / "deploy"
 
 
 class AIOpsPlatformService(win32serviceutil.ServiceFramework):
