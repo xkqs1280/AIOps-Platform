@@ -32,17 +32,19 @@
       </div>
     </div>
 
-    <!-- 接收器绑定失败：给出可执行的排查指引，而不是只报一句错误 -->
+    <!-- 接收器绑定失败：排查建议由后端按平台下发（Windows 上还会查出占用进程），
+         不再在前端硬编码 Linux 的 CAP_NET_BIND_SERVICE ——那套提示在 Windows 上是错的 -->
     <div v-if="receiver && receiver.bind_error" class="mb-5 card border-danger/40 bg-danger/5 p-4">
       <div class="flex items-start gap-3">
         <ExclamationTriangleIcon class="w-5 h-5 text-danger shrink-0 mt-0.5" />
         <div class="text-sm">
           <p class="font-semibold text-danger">syslog 接收器绑定 {{ receiver.host }}:{{ receiver.port }} 失败</p>
           <p class="text-ink-muted mt-1 font-mono text-xs break-all">{{ receiver.bind_error }}</p>
+          <p v-if="receiver.bind_occupier?.length" class="text-danger mt-1 text-xs">
+            当前占用：{{ receiver.bind_occupier.join('、') }}
+          </p>
           <ul class="text-ink-muted mt-2 space-y-0.5 list-disc list-inside text-xs">
-            <li>Linux 下绑定 &lt; 1024 端口需 <code class="font-mono">CAP_NET_BIND_SERVICE</code>（install.sh 生成的 systemd unit 已含 AmbientCapabilities）</li>
-            <li>端口可能被占用：可在 .env 改 <code class="font-mono">SYSLOG_UDP_PORT</code>（设备侧需同步指向新端口）</li>
-            <li>防火墙需放行该 UDP 端口入站</li>
+            <li v-for="(hint, i) in bindHints" :key="i">{{ hint }}</li>
           </ul>
         </div>
       </div>
@@ -650,6 +652,16 @@ const receiver = ref(null)
 // 留存天数取后端**实际生效**的配置（.env 的 DEVICE_LOGS_DAYS），不硬编码：
 // 客户调大后页面必须跟着变，否则又变成"文案承诺与实现不一致"。
 const retentionDays = computed(() => receiver.value?.retention_days ?? 180)
+
+// 绑定失败时的排查建议：优先后端按平台下发的 bind_hints；旧后端没有该字段时才回退。
+const bindHints = computed(() => {
+  const hints = receiver.value?.bind_hints
+  if (Array.isArray(hints) && hints.length) return hints
+  return [
+    '端口可能被占用：可改 .env 的 SYSLOG_UDP_PORT（设备侧需同步指向新端口）',
+    '防火墙需放行该 UDP 端口入站',
+  ]
+})
 
 const receiverText = computed(() => {
   const r = receiver.value

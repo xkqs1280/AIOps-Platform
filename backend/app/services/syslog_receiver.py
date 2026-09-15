@@ -17,9 +17,15 @@
 （install.sh 生成的 systemd unit 已加 ``AmbientCapabilities``），Windows 可直接绑定。
 端口被占用或权限不足时**明确记日志**（含排查指引），并由监督器持续重试，同时通过
 ``receiver_status()`` 暴露给前端，避免出现"设备在发、平台静默收不到"的隐形故障。
+排查建议**按平台生成**（Windows 上不会再去提示 Linux 的 ``CAP_NET_BIND_SERVICE``），
+且 Windows 绑定失败时会直接查出占用该端口的 PID 与进程名一并在页面上给出。
 """
 import asyncio
 import logging
+import os
+import re
+import subprocess
+import sys
 from collections import deque
 from datetime import datetime, timezone
 from time import monotonic
@@ -48,6 +54,8 @@ _stats: dict = {
     "last_error": None,
     "bound_port": None,
     "bind_error": None,
+    "bind_occupier": None,  # 绑定失败时找出的占用者（Windows，形如 "PID 4321 (kiwi.exe)"）
+    "bind_hints": None,     # 按平台生成的可执行排查建议
     "started_at": None,
 }
 
@@ -106,6 +114,11 @@ def receiver_status() -> dict:
         "port": settings.SYSLOG_UDP_PORT,
         "bound_port": _stats["bound_port"],
         "bind_error": _stats["bind_error"],
+        # 绑定失败时：占用者（Windows 实查）+ 按平台给出的排查建议。
+        # 前端直接渲染 bind_hints，不再自己硬编码 Linux 的 CAP_NET_BIND_SERVICE
+        # ——那套提示在 Windows 上完全不适用，会把排查方向带偏。
+        "bind_occupier": _stats["bind_occupier"],
+        "bind_hints": _stats["bind_hints"],
         "queue_size": _queue.qsize(),
         "queue_max": settings.SYSLOG_QUEUE_MAX,
         "received": _stats["received"],
@@ -424,6 +437,154 @@ async def _flush_loop() -> None:
 
 
 # ---------------------------------------------------------------------------
+# 绑定失败自诊断
+# ---------------------------------------------------------------------------
+
+# `netstat -ano -p UDP` 的数据行：  UDP    0.0.0.0:514      *:*      4321
+_UDP_LINE_RE = re.compile(r"^\s*UDP\s+(\S+)\s+\S+\s+(\d+)\s*$", re.I)
+# `tasklist /FO CSV /NH` 的一行：  "kiwi.exe","4321","Console","1","12,345 K"
+_CSV_FIELD_RE = re.compile(r'"([^"]*)"')
+
+
+def parse_udp_occupiers(netstat_output: str, port: int) -> list[int]:
+    """从 `netstat -ano -p UDP` 输出里取出占用指定 UDP 端口的 PID（纯函数，便于测试）。"""
+    pids: list[int] = []
+    for line in (netstat_output or "").splitlines():
+        m = _UDP_LINE_RE.match(line)
+        if not m:
+            continue
+        local, pid = m.group(1), int(m.group(2))
+        # 本地地址可能是 0.0.0.0:514 / 192.168.1.5:514 / [::]:514
+        if local.rsplit(":", 1)[-1] == str(port) and pid not in pids:
+            pids.append(pid)
+    return pids
+
+
+def parse_task_image(tasklist_output: str) -> str | None:
+    """从 `tasklist /FO CSV /NH` 输出里取出映像名（纯函数）。"""
+    for line in (tasklist_output or "").splitlines():
+        line = line.strip()
+        if not line.startswith('"'):
+            continue
+        fields = _CSV_FIELD_RE.findall(line)
+        if len(fields) >= 2:
+            return fields[0] or None
+    return None
+
+
+def _run_quiet(args: list[str], timeout: float = 5.0) -> str:
+    """执行外部命令取 stdout；异常全部吞掉返回空串（诊断失败不该掩盖原始错误）。
+
+    坑（本机实测）：中文 Windows 上 netstat/tasklist 输出是 **ANSI/OEM 编码（cp936）**
+    而非 UTF-8。用默认的 ``text=True``（跟随 UTF-8 模式）会在读管道线程里抛
+    ``UnicodeDecodeError``，**stdout 直接变成空字符串**——表现为"端口明明被占用却
+    查不出占用者"，而且异常发生在子线程里，主流程只看到空结果、毫无提示。
+    故显式指定平台编码并放宽解码错误（我们只解析 ASCII 的 IP/端口/PID 列）。
+    """
+    try:
+        proc = subprocess.run(
+            args,
+            capture_output=True,
+            text=True,
+            encoding="mbcs" if os.name == "nt" else "utf-8",
+            errors="replace",
+            timeout=timeout,
+            creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+        )
+        return proc.stdout or ""
+    except Exception:  # noqa: BLE001 - 诊断用途，查不到就放弃，不影响主流程
+        return ""
+
+
+def udp_port_occupiers(port: int) -> list[str]:
+    """Windows：返回占用 UDP <port> 的进程描述（如 ``PID 4321 (kiwi.exe)``）。
+
+    其它平台或查询失败返回空列表——生产上最常见的就是"另一个实例/第三方 syslog
+    软件占着 514"，能直接把名字报出来就不必再让人上机 netstat。
+    """
+    if os.name != "nt":
+        return []
+    pids = parse_udp_occupiers(_run_quiet(["netstat", "-ano", "-p", "UDP"]), port)
+    out: list[str] = []
+    for pid in pids:
+        image = parse_task_image(
+            _run_quiet(["tasklist", "/FI", f"PID eq {pid}", "/FO", "CSV", "/NH"])
+        )
+        out.append(f"PID {pid} ({image})" if image else f"PID {pid}")
+    return out
+
+
+def _bind_hints(
+    exc: BaseException,
+    occupiers: list[str] | None = None,
+    *,
+    os_name: str | None = None,
+) -> list[str]:
+    """按平台给出可执行的排查建议。
+
+    Windows 没有"<1024 特权端口"概念，在 Windows 上提示 CAP_NET_BIND_SERVICE 会把
+    排查方向带偏（生产上确实发生过），因此两条分支的建议完全不同。
+    """
+    name = os_name or os.name
+    winerr = getattr(exc, "winerror", None)
+    errno_ = getattr(exc, "errno", None)
+    occupiers = list(occupiers or [])
+    port = settings.SYSLOG_UDP_PORT
+    hints: list[str] = []
+
+    if name == "nt":
+        if winerr == 10048 or errno_ == 10048:
+            hints.append(
+                "端口已被占用（WinError 10048）。找占用者："
+                f"netstat -ano -p UDP | findstr :{port} 取最后一列 PID，"
+                '再执行 tasklist /FI "PID eq <PID>" 看是哪个程序。'
+            )
+        elif winerr == 10013:
+            hints.append(
+                "访问被拒绝（WinError 10013）：端口可能落在系统保留区间，执行 "
+                "netsh int ipv4 show excludedportrange protocol=udp 查看"
+                "（Hyper-V / WSL / Docker 会预留端口段）。"
+            )
+        elif winerr == 10049:
+            hints.append(
+                f"地址不可用（WinError 10049）：SYSLOG_UDP_HOST={settings.SYSLOG_UDP_HOST} "
+                "不是本机拥有的地址，请改回 0.0.0.0 或本机实际网卡地址。"
+            )
+        else:
+            hints.append("Windows 下绑定 514 无需提权（Windows 没有 <1024 特权端口的概念）。")
+        hints.append(
+            "重点核查：① 是否重复启动了 AIOpsServer.exe（或升级后旧进程未退出）；"
+            "② 是否装过第三方 syslog 采集软件（Kiwi / PRTG / syslog-ng / NXLog 等）占着该端口。"
+        )
+    else:
+        hints.append(
+            "Linux 下绑定 <1024 端口需 CAP_NET_BIND_SERVICE（install.sh 生成的 systemd unit 已含 "
+            "AmbientCapabilities=CAP_NET_BIND_SERVICE；若被手工覆盖或改用其它方式启动，该能力会丢失）。"
+        )
+        hints.append(
+            f"找占用者：ss -lnup | grep ':{port}' 或 fuser -v {port}/udp。"
+        )
+
+    if occupiers:
+        own = os.path.basename(sys.executable).lower()
+        joined = "、".join(occupiers)
+        if own and any(own in o.lower() for o in occupiers):
+            hints.insert(
+                0,
+                f"已查出占用者：{joined}，其中包含本平台自身进程（{own}）——通常是重复启动，"
+                "结束多余实例后接收器会在下一次重试（默认 15 秒）自动绑上。",
+            )
+        else:
+            hints.insert(0, f"已查出占用者：{joined}，请确认该程序能否停用或改用其它端口。")
+
+    hints.append(
+        f"防火墙需放行 UDP {port} 入站；也可改 .env 的 SYSLOG_UDP_PORT（如 5514）后重启，"
+        "设备侧 loghost 需同步指向新端口。"
+    )
+    return hints
+
+
+# ---------------------------------------------------------------------------
 # 生命周期（挂到 loop_supervisor）
 # ---------------------------------------------------------------------------
 
@@ -450,13 +611,18 @@ async def syslog_udp_loop() -> None:
         )
     except Exception as e:
         _stats["bind_error"] = f"{type(e).__name__}: {e}"
+        # 绑定失败时顺手把"谁占着端口"查出来（仅 Windows 有实现），
+        # 并把排查建议写进状态供前端展示——避免只报一句"绑定失败"让人无从下手。
+        occupiers = await asyncio.to_thread(udp_port_occupiers, settings.SYSLOG_UDP_PORT)
+        hints = _bind_hints(e, occupiers)
+        _stats["bind_occupier"] = occupiers or None
+        _stats["bind_hints"] = hints
         logger.error(
-            "syslog UDP 接收器绑定 %s:%s 失败：%s。"
-            "排查：① Linux 下端口 <1024 需 CAP_NET_BIND_SERVICE（install.sh 生成的 "
-            "systemd unit 已含 AmbientCapabilities=CAP_NET_BIND_SERVICE）；"
-            "② 端口可能被占用，可在 .env 改 SYSLOG_UDP_PORT（设备侧需同步指向新端口）；"
-            "③ 防火墙需放行该 UDP 端口入站。",
-            settings.SYSLOG_UDP_HOST, settings.SYSLOG_UDP_PORT, e,
+            "syslog UDP 接收器绑定 %s:%s 失败：%s。排查：%s",
+            settings.SYSLOG_UDP_HOST,
+            settings.SYSLOG_UDP_PORT,
+            e,
+            " ".join(f"({i}) {h}" for i, h in enumerate(hints, 1)),
         )
         raise
 
