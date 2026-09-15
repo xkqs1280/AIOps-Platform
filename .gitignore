@@ -59,6 +59,8 @@ frontend/frontend_bak*/
 yarn-error.log*
 frontend/dist/
 frontend/mobile_dist/
+# 构建前把旧产物挪走的落脚点（规避 safe-delete 守卫），绝不入库
+.dist_stale_*/
 vite.config.js.timestamp-*.mjs
 
 # === IDE / 系统 ===
