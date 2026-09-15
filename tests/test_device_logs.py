@@ -462,6 +462,18 @@ async def test_receiver_status_endpoint_reports_bind_error(db):
     assert "bind_error" in st and "dropped_overflow" in st
 
 
+async def test_receiver_status_exposes_configured_retention_days(db):
+    """页面副标题的留存天数必须由后端下发实际生效值，不能前端硬编码。
+
+    背景：页面曾写死"等保 2.0 要求网络日志留存 ≥ 6 个月"，而实际留存 180 天
+    （自然月 6 个月是 181~184 天）——文案承诺比实现大。改为后端下发后，
+    客户在 .env 调大 DEVICE_LOGS_DAYS，页面自动跟着变。
+    """
+    from app.routers.device_logs import receiver_status
+    st = await receiver_status(_user={"sub": "admin"})
+    assert st["retention_days"] == settings.DEVICE_LOGS_DAYS
+
+
 async def test_http_ingest_endpoint(db, device_factory):
     from app.routers.device_logs import IngestRequest, ingest_device_log
     await device_factory(name="SW2", ip="192.168.124.66")

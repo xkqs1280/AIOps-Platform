@@ -5,7 +5,7 @@
       <div>
         <h2 class="text-xl font-bold tracking-wide">设备日志中心</h2>
         <p class="text-xs text-ink-faint mt-1">
-          设备 syslog 统一接收与留存 · 等保 2.0 要求网络日志留存 ≥ 6 个月（设备本地缓冲区重启即丢）
+          设备 syslog 统一接收与留存 · 平台留存 {{ retentionDays }} 天
         </p>
       </div>
       <div class="flex items-center gap-2.5 shrink-0">
@@ -641,6 +641,10 @@ const f = ref({
 // 接收器状态
 // ---------------------------------------------------------------------------
 const receiver = ref(null)
+
+// 留存天数取后端**实际生效**的配置（.env 的 DEVICE_LOGS_DAYS），不硬编码：
+// 客户调大后页面必须跟着变，否则又变成"文案承诺与实现不一致"。
+const retentionDays = computed(() => receiver.value?.retention_days ?? 180)
 
 const receiverText = computed(() => {
   const r = receiver.value

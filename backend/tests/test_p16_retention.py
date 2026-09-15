@@ -126,10 +126,37 @@ class TestRetentionCleanup(unittest.TestCase):
         self.assertEqual(sum(stats.values()), 0)
         self.assertEqual(db.commits, 0)
 
-    def test_device_logs_retention_is_six_months(self):
-        """等保要求网络日志留存 ≥ 6 个月，默认值不能被悄悄改小。"""
+    def test_device_logs_retention_is_configurable(self):
+        """设备日志留存天数必须**来自配置**（.env 可调），且默认不低于 180 天。
+
+        背景：这里曾写死 180，导致 config.py 里同名配置项无人引用、客户改 .env 完全不生效
+        （页面文案还宣称"≥ 6 个月"）。等保 2.0 /《网络安全法》第 21 条要求
+        "留存相关的网络日志不少于六个月"，而自然月的 6 个月是 181~184 天，
+        不同客户/测评口径不一 → 必须能不重新打包就调大。
+
+        注意：只断言"等于 settings.DEVICE_LOGS_DAYS"是**测不出问题的** ——
+        写死 180 时 settings 默认值恰好也是 180，两边相等、假绿（本项目真踩过这一脚）。
+        所以要真改一次配置再 reload，看常量是否跟着动。
+        """
+        import importlib
+
+        from app.config import settings
         from app.services import retention_service
+
         self.assertGreaterEqual(retention_service.DEVICE_LOGS_DAYS, 180)
+
+        original = settings.DEVICE_LOGS_DAYS
+        try:
+            settings.DEVICE_LOGS_DAYS = 365
+            importlib.reload(retention_service)
+            self.assertEqual(
+                retention_service.DEVICE_LOGS_DAYS,
+                365,
+                "DEVICE_LOGS_DAYS 必须跟 settings 走（.env 可配），不要写死成常量",
+            )
+        finally:
+            settings.DEVICE_LOGS_DAYS = original
+            importlib.reload(retention_service)
 
 
 if __name__ == "__main__":

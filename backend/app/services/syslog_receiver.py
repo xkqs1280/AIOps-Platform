@@ -118,6 +118,9 @@ def receiver_status() -> dict:
         "last_error": _stats["last_error"],
         "started_at": _stats["started_at"],
         "device_tz_offset_hours": settings.SYSLOG_DEVICE_TZ_OFFSET_HOURS,
+        # 留存天数（.env 的 DEVICE_LOGS_DAYS，默认 180）。前端副标题要显示**实际生效值**，
+        # 不能硬编码 —— 否则客户在 .env 调大后，页面还在展示旧数字（"文案与实现不一致"）。
+        "retention_days": settings.DEVICE_LOGS_DAYS,
     }
 
 

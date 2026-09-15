@@ -5,8 +5,8 @@ alerts / ai_logs / security_events / business_alerts / device_logs 原无保留�
 - alerts：仅删除已 resolved 且超过 ALERTS_RESOLVED_DAYS(90) 天的记录（active 告警保留）；
 - ai_logs / business_alerts：删除超过对应保留天数的记录；
 - security_events：按事件时间 timestamp 删除超过保留天数的记录；
-- device_logs：按平台接收时间 received_at 删除超过 DEVICE_LOGS_DAYS(180) 天的记录
-  （等保 6 个月；用接收时间而非设备时间，避免设备时钟不准导致误删）。
+- device_logs：按平台接收时间 received_at 删除超过 DEVICE_LOGS_DAYS 天的记录
+  （.env 可配，默认 180；用接收时间而非设备时间，避免设备时钟不准导致误删）。
 
 与 backup_service.cleanup_old_backups 同一批删模式：每批取主键 →
 DELETE ... WHERE id IN (...) → 提交，避免全表载入内存与超长事务。
@@ -16,6 +16,7 @@ from datetime import datetime, timezone, timedelta
 
 from sqlalchemy import select, delete
 
+from app.config import settings
 from app.models.alert import Alert
 from app.models.ai import AiLog
 from app.models.p3_security import SecurityEvent
@@ -28,9 +29,13 @@ ALERTS_RESOLVED_DAYS = 90      # 已恢复告警保留 90 天
 AI_LOGS_DAYS = 180             # AI 调用日志保留 180 天
 SECURITY_EVENTS_DAYS = 180     # 安全事件保留 180 天
 BUSINESS_ALERTS_DAYS = 180     # 业务监控告警保留 180 天
-# 设备日志保留 180 天：对齐《网络安全法》第 21 条与等保 2.0 三级"网络日志留存 ≥ 6 个月"。
+# 设备日志保留天数**从配置读取**（.env 的 DEVICE_LOGS_DAYS，默认 180）——不要在这里写死！
+# 曾在此写死 180，导致 config.py 里的同名配置项无人引用、客户改 .env 完全不生效。
+# 为什么需要可配：等保 2.0 /《网络安全法》第 21 条要求"留存相关的网络日志不少于六个月"，
+# 而"6 个月"按自然月是 181~184 天，180 天严格说差几天；且不同客户/测评口径不一，
+# 需要能不重新打包就调大（如 200 / 365）。
 # 这是本表存在的首要理由——设备本地缓冲区仅 512 条且重启即丢，平台是唯一留存手段。
-DEVICE_LOGS_DAYS = 180
+DEVICE_LOGS_DAYS = settings.DEVICE_LOGS_DAYS
 BATCH_SIZE = 500
 
 
@@ -90,7 +95,7 @@ async def cleanup_expired_core_data(
             BusinessAlert.created_at < now - timedelta(days=business_alerts_days),
             batch_size,
         )
-        # 5) 设备日志（等保 6 个月留存；按平台接收时间计，避免设备时钟不准导致误删）
+        # 5) 设备日志（留存天数见 DEVICE_LOGS_DAYS；按平台接收时间计，避免设备时钟不准导致误删）
         stats["device_logs"] = await _batch_delete(
             db, DeviceLog,
             DeviceLog.received_at < now - timedelta(days=device_logs_days),
