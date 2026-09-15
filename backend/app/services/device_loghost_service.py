@@ -19,6 +19,7 @@
 import asyncio
 import ipaddress
 import logging
+import re
 import socket
 from datetime import datetime, timezone
 
@@ -73,6 +74,35 @@ _ERROR_MARKERS = (
 )
 # 需要自动答 Y 的确认提示
 _CONFIRM_RE = None  # 延迟编译（re 在下方 import，保持模块头部依赖整洁）
+
+# 终端控制序列：部分设备即使在 vt100 下也会吐出颜色/光标控制码，混在行里会让
+# 「地址子串匹配」这种朴素判断失效 → 匹配前统一剥掉。
+_ANSI_RE = re.compile(r"\x1b\[[0-9;?]*[ -/]*[@-~]|\x1b[()][A-Za-z0-9]|\x1b[=>]")
+
+# 分页提示标记。各厂商/型号写法不一（H3C/华为 `---- More ----`、部分型号
+# `--More--`、`<--- More --->`），只认一种写法的话，读到第一屏就会因「空闲」而
+# 提前结束 —— 目标行落在后面几页里就永远看不到，表现为「配置明明生效却回验不到」。
+_PAGING_MARKERS = ("---- more ----", "--more--", "<--- more --->")
+
+# 回读配置的命令候选：先窄后宽。
+#   - 窄命令靠 `| include <关键词>` 过滤，输出小、快；
+#   - 但**并非所有型号都支持该过滤语法**，有的会直接报错、有的静默返回空 ——
+#     后者无法与「设备上确实没有该配置」区分，因此只在**命令明确报错**时退化，
+#     避免对「本来就没配 info-center」的设备白白整段 dump。
+SNAPSHOT_CMDS = (
+    "display current-configuration | include info-center",
+    "display current-configuration | include loghost",
+    "display current-configuration",
+)
+SNAPSHOT_TIMEOUT = 60
+
+# 快照里保留哪些行：这份快照的用途就是「info-center 相关配置」，
+# 因此即便退化成整段 dump，也只留可能承载日志主机配置的行（控制体积）。
+_SNAPSHOT_KEEP_RE = re.compile(r"info-center|loghost|logging\s+host", re.IGNORECASE)
+
+# 判定「配置里存在目标日志主机」的行首关键字。保持严格：必须是日志主机配置行且
+# 含**完整 IP**，避免把正文里偶现的地址当成配置（曾把华为 OID 的前四段误认成 IP）。
+_LOGHOST_LINE_RE = re.compile(r"^(?:info-center\s+loghost|logging\s+host|loghost)\b", re.IGNORECASE)
 
 
 def _confirm_re():
@@ -269,9 +299,14 @@ class DeviceSession:
         ``until`` 供长耗时命令使用（保存配置）：写盘期间设备可能长时间静默，
         单靠空闲阈值猜结束时机并不可靠 —— 并发下发时实测会漏读成功标志，
         于是输出里只剩确认交互的噪音行，被误判成报错。
+
+        分页：命中分页标记就补一个空格翻页。标记可能被 TCP 分片切成两块
+        （``---- Mo`` + ``re ----``），只看当前块会漏判 → 用「上一块尾部 + 本块」
+        组成窗口来匹配；窗口只保留极短尾部，避免旧标记被反复命中而无限翻页。
         """
         loop = asyncio.get_running_loop()
         parts: list[str] = []
+        prev_tail = ""
         last = loop.time()
         while loop.time() < deadline:
             try:
@@ -286,15 +321,17 @@ class DeviceSession:
             last = loop.time()
             text = _decode(chunk)
             parts.append(text)
-            lowered = text.lower()
-            if "---- more ----" in lowered:
+            window = (prev_tail + text).lower()
+            if any(m in window for m in _PAGING_MARKERS):
                 try:
                     self._writer.write(b" ")
                     await self._writer.drain()
                 except Exception:
                     pass
                 last = loop.time()
+                prev_tail = ""
                 continue
+            prev_tail = text[-32:]
             m = _confirm_re().search(text)
             if m:
                 try:
@@ -421,35 +458,128 @@ async def open_device_session(device: Device, timeout: int = CONFIG_TIMEOUT) -> 
 # 单设备操作
 # ---------------------------------------------------------------------------
 
-INFOCENTER_CMD = "display current-configuration | include info-center"
+INFOCENTER_CMD = SNAPSHOT_CMDS[0]
 
 
-async def fetch_infocenter_snapshot(session: DeviceSession) -> str:
-    """读取设备上与 info-center 相关的配置片段（用于快照/回验）。"""
-    out = await session.run(INFOCENTER_CMD, timeout=60)
-    lines = []
-    for line in _decode(out).replace("\r\n", "\n").split("\n"):
+def _strip_ansi(text: str) -> str:
+    """剥掉终端控制序列（颜色/光标控制）。"""
+    return _ANSI_RE.sub("", text or "")
+
+
+def _strip_leading_prompt(line: str) -> str:
+    """去掉行首提示符（``<SW>`` / ``[SW]`` / ``SW#``），便于识别命令回显行。"""
+    return re.sub(r"^(?:<[^>]*>|\[[^\[\]]*\]|\S+#)\s*", "", (line or "").strip())
+
+
+def _snapshot_lines(raw) -> str:
+    """把 `display current-configuration` 的原始回包整理成配置行文本。
+
+    三处坑，任一踩中都会让后面的行首匹配失配，表现成「命令明明下发成功、回验却说
+    找不到」：
+      1. **行分隔不一定是 ``\\r\\n``**：设备可能只发 ``\\r``。原实现
+         ``replace("\\r\\n", "\\n").split("\\n")`` 遇到裸 CR 会把整段粘成一行，
+         而同一文件里 ``errors_in`` 用的是 ``splitlines()``（认 CR）—— 两处口径
+         不一致，于是「报错检测正常、快照匹配全灭」；
+      2. **控制序列**混在行内，地址被切开；
+      3. 退化成整段 dump 时会把几千行都塞进快照字段。
+    """
+    text = _decode(raw)
+    # 仅 CR 也是合法行分隔（老设备 telnet/串口常见），必须先归一
+    text = _strip_ansi(text).replace("\r\n", "\n").replace("\r", "\n")
+    lines: list[str] = []
+    for line in text.split("\n"):
         s = line.strip()
         if not s:
             continue
-        # 剔除命令回显与提示符行
-        if s.startswith("display current-configuration"):
+        # 剔除命令回显（含带提示符的 `<SW>display ...`）、错误指示符（^ 指向出错位置）
+        if _strip_leading_prompt(s).lower().startswith("display "):
+            continue
+        if s.startswith("%") or s.startswith("^"):
             continue
         if _prompt_re().match(s):
             continue
-        if s.startswith("^"):
+        if any(m in s.lower() for m in _PAGING_MARKERS):
             continue
-        if "More" in s:
+        # 只保留可能承载日志主机配置的行（见 _SNAPSHOT_KEEP_RE）
+        if not _SNAPSHOT_KEEP_RE.search(s):
             continue
         lines.append(s)
     return "\n".join(lines)
 
 
+def _summarize(text: str, limit: int = 3) -> str:
+    """回读内容的短摘要，用于把「到底读到了什么」写进消息里。"""
+    lines = [ln for ln in (text or "").splitlines() if ln.strip()]
+    if not lines:
+        return "（回读为空）"
+    head = " / ".join(lines[:limit])
+    if len(lines) > limit:
+        head += f" …（共 {len(lines)} 行）"
+    return head[:300]
+
+
+class Snapshot:
+    """一次配置回读的结果，以及「这份回读是否可信」的判定依据。
+
+    ``trusted`` 是回验语义的基石：**空回读一律不可信** —— 无法区分「设备上真没有」
+    与「该型号不支持这条过滤语法」，把它当成「没配」就会把已生效的下发误判成失败。
+    """
+
+    __slots__ = ("text", "command", "trusted", "notes")
+
+    def __init__(self, text: str, command: str, trusted: bool, notes: list[str] | None = None):
+        self.text = text
+        self.command = command
+        self.trusted = trusted
+        self.notes = list(notes or [])
+
+    def __repr__(self) -> str:  # pragma: no cover - 仅调试可读性
+        return (f"Snapshot(command={self.command!r}, trusted={self.trusted}, "
+                f"lines={len(self.text.splitlines())}, notes={self.notes!r})")
+
+
+async def fetch_infocenter_snapshot(session: DeviceSession) -> Snapshot:
+    """回读设备上与 info-center / 日志主机相关的配置。
+
+    返回 :class:`Snapshot` —— 除了文本，还带上「用了哪条命令」「是否可信」。
+    **可信 = 命令没报错且确实读到了内容**；空回读一律不可信，因为无法区分
+    「设备上真没有」与「该型号不支持这条过滤语法」。把不可信当成「没配」，
+    就会把已经生效的下发误判成失败。
+    """
+    notes: list[str] = []
+    text = ""
+    for cmd in SNAPSHOT_CMDS:
+        try:
+            out = await session.run(cmd, timeout=SNAPSHOT_TIMEOUT)
+        except Exception as e:
+            notes.append(f"`{cmd}` 读取失败：{type(e).__name__}: {e}")
+            continue
+        errs = session.errors_in(out)
+        got = _snapshot_lines(out)
+        if errs:
+            notes.append(f"`{cmd}` 报错：{'; '.join(errs)}")
+            if not text:
+                text = got
+            continue
+        if got:
+            return Snapshot(got, cmd, True, notes)
+        notes.append(f"`{cmd}` 无输出")
+        if not text:
+            text = got
+    return Snapshot(text, SNAPSHOT_CMDS[-1], False, notes)
+
+
 def _has_loghost(config_text: str, address: str) -> bool:
-    """快照中是否已包含目标 loghost（回验用）。"""
-    for line in (config_text or "").splitlines():
-        s = line.strip().lower()
-        if s.startswith("info-center loghost") and address.lower() in s:
+    """快照中是否已包含目标日志主机（回验用）。
+
+    与 ``_decode`` 同一行分隔口径，避免「传输用 CR、匹配按 LF」互相打架。
+    """
+    addr = (address or "").lower()
+    for line in _strip_ansi(config_text or "").replace("\r\n", "\n").replace("\r", "\n").split("\n"):
+        s = line.strip()
+        if not addr or addr not in s.lower():
+            continue
+        if _LOGHOST_LINE_RE.match(s):
             return True
     return False
 
@@ -484,12 +614,17 @@ async def apply_to_device(
     save: bool = True,
     timeout: int = CONFIG_TIMEOUT,
 ) -> dict:
-    """对单台设备下发 loghost。返回 {ok, before, after, commands, warnings, error}。"""
+    """对单台设备下发 loghost。
+
+    返回 ``{state, ok, before, after, commands, warnings, error}``。
+    ``state`` 是回验三态，见 :func:`_judge_apply`；``ok`` 仅为「已确认生效」。
+    """
     commands = build_apply_commands(address, port, level, save, is_huawei(device))
     result: dict = {
         "device_id": device.id,
         "device_name": device.name,
         "ip": device.ip,
+        "state": "failed",
         "ok": False,
         "before": None,
         "after": None,
@@ -500,15 +635,12 @@ async def apply_to_device(
     session = None
     try:
         session = await open_device_session(device, timeout)
-        result["before"] = await fetch_infocenter_snapshot(session)
+        result["before"] = (await fetch_infocenter_snapshot(session)).text
         result["warnings"] = await _run_commands(session, commands, timeout)
-        result["after"] = await fetch_infocenter_snapshot(session)
-        result["ok"] = _has_loghost(result["after"], address)
-        if not result["ok"]:
-            result["error"] = (
-                "命令已下发但回验未在配置中找到目标 loghost；"
-                "请登录设备确认（可能是设备型号不支持该语法或权限不足）"
-            )
+        after = await fetch_infocenter_snapshot(session)
+        result["after"] = after.text
+        result["state"], result["error"] = _judge_apply(address, after, result["warnings"])
+        result["ok"] = result["state"] == "applied"
     except Exception as e:
         result["error"] = f"{type(e).__name__}: {e}"
         logger.warning("设备 %s(%s) 下发 loghost 失败：%s", device.name, device.ip, e)
@@ -525,12 +657,13 @@ async def rollback_device(
     restore_disabled: bool = False,
     timeout: int = CONFIG_TIMEOUT,
 ) -> dict:
-    """对单台设备回滚 loghost 配置。"""
+    """对单台设备回滚 loghost 配置（回验同样是三态）。"""
     commands = build_rollback_commands(address, save, restore_disabled, is_huawei(device))
     result: dict = {
         "device_id": device.id,
         "device_name": device.name,
         "ip": device.ip,
+        "state": "failed",
         "ok": False,
         "before": None,
         "after": None,
@@ -541,13 +674,12 @@ async def rollback_device(
     session = None
     try:
         session = await open_device_session(device, timeout)
-        result["before"] = await fetch_infocenter_snapshot(session)
+        result["before"] = (await fetch_infocenter_snapshot(session)).text
         result["warnings"] = await _run_commands(session, commands, timeout)
-        result["after"] = await fetch_infocenter_snapshot(session)
-        # 回滚成功 = 目标地址已不在配置里
-        result["ok"] = not _has_loghost(result["after"], address)
-        if not result["ok"]:
-            result["error"] = "命令已下发但回验仍能查到目标 loghost，请登录设备确认"
+        after = await fetch_infocenter_snapshot(session)
+        result["after"] = after.text
+        result["state"], result["error"] = _judge_rollback(address, after, result["warnings"])
+        result["ok"] = result["state"] == "rolled_back"
     except Exception as e:
         result["error"] = f"{type(e).__name__}: {e}"
         logger.warning("设备 %s(%s) 回滚 loghost 失败：%s", device.name, device.ip, e)
@@ -561,6 +693,58 @@ async def rollback_device(
 # 批量编排 + 落库
 # ---------------------------------------------------------------------------
 
+# 回验三态。用「三态」而不是「成功/失败」是现场教训：某型号（HX-7506X）上
+# `display current-configuration | include info-center` 回读为空，而配置其实已经
+# 下发成功 —— 二态模型下这必然被报成「失败」，操作人很可能据此重复下发，
+# 对生产设备就是二次真实变更。**「读不到」不等于「没配」**，必须单独成一个状态。
+STATE_APPLIED = "applied"          # 已确认生效
+STATE_ROLLED_BACK = "rolled_back"  # 已确认回滚
+STATE_UNVERIFIED = "unverified"    # 命令已下发且无报错，但回读不可信，无法确认
+STATE_FAILED = "failed"            # 确认失败（命令报错，或回读可信但没有/仍有目标）
+
+
+def _readback_diag(after: Snapshot) -> str:
+    """把「回读用了什么命令、读到了什么」压成一句，便于远程定位。"""
+    lines = len(after.text.splitlines())
+    return f"（回读：`{after.command}`，{lines} 行：{_summarize(after.text)}）"
+
+
+def _judge_apply(address: str, after: Snapshot, command_errors: list[str]) -> tuple[str, str | None]:
+    """下发后的回验判定 → (state, message)。"""
+    if _has_loghost(after.text, address):
+        return STATE_APPLIED, None
+    diag = _readback_diag(after)
+    if command_errors:
+        return STATE_FAILED, f"下发命令报错，配置很可能未生效：{'; '.join(command_errors)}{diag}"
+    if after.trusted:
+        return STATE_FAILED, (
+            f"命令已下发且无报错，但回读到的配置里没有目标日志主机 {address}{diag}"
+        )
+    why = "；".join(after.notes) or "回读不到配置"
+    return STATE_UNVERIFIED, (
+        f"命令已下发且无报错，但回验不可判定（{why}）{diag}。"
+        "该型号可能不支持 `display current-configuration | include ...` 过滤语法，"
+        f"或回读方式与设备语法不匹配。请登录设备执行 "
+        f"`display current-configuration | include {address}` 人工确认后再决定是否重发"
+    )
+
+
+def _judge_rollback(address: str, after: Snapshot, command_errors: list[str]) -> tuple[str, str | None]:
+    """回滚后的回验判定 → (state, message)。"""
+    still_there = _has_loghost(after.text, address)
+    diag = _readback_diag(after)
+    if command_errors:
+        return STATE_FAILED, f"回滚命令报错：{'; '.join(command_errors)}{diag}"
+    if not after.trusted:
+        why = "；".join(after.notes) or "回读不到配置"
+        return STATE_UNVERIFIED, (
+            f"回滚命令已下发且无报错，但回验不可判定（{why}）{diag}。"
+            "请登录设备确认目标日志主机是否已移除"
+        )
+    if still_there:
+        return STATE_FAILED, f"命令已下发但回读仍能查到目标日志主机 {address}{diag}"
+    return STATE_ROLLED_BACK, None
+
 def _device_failure(device: Device, message: str) -> dict:
     """构造一条「本台未完成」的结果。
 
@@ -571,6 +755,7 @@ def _device_failure(device: Device, message: str) -> dict:
         "device_id": getattr(device, "id", None),
         "device_name": getattr(device, "name", None),
         "ip": getattr(device, "ip", None),
+        "state": STATE_FAILED,
         "ok": False, "before": None, "after": None, "commands": None,
         "warnings": [], "error": message,
     }
@@ -671,19 +856,22 @@ async def apply_loghost_to_devices(
     now = datetime.now(timezone.utc)
     try:
         for res in results:
+            state = res.get("state") or (STATE_APPLIED if res["ok"] else STATE_FAILED)
             db.add(DeviceLogHostConfig(
                 device_id=res["device_id"],
                 device_name=res.get("device_name"),
                 device_ip=res.get("ip"),
                 loghost_address=addr,
                 loghost_port=port or 514,
-                status="applied" if res["ok"] else "failed",
+                status=state,
                 before_config=res.get("before"),
                 after_config=res.get("after"),
                 commands=res.get("commands"),
                 tz_offset_hours=settings.SYSLOG_DEVICE_TZ_OFFSET_HOURS,
                 message=res.get("error") or ("; ".join(res.get("warnings") or []) or None),
-                applied_at=now if res["ok"] else None,
+                # 只有「已确认生效」才记 applied_at；待确认（unverified）不记，
+                # 否则状态表里会出现「有时间戳却待确认」的自相矛盾
+                applied_at=now if state == STATE_APPLIED else None,
                 operator=operator,
             ))
         await db.commit()
@@ -709,7 +897,8 @@ async def rollback_loghost_on_devices(
         addr = (rec.loghost_address if rec else None) or address
         if not addr:
             return {
-                "device_id": dev.id, "device_name": dev.name, "ip": dev.ip, "ok": False,
+                "device_id": dev.id, "device_name": dev.name, "ip": dev.ip,
+                "state": STATE_FAILED, "ok": False,
                 "error": "未提供日志主机地址，且该设备没有下发记录，无法回滚",
                 "before": None, "after": None, "commands": None, "warnings": [],
             }
@@ -724,9 +913,10 @@ async def rollback_loghost_on_devices(
     now = datetime.now(timezone.utc)
     try:
         for res in results:
+            state = res.get("state") or (STATE_ROLLED_BACK if res["ok"] else STATE_FAILED)
             rec = records.get(res["device_id"])
-            if rec is not None and res["ok"]:
-                rec.status = "rolled_back"
+            if rec is not None and state == STATE_ROLLED_BACK:
+                rec.status = STATE_ROLLED_BACK
                 rec.rolled_back_at = now
                 rec.message = f"由 {operator or '-'} 执行回滚"
             else:
@@ -736,12 +926,12 @@ async def rollback_loghost_on_devices(
                     device_name=res.get("device_name"),
                     device_ip=res.get("ip"),
                     loghost_address=addr,
-                    status="rolled_back" if res["ok"] else "failed",
+                    status=state,
                     before_config=res.get("before"),
                     after_config=res.get("after"),
                     commands=res.get("commands"),
                     message=res.get("error") or "; ".join(res.get("warnings") or []) or None,
-                    rolled_back_at=now if res["ok"] else None,
+                    rolled_back_at=now if state == STATE_ROLLED_BACK else None,
                     operator=operator,
                 ))
         await db.commit()
@@ -753,7 +943,11 @@ async def rollback_loghost_on_devices(
 
 
 async def latest_records(db, device_ids: list[int]) -> dict[int, DeviceLogHostConfig]:
-    """取各设备最新一条下发记录（已 applied 的）。"""
+    """取各设备最新一条下发记录。
+
+    不按状态过滤：`unverified`（待确认）同样可能已经把 loghost 配到设备上了，
+    回滚时正需要它的地址与 before 快照 —— 过滤掉会让「待确认」的设备无法回滚。
+    """
     if not device_ids:
         return {}
     rows = (await db.execute(

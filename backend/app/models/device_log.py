@@ -123,7 +123,9 @@ class DeviceLogHostConfig(Base):
     device_ip: Mapped[str | None] = mapped_column(String(45))
     loghost_address: Mapped[str | None] = mapped_column(String(64))
     loghost_port: Mapped[int | None] = mapped_column(Integer)
-    # applied / rolled_back / failed
+    # applied / rolled_back / unverified / failed
+    #   unverified = 命令已下发且无报错，但配置回读不可信，无法确认是否生效。
+    #   单独成一档而不是并进 failed：读不到 ≠ 没配上，混为一谈会让操作人重复下发。
     status: Mapped[str | None] = mapped_column(String(16), default="applied")
     # 下发前后的 info-center 相关配置快照（用于回滚与差异比对）
     before_config: Mapped[str | None] = mapped_column(Text)

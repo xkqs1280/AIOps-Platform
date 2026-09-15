@@ -612,12 +612,21 @@ async def loghost_apply(
         raise HTTPException(status_code=422, detail=str(e))
 
     ok = sum(1 for r in results if r["ok"])
+    pending = sum(1 for r in results if r.get("state") == "unverified")
     await record_audit(
         db, user, "device_logs", "loghost_apply",
-        f"向 {ok}/{len(results)} 台设备下发日志主机 {address}",
+        f"向 {ok}/{len(results)} 台设备下发日志主机 {address}"
+        + (f"（{pending} 台待人工确认）" if pending else ""),
         ip=get_client_ip(request),
     )
-    return {"ok_count": ok, "failed_count": len(results) - ok, "results": results}
+    return {
+        "ok_count": ok,
+        "failed_count": len(results) - ok - pending,
+        # 「命令已下发但回读不可信」既不是成功也不是失败，单独一档：
+        # 混进 failed 会诱导操作人重复下发（对生产设备是二次真实变更）
+        "unverified_count": pending,
+        "results": results,
+    }
 
 
 @router.post("/loghost/rollback")
@@ -647,12 +656,19 @@ async def loghost_rollback(
         raise HTTPException(status_code=422, detail=str(e))
 
     ok = sum(1 for r in results if r["ok"])
+    pending = sum(1 for r in results if r.get("state") == "unverified")
     await record_audit(
         db, user, "device_logs", "loghost_rollback",
-        f"回滚 {ok}/{len(results)} 台设备的日志主机配置",
+        f"回滚 {ok}/{len(results)} 台设备的日志主机配置"
+        + (f"（{pending} 台待人工确认）" if pending else ""),
         ip=get_client_ip(request),
     )
-    return {"ok_count": ok, "failed_count": len(results) - ok, "results": results}
+    return {
+        "ok_count": ok,
+        "failed_count": len(results) - ok - pending,
+        "unverified_count": pending,
+        "results": results,
+    }
 
 
 @router.get("/loghost/status")
@@ -686,6 +702,7 @@ async def loghost_status(
             "message": r.message,
             "applied_at": r.applied_at.isoformat() if r.applied_at else None,
             "rolled_back_at": r.rolled_back_at.isoformat() if r.rolled_back_at else None,
+            "created_at": r.created_at.isoformat() if r.created_at else None,
             "operator": r.operator,
         })
     return {

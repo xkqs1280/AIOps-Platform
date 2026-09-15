@@ -417,20 +417,28 @@
             </div>
 
             <div v-if="lhResults.length" class="mt-4 max-h-64 overflow-y-auto space-y-1.5">
+              <div class="flex flex-wrap items-center gap-3 px-1 pb-1 text-[11px]">
+                <span class="text-success">已确认 {{ lhSummary.applied }}</span>
+                <span v-if="lhSummary.unverified" class="text-warning">待确认 {{ lhSummary.unverified }}</span>
+                <span class="text-danger">失败 {{ lhSummary.failed }}</span>
+              </div>
               <div
                 v-for="(r, i) in lhResults"
                 :key="i"
                 class="flex items-start gap-2.5 px-3 py-2 rounded-lg border text-xs"
-                :class="r.ok ? 'border-success/30 bg-success/5' : 'border-danger/30 bg-danger/5'"
+                :class="r.ok ? 'border-success/30 bg-success/5'
+                  : (isUnverified(r) ? 'border-warning/30 bg-warning/5' : 'border-danger/30 bg-danger/5')"
               >
                 <CheckCircleIcon v-if="r.ok" class="w-4 h-4 text-success shrink-0 mt-0.5" />
+                <ExclamationTriangleIcon v-else-if="isUnverified(r)" class="w-4 h-4 text-warning shrink-0 mt-0.5" />
                 <XCircleIcon v-else class="w-4 h-4 text-danger shrink-0 mt-0.5" />
                 <div class="min-w-0 flex-1">
                   <div class="flex items-center justify-between gap-3">
                     <span class="text-ink truncate">{{ r.device_name }}</span>
                     <span class="font-mono text-ink-faint shrink-0">{{ r.ip }}</span>
                   </div>
-                  <div v-if="r.error" class="text-danger mt-0.5 break-all">{{ r.error }}</div>
+                  <div v-if="r.error" class="mt-0.5 break-all"
+                       :class="isUnverified(r) ? 'text-warning' : 'text-danger'">{{ r.error }}</div>
                   <div v-else-if="r.warnings?.length" class="text-warning mt-0.5 break-all">{{ r.warnings.join('; ') }}</div>
                 </div>
               </div>
@@ -500,7 +508,7 @@
                         {{ s.message }}
                       </div>
                     </td>
-                    <td class="text-xs whitespace-nowrap">{{ fmtTime(s.applied_at || s.rolled_back_at) }}</td>
+                    <td class="text-xs whitespace-nowrap">{{ fmtTime(s.applied_at || s.rolled_back_at || s.created_at) }}</td>
                   </tr>
                   <tr v-if="lhStatus.length === 0">
                     <td colspan="4" class="py-8 text-center text-ink-faint">暂无下发记录</td>
@@ -1088,10 +1096,30 @@ function lhStatusOf(deviceId) {
   return lhStatus.value.find((s) => s.device_id === deviceId)
 }
 
-const STATUS_BADGE = { applied: 'badge-success', rolled_back: 'badge-neutral', failed: 'badge-danger' }
-const STATUS_LABEL = { applied: '已下发', rolled_back: '已回滚', failed: '失败' }
+const STATUS_BADGE = {
+  applied: 'badge-success', rolled_back: 'badge-neutral',
+  unverified: 'badge-warning', failed: 'badge-danger',
+}
+const STATUS_LABEL = {
+  applied: '已下发', rolled_back: '已回滚',
+  unverified: '待确认', failed: '失败',
+}
 const statusBadgeClass = (s) => STATUS_BADGE[s] || 'badge-neutral'
 const statusLabel = (s) => STATUS_LABEL[s] || (s ? s : '未配置')
+
+// 「待确认」= 命令已下发且无报错，但配置回读不可信，无法确认是否生效。
+// 不能当失败看（会诱导重复下发），也不能当成功看（数据未必落上）。
+const isUnverified = (r) => (r?.state || (r?.ok ? 'applied' : 'failed')) === 'unverified'
+
+const lhSummary = computed(() => {
+  const c = { applied: 0, unverified: 0, failed: 0 }
+  for (const r of lhResults.value) {
+    if (r.ok) c.applied += 1
+    else if (isUnverified(r)) c.unverified += 1
+    else c.failed += 1
+  }
+  return c
+})
 
 async function loadLoghost() {
   try {
@@ -1190,7 +1218,12 @@ async function doApply() {
 
 function askRollback() {
   pendingIds.value = [...lhSelected.value]
-  const withRecord = pendingIds.value.filter((id) => lhStatusOf(id)?.status === 'applied')
+  // 「待确认」也要算作有记录：命令很可能已经生效，正需要它的地址与 before 快照来回滚
+  const withRecord = pendingIds.value.filter((id) => {
+    const st = lhStatusOf(id)?.status
+    return st === 'applied' || st === 'unverified'
+  })
+  const pending = pendingIds.value.filter((id) => lhStatusOf(id)?.status === 'unverified').length
   confirmDialog.value = {
     title: '确认回滚日志主机配置',
     danger: true,
@@ -1200,6 +1233,7 @@ function askRollback() {
       withRecord.length < pendingIds.value.length
         ? `其中仅 ${withRecord.length} 台有下发记录（地址与快照来自记录），其余需按当前地址回滚。`
         : '地址与 info-center 原始状态将取自各设备最近一次下发记录。',
+      ...(pending ? [`其中 ${pending} 台上次下发状态为「待确认」，建议先登录设备核对其实际配置。`] : []),
       '若下发前 info-center 处于关闭状态，回滚会一并还原为关闭。',
     ],
     action: doRollback,

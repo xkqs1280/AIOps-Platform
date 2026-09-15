@@ -1032,3 +1032,225 @@ async def test_retention_default_is_six_months():
 def test_demo_data_endpoint_disabled_by_default():
     """演示数据接口默认关闭：造出来的数据混进审计数据在等保场景是硬伤。"""
     assert settings.DEMO_DATA_ENABLED is False
+
+
+# ---------------------------------------------------------------------------
+# 7. 配置回读与回验三态
+#
+# 现场事故（HX-7506X / 10.236.148.1）：命令已下发、设备上确实配好了，平台却报
+# 「命令已下发但回验未在配置中找到目标」= 失败。根因是把「回读不到」当成了
+# 「没配上」。下面这些用例把回读的健壮性口径与三态语义钉死。
+# ---------------------------------------------------------------------------
+
+def test_snapshot_lines_handles_bare_cr_line_endings():
+    """设备只发 CR 作行分隔时，不能把整段粘成一行。
+
+    原实现 `replace("\\r\\n", "\\n").split("\\n")` 遇到裸 CR 会让整段配置变成一行，
+    行首不再是 `info-center loghost` → 回验必然失配；而同一文件里 `errors_in`
+    用的是 `splitlines()`（认 CR），两处口径不一致，于是出现「报错检测正常、
+    快照匹配全灭」这种最难查的组合。
+    """
+    from app.services.device_loghost_service import _has_loghost, _snapshot_lines
+
+    raw = "<SW>display current-configuration | include info-center\r#\rinfo-center enable\rinfo-center loghost 10.236.148.62\r"
+    text = _snapshot_lines(raw)
+    assert "\r" not in text
+    assert "info-center loghost 10.236.148.62" in text.splitlines()
+    assert _has_loghost(text, "10.236.148.62") is True
+
+
+def test_snapshot_lines_strips_ansi_and_noise():
+    """控制序列 / 分页残留 / 错误指示符不能混进配置行。"""
+    from app.services.device_loghost_service import _snapshot_lines
+
+    raw = (
+        "info-center enable\r\n"
+        "\x1b[1;32minfo-center loghost 10.236.148.62\x1b[0m\r\n"
+        "  ---- More ----\r\n"
+        "        ^\r\n"
+        "% Unrecognized command found at '^' position.\r\n"
+        "<SW>display current-configuration | include info-center\r\n"
+    )
+    lines = _snapshot_lines(raw).splitlines()
+    assert lines == ["info-center enable", "info-center loghost 10.236.148.62"]
+
+
+def test_has_loghost_requires_full_address_on_a_loghost_line():
+    """命中的必须是「日志主机配置行 + 完整 IP」，不能被正文里的地址糊弄。"""
+    from app.services.device_loghost_service import _has_loghost
+
+    hit = "info-center enable\ninfo-center loghost 10.236.148.62 port 514"
+    assert _has_loghost(hit, "10.236.148.62") is True
+    # 同一台设备上另一个日志主机 → 不算命中
+    assert _has_loghost("info-center loghost 10.236.148.61", "10.236.148.62") is False
+    # 仅出现在别的行（如描述/正文）里 → 不算命中
+    assert _has_loghost("description send-to-10.236.148.62", "10.236.148.62") is False
+    assert _has_loghost("", "10.236.148.62") is False
+    # 华为 OID 前四段之类的前缀不能被当成地址命中（历史坑）
+    assert _has_loghost("info-center loghost 1.3.6.1.4.1.2011", "10.236.148.62") is False
+
+
+class _FakeReader:
+    """按块吐出预定字节的假 reader（模拟 TCP 分片）。"""
+
+    def __init__(self, chunks):
+        self._chunks = list(chunks)
+
+    async def read(self, _n):
+        return self._chunks.pop(0) if self._chunks else b""
+
+
+class _FakeWriter:
+    def __init__(self):
+        self.written = []
+
+    def write(self, data):
+        self.written.append(data)
+
+    async def drain(self):
+        return None
+
+
+async def test_paging_marker_split_across_chunks_still_pages():
+    """分页标记被 TCP 分片切开（`---- Mo` + `re ----`）也必须翻页。
+
+    只看当前块的话会漏判 → 读到第一屏就因「空闲」结束 → 目标行在后面几页里
+    永远看不到，同样是「配置明明生效却回验不到」的一种成因。
+    """
+    import asyncio
+    from app.services.device_loghost_service import DeviceSession
+
+    reader = _FakeReader([b"page1\r\n---- Mo", b"re ----", b"page2\r\n", b""])
+    writer = _FakeWriter()
+    session = DeviceSession(writer, reader)
+    # 注意：deadline 是绝对时刻（run() 里传的是 loop.time() + timeout），不是时长
+    loop = asyncio.get_running_loop()
+    out = await session._read_until_idle(idle=0.05, deadline=loop.time() + 2.0)
+
+    assert b" " in writer.written, "命中分页标记必须补一个空格翻页"
+    assert "page2" in out
+
+
+class _FakeSession:
+    """按命令返回预设回包的假会话，用于验证回读退化链。"""
+
+    def __init__(self, mapping, errors=None):
+        self.mapping = mapping
+        self.calls = []
+        self._errors = errors or {}
+
+    async def run(self, cmd, timeout=0, idle=0, until=None):
+        self.calls.append(cmd)
+        out = self.mapping.get(cmd, "")
+        if isinstance(out, Exception):
+            raise out
+        return out
+
+    def errors_in(self, out):
+        return [m for m in self._errors.get(out, [])]
+
+
+async def test_snapshot_falls_back_when_filter_command_errors():
+    """`| include` 不被支持（明确报错）时，退化到更宽的回读命令。"""
+    from app.services.device_loghost_service import SNAPSHOT_CMDS, fetch_infocenter_snapshot
+
+    narrow = SNAPSHOT_CMDS[0]
+    wider = SNAPSHOT_CMDS[1]
+    sess = _FakeSession(
+        {narrow: "% Unrecognized command found at '^' position.\n",
+         wider: "info-center loghost 10.236.148.62\r\n"},
+        errors={"% Unrecognized command found at '^' position.\n": ["% Unrecognized command"]},
+    )
+    snap = await fetch_infocenter_snapshot(sess)
+    assert snap.trusted is True
+    assert snap.command == wider
+    assert "info-center loghost 10.236.148.62" in snap.text
+
+
+async def test_snapshot_empty_readback_is_untrusted():
+    """空回读一律不可信：无法区分「设备上真没有」与「读法不对」。"""
+    from app.services.device_loghost_service import fetch_infocenter_snapshot
+
+    snap = await fetch_infocenter_snapshot(_FakeSession({}))
+    assert snap.trusted is False
+    assert snap.text == ""
+    assert snap.notes, "必须说明为什么不可信（哪条命令、什么现象）"
+
+
+def test_judge_apply_three_states():
+    """三态语义：确认生效 / 待确认 / 失败，三者不可互相冒充。"""
+    from app.services.device_loghost_service import (
+        STATE_APPLIED, STATE_FAILED, STATE_UNVERIFIED, Snapshot, _judge_apply,
+    )
+
+    addr = "10.236.148.62"
+    # 1) 回读命中 → 已确认生效
+    good = Snapshot(f"info-center loghost {addr}", "cmd", True)
+    assert _judge_apply(addr, good, [])[0] == STATE_APPLIED
+
+    # 2) 空回读 + 命令无报错 → 待确认（**不能**报失败，这才是 HX-7506X 的现场）
+    empty = Snapshot("", "cmd", False, ["`cmd` 无输出"])
+    state, msg = _judge_apply(addr, empty, [])
+    assert state == STATE_UNVERIFIED
+    assert "不可判定" in msg and addr in msg
+
+    # 3) 回读可信但没有目标 → 确认失败
+    other = Snapshot("info-center loghost 10.0.0.1", "cmd", True)
+    assert _judge_apply(addr, other, [])[0] == STATE_FAILED
+
+    # 4) 命令报错 → 确认失败（即便回读为空也不该说"待确认"）
+    assert _judge_apply(addr, empty, ["% Unrecognized command"])[0] == STATE_FAILED
+
+
+def test_judge_rollback_three_states():
+    """回滚回验同样三态：空回读不能当成「已回滚成功」。"""
+    from app.services.device_loghost_service import (
+        STATE_FAILED, STATE_ROLLED_BACK, STATE_UNVERIFIED, Snapshot, _judge_rollback,
+    )
+
+    addr = "10.236.148.62"
+    gone = Snapshot("info-center enable", "cmd", True)
+    assert _judge_rollback(addr, gone, [])[0] == STATE_ROLLED_BACK
+    still = Snapshot(f"info-center loghost {addr}", "cmd", True)
+    assert _judge_rollback(addr, still, [])[0] == STATE_FAILED
+    empty = Snapshot("", "cmd", False, ["`cmd` 无输出"])
+    assert _judge_rollback(addr, empty, [])[0] == STATE_UNVERIFIED
+
+
+async def test_unverified_apply_is_recorded_without_applied_at(db, device_factory, monkeypatch):
+    """「待确认」要落库成独立状态，且不写 applied_at（否则状态表自相矛盾）。"""
+    from app.services import device_loghost_service as lh
+
+    dev = await device_factory(name="HX-7506X", ip="10.236.148.1")
+
+    async def fake_apply(device, address, port=None, level="informational", save=True, timeout=0):
+        return {"device_id": device.id, "device_name": device.name, "ip": device.ip,
+                "state": "unverified", "ok": False, "before": None, "after": "",
+                "commands": "system-view", "warnings": [],
+                "error": "命令已下发且无报错，但回验不可判定（`cmd` 无输出）"}
+
+    monkeypatch.setattr(lh, "apply_to_device", fake_apply)
+    res = await lh.apply_loghost_to_devices(db, [dev], "10.236.148.62", operator="admin")
+    assert res[0]["state"] == "unverified"
+
+    row = (await db.execute(DeviceLogHostConfig.__table__.select())).one()
+    assert row.status == "unverified"
+    assert row.applied_at is None, "待确认不是已生效，不能盖 applied_at 时间戳"
+    assert "不可判定" in row.message
+
+
+async def test_unverified_device_still_can_be_rolled_back(db, device_factory):
+    """「待确认」的设备必须能按记录回滚——它很可能已经把 loghost 配上了。"""
+    from app.services import device_loghost_service as lh
+
+    dev = await device_factory(name="HX-7506X", ip="10.236.148.1")
+    db.add(DeviceLogHostConfig(
+        device_id=dev.id, device_name=dev.name, device_ip=dev.ip,
+        loghost_address="10.236.148.62", status="unverified",
+        before_config="info-center enable",
+    ))
+    await db.commit()
+
+    recs = await lh.latest_records(db, [dev.id])
+    assert recs[dev.id].status == "unverified"
+    assert lh.infocenter_was_disabled(recs[dev.id].before_config) is False
