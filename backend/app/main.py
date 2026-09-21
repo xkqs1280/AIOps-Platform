@@ -123,6 +123,14 @@ async def _bootstrap_database():
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    # ── 升级收尾自愈：升级脚本被 systemd cgroup 连坐杀掉时补写终态 ──
+    # 判据是"服务能起来 + 运行版本 == 升级目标版本"，纯文件操作、幂等；
+    # 放在最前面且异常吞掉，确保它永远不会影响服务启动。
+    try:
+        from app.services.upgrade_service import reconcile_interrupted_upgrade
+        reconcile_interrupted_upgrade()
+    except Exception as e:
+        logger.error(f"Upgrade state reconcile failed: {e}")
     await _bootstrap_database()
     # 存量明文设备凭据一次性加密（启用加密密钥后的迁移，幂等）
     try:

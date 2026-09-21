@@ -445,6 +445,52 @@ def _is_zombie_state(s: dict) -> bool:
         return True
 
 
+def reconcile_interrupted_upgrade() -> dict | None:
+    """后端启动自愈：升级脚本被 systemd cgroup 连坐杀掉时，补写终态。
+
+    背景（Linux 源码部署）：升级脚本由后端子进程 spawn，与 uvicorn 同属
+    aiops-backend.service 的 cgroup（KillMode=control-group）。脚本 pkill 停服后，
+    systemd 按 Restart=always 重启服务，而重启的 stop 阶段会清空整个 cgroup ——
+    把正在做健康检查的脚本一并杀掉。没人写 done，状态便永久停在 verifying/90%，
+    页面表现为"升级卡住"（实测 .108 上 4.5.6→4.5.7 即如此，且该状态在查询路径上
+    不会被清除，只有再次发起升级才重置）。
+
+    脚本侧已用独立 scope 脱离该 cgroup 作为首选修复；此处是不依赖任何系统能力的
+    兜底：**本函数能被执行，本身就证明服务已经成功启动**，因此当
+
+      · 状态停在某个中间态（说明没人写下终态），且
+      · 当前实际运行的版本 == 状态里的 to_version（说明新代码确实已生效）
+
+    时，可以断定升级实际成功，直接补写 done。
+
+    保守起见只做"补成功"，不主动判失败：未生效的中间态仍交给既有的僵尸态超时
+    （_ZOMBIE_TIMEOUT_SECONDS）解锁，避免与服务端脚本并发写状态互相覆盖。
+    """
+    s = load_state()
+    if s.get("state") not in _ACTIVE_STATES:
+        return None
+    to_version = str(s.get("to_version") or "").strip()
+    if not to_version or APP_VERSION != to_version:
+        # 新代码尚未生效（或本就没记录目标版本）→ 不是"已完成但没收尾"，不插手
+        return None
+    try:
+        rollback_available = (get_upgrade_root() / "backup").exists()
+        state = save_state(
+            state=STATE_DONE,
+            progress=100,
+            message="升级已完成（服务重启后自动确认）",
+            finished_at=time.strftime("%Y-%m-%d %H:%M:%S"),
+            error=None,
+            rollback_available=rollback_available,
+        )
+        log_state("检测到升级脚本已退出且新版本已生效，自动补写完成状态")
+        logger.info("Reconciled interrupted upgrade state: -> %s (done)", to_version)
+        return state
+    except Exception as e:  # 自愈失败绝不影响服务启动
+        logger.error("Reconcile interrupted upgrade state failed: %s", e)
+        return None
+
+
 def can_upgrade() -> tuple:
     """是否可发起新升级（避免并发）。返回 (ok, reason)。"""
     _maybe_expire_done_state()
