@@ -145,3 +145,28 @@ class DeviceLogHostConfig(Base):
         Index("ix_device_loghost_device", "device_id"),
         Index("ix_device_loghost_status", "status"),
     )
+
+
+class DeviceLogSetting(Base):
+    """设备日志中心全局设置（单行）。
+
+    ``receiver_enabled`` 是**页面上的接收开关**（运行时可变），与部署级总闸
+    ``.env`` 的 ``SYSLOG_UDP_ENABLED`` 取「与」关系：总闸关闭时页面开关不可用。
+
+    为什么单独存表、而不是只读 .env：运维需要**不重启平台**就停掉 UDP 接收。
+    最常见的两种场景是 —— 514 端口被第三方程序占用、或平台自身要临时让出该端口；
+    改 .env 必须重启进程，做不到「随手关、随手开」。
+
+    关闭开关**只停接收，不动存量数据**：已留存的日志照常查询/导出/统计。
+    等保要求网络日志留存 ≥ 6 个月，不能因为关一下开关就断档。
+    """
+
+    __tablename__ = "device_log_settings"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    receiver_enabled: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+    # 最后一次操作人（审计线索；完整操作留痕另见 audit_logs）
+    operator: Mapped[str | None] = mapped_column(String(64))
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
+    )

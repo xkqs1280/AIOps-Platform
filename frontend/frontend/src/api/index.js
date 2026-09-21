@@ -144,6 +144,8 @@ export const getDeviceLogs = (params) => api.get('/device-logs', { params })
 export const getDeviceLogStats = (params) => api.get('/device-logs/stats', { params })
 export const getDeviceLogFilters = (params) => api.get('/device-logs/filters', { params })
 export const getDeviceLogReceiver = () => api.get('/device-logs/receiver')
+// 开启/关闭设备日志接收（停收时立即释放 UDP 端口；存量日志不受影响）
+export const setDeviceLogReceiver = (enabled) => api.put('/device-logs/receiver', { enabled })
 // 导出按筛选条件流式拼 CSV，条数多时可能超过默认 15s（后端有 5 万条上限）
 export const exportDeviceLogs = (params) => api.get('/device-logs/export', { params, responseType: 'blob', timeout: 120000 })
 // 日志主机（loghost）下发：真实改动设备配置，属高危运维操作
@@ -159,6 +161,16 @@ export const getLoghostStatus = () => api.get('/device-logs/loghost/status')
 export const getMailSetting = () => api.get('/settings/mail')
 export const saveMailSetting = (data) => api.post('/settings/mail', data)
 export const getAuditLogs = (params) => api.get('/settings/audit-logs', { params })
+// 平台外观设置（监控大屏标题可自定义为「某某单位网络监控平台」）
+// site_name 为空串 = 未自定义，前端回退到内置默认文案
+export const getPlatformSetting = () => api.get('/settings/platform')
+export const savePlatformSetting = (siteName) => api.put('/settings/platform', { site_name: siteName })
+
+// 访问控制 · 平台访问 IP 白名单（账号管理页维护；启用后整站拦截）
+// 读取会一并返回 current_ip（平台看到的本次来源 IP），供界面提示与一键加入
+export const getIpWhitelist = () => api.get('/access-control/ip-whitelist')
+// 全量保存：请求体即权威列表（后端整表替换，并校验不能把自己锁在门外）
+export const saveIpWhitelist = (data) => api.put('/access-control/ip-whitelist', data)
 
 // 系统升级（一键升级模块）
 export const getSystemVersion = () => api.get('/system/version')

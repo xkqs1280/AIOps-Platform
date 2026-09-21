@@ -5,8 +5,8 @@
 """
 
 APP_NAME = "AIOps 智能运维托管平台"
-APP_VERSION = "4.5.6"
-APP_BUILD_TIME = "2026-09-15"
+APP_VERSION = "4.5.7"
+APP_BUILD_TIME = "2026-09-21"
 
 # 版本号三段比较工具：用于升级包版本校验（如 "4.0.0" > "3.6.0"）
 def parse_version(v: str) -> tuple:

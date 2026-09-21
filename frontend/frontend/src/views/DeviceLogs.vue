@@ -21,6 +21,24 @@
             {{ receiver.host }}:{{ receiver.bound_port || receiver.port }}/udp
           </span>
         </div>
+
+        <!-- 接收开关：设备日志接收的总控。关掉即解绑 UDP 端口、停止一切入库，
+             存量日志不受影响。停掉审计日志的入口是敏感动作，故仅管理员可操作。 -->
+        <button
+          role="switch"
+          :aria-checked="receiverEnabled"
+          :aria-label="receiverEnabled ? '关闭设备日志接收' : '开启设备日志接收'"
+          :disabled="!receiver || togglingReceiver || !canToggleReceiver"
+          :title="receiverToggleTitle"
+          class="h-6 w-11 shrink-0 rounded-full transition-colors disabled:opacity-40 disabled:cursor-not-allowed relative inline-flex items-center"
+          :class="receiverEnabled ? 'bg-cyan-600' : 'bg-hover'"
+          @click="toggleReceiver"
+        >
+          <span
+            class="inline-block h-4 w-4 transform rounded-full bg-white transition-transform"
+            :class="receiverEnabled ? 'translate-x-6' : 'translate-x-1'"
+          />
+        </button>
         <button class="btn btn-ghost btn-sm" :disabled="loading" @click="refreshAll">
           <ArrowPathIcon class="w-4 h-4" :class="loading ? 'animate-spin' : ''" />
           刷新
@@ -29,6 +47,24 @@
           <ArrowDownTrayIcon class="w-4 h-4" />
           导出 CSV
         </button>
+      </div>
+    </div>
+
+    <!-- 接收已关闭：显式提示，避免「设备在发、日志没进来」被误当成故障去排查。
+         同时说清边界 —— 只是停止接收，存量日志与留存期不受影响。 -->
+    <div v-if="receiver && !receiver.enabled" class="mb-5 card border-warning/40 bg-warning/5 p-4">
+      <div class="flex items-start gap-3">
+        <PauseCircleIcon class="w-5 h-5 text-warning shrink-0 mt-0.5" />
+        <div class="text-sm">
+          <p class="font-semibold text-warning">设备日志接收已关闭</p>
+          <p class="text-ink-muted mt-1">
+            平台当前不监听 UDP {{ receiver.port }}，设备发来的日志<strong>不会</strong>入库。
+            存量日志仍可正常查询、导出与统计（留存 {{ retentionDays }} 天的数据不受影响）。
+          </p>
+          <p class="text-ink-faint mt-1 text-xs">
+            典型用途：把 {{ receiver.port }} 端口临时让给其它程序，或阶段性停收。重新开启后立即恢复接收。
+          </p>
+        </div>
       </div>
     </div>
 
@@ -714,6 +750,7 @@ import {
   ClipboardDocumentIcon,
   CloudArrowUpIcon,
   ServerStackIcon,
+  PauseCircleIcon,
 } from '@heroicons/vue/24/outline'
 import { chartTheme, onThemeChange } from '../utils/chartTheme'
 import {
@@ -721,6 +758,7 @@ import {
   getDeviceLogStats,
   getDeviceLogFilters,
   getDeviceLogReceiver,
+  setDeviceLogReceiver,
   exportDeviceLogs,
   getDevices,
   getLoghostCandidates,
@@ -728,6 +766,7 @@ import {
   applyLoghost,
   rollbackLoghost,
   getLoghostStatus,
+  getMe,
 } from '../api/index.js'
 
 // 单批下发的设备数：后端逐台 SSH（并发 4）+ 前后各一次配置快照，约 15s/台，
@@ -777,12 +816,21 @@ const bindHints = computed(() => {
 const receiverText = computed(() => {
   const r = receiver.value
   if (!r) return '状态未知'
-  if (!r.enabled) return '已停用'
+  // 顺序不可调：「已关闭」必须优先于 running 判定 —— 关掉开关后监督循环依然存活
+  // （在等待唤醒），心跳是新鲜的，running 仍为 true，先判 running 会显示成"接收中"。
+  if (!r.enabled) return '已关闭'
   if (r.bind_error) return '绑定失败'
   if (r.running) return '接收中'
   if (r.started_at) return '未运行'
   return '未启动'
 })
+
+// ---- 接收开关（页面可控，不重启进程）----
+const receiverEnabled = computed(() => !!receiver.value?.enabled)
+// 部署级总闸（.env 的 SYSLOG_UDP_ENABLED）关闭时，页面开关不可用
+const canToggleReceiver = computed(() => receiver.value?.configured !== false)
+const togglingReceiver = ref(false)
+const isAdmin = ref(false)
 
 const receiverBoxClass = computed(() => {
   const r = receiver.value
@@ -795,7 +843,10 @@ const receiverBoxClass = computed(() => {
 
 const receiverDotClass = computed(() => {
   const r = receiver.value
-  if (!r || !r.enabled || r.bind_error) return 'status-dot-critical'
+  if (!r) return 'status-dot-critical'
+  // 关闭是「人为的静默」，不是故障：用灰色点。标红会让人以为平台出错了。
+  if (!r.enabled) return 'status-dot-offline'
+  if (r.bind_error) return 'status-dot-critical'
   if (r.running) return 'status-dot-online'
   return 'status-dot-warning'
 })
@@ -810,6 +861,18 @@ const receiverTitle = computed(() => {
     r.bind_error ? `错误：${r.bind_error}` : '',
     r.started_at ? `启动于：${fmtTime(r.started_at)}` : '',
   ].filter(Boolean).join('\n')
+})
+
+const receiverToggleTitle = computed(() => {
+  const r = receiver.value
+  if (!r) return '接收器状态未知'
+  if (!canToggleReceiver.value) {
+    return '该功能已被部署配置禁用（.env 的 SYSLOG_UDP_ENABLED=false），请在配置文件开启后重启平台'
+  }
+  if (!isAdmin.value) return '仅管理员可开启/关闭设备日志接收'
+  return r.enabled
+    ? '关闭接收：立即停止接收并释放 UDP 端口（存量日志保留）'
+    : '开启接收：重新监听 UDP 端口'
 })
 
 const droppedTotal = computed(() =>
@@ -961,6 +1024,42 @@ async function loadReceiver() {
     receiver.value = await getDeviceLogReceiver()
   } catch (e) {
     console.error('加载接收器状态失败', e)
+  }
+}
+
+async function loadMe() {
+  try {
+    const me = await getMe()
+    isAdmin.value = me?.role === 'admin'
+  } catch (e) {
+    console.error('加载当前用户信息失败', e)
+  }
+}
+
+async function toggleReceiver() {
+  if (!receiver.value || togglingReceiver.value) return
+  const next = !receiver.value.enabled
+  if (!next) {
+    // 停掉审计日志的入口是敏感操作：先把影响说清楚再确认。
+    // 否则容易出现「某人图省事关掉、几个月后才发现留存断档」。
+    const ok = window.confirm(
+      `确定关闭设备日志接收？\n\n` +
+      `· 平台将立即停止监听 UDP ${receiver.value.port}，并释放该端口；\n` +
+      `· 设备发来的日志不再入库，后续留存会出现断档（等保要求网络日志留存 6 个月）；\n` +
+      `· 已留存的日志不受影响，仍可正常查询与导出；\n` +
+      `· 重新开启后立即恢复接收。`
+    )
+    if (!ok) return
+  }
+  togglingReceiver.value = true
+  try {
+    receiver.value = await setDeviceLogReceiver(next)
+  } catch (e) {
+    const msg = e?.response?.data?.detail || e?.message || e
+    alert((next ? '开启' : '关闭') + '失败：' + msg)
+    await loadReceiver()
+  } finally {
+    togglingReceiver.value = false
   }
 }
 
@@ -1446,8 +1545,9 @@ function switchTab(key) {
 let timer = null
 
 onMounted(async () => {
-  // 日志主机状态与统计卡同时在首屏加载：顶部「日志主机」卡片要立刻有数
-  await Promise.all([loadReceiver(), loadMeta(), loadLoghostStatus()])
+  // 日志主机状态与统计卡同时在首屏加载：顶部「日志主机」卡片要立刻有数。
+  // loadMe 用于判断接收开关能否操作（仅管理员可切换），与状态一并取回。
+  await Promise.all([loadReceiver(), loadMeta(), loadLoghostStatus(), loadMe()])
   await Promise.all([loadLogs(), loadStats()])
   window.addEventListener('resize', onResize)
   offTheme = onThemeChange(() => nextTick(renderCharts))

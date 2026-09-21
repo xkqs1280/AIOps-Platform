@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""系统设置 API 路由：邮件告警配置、操作审计日志查询。"""
+"""系统设置 API 路由：邮件告警配置、平台外观（大屏标题）、操作审计日志查询。"""
 from fastapi import APIRouter, Depends, Query
 from pydantic import BaseModel, Field
 from sqlalchemy import func, select
@@ -7,6 +7,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import get_db
 from app.models.audit import AuditLog
+from app.models.platform_setting import PlatformSetting
 from app.routers.auth import admin_only, current_user
 from app.services.audit_service import record_audit
 from app.services.mail_service import get_mail_setting, save_mail_setting
@@ -44,6 +45,59 @@ async def update_mail_setting(
     cfg = await save_mail_setting(db, body.model_dump())
     await record_audit(db, actor, "mail", "update", "保存邮件告警配置")
     return cfg
+
+
+class PlatformSettingRequest(BaseModel):
+    site_name: str = Field("", max_length=64)
+
+
+async def _get_platform_row(db: AsyncSession) -> PlatformSetting | None:
+    """取平台设置单行（没有则返回 None）。"""
+    result = await db.execute(select(PlatformSetting).order_by(PlatformSetting.id).limit(1))
+    return result.scalars().first()
+
+
+@router.get("/platform")
+async def read_platform_setting(db: AsyncSession = Depends(get_db), _: dict = Depends(current_user)):
+    """读取平台外观设置（任意登录用户）。
+
+    监控大屏标题要用这个值渲染，因此读权限放到「登录即可」而不是仅管理员；
+    写入才是管理员专属。``site_name`` 为空 = 未自定义，由前端回退到内置默认标题。
+    """
+    row = await _get_platform_row(db)
+    return {
+        "site_name": row.site_name if row else "",
+        "updated_by": row.updated_by if row else "",
+        "updated_at": row.updated_at.isoformat() if row and row.updated_at else None,
+    }
+
+
+@router.put("/platform")
+async def update_platform_setting(
+    body: PlatformSettingRequest,
+    db: AsyncSession = Depends(get_db),
+    actor: dict = Depends(admin_only),
+):
+    """保存平台外观设置（管理员）。``site_name`` 传空串表示恢复默认标题。"""
+    name = (body.site_name or "").strip()
+    row = await _get_platform_row(db)
+    if row is None:
+        row = PlatformSetting(site_name=name, updated_by=actor["sub"])
+        db.add(row)
+    else:
+        row.site_name = name
+        row.updated_by = actor["sub"]
+    await db.commit()
+    await db.refresh(row)
+    await record_audit(
+        db, actor, "settings", "update",
+        f"修改平台名称（监控大屏标题）：{name or '恢复默认'}",
+    )
+    return {
+        "site_name": row.site_name,
+        "updated_by": row.updated_by,
+        "updated_at": row.updated_at.isoformat() if row.updated_at else None,
+    }
 
 
 @router.get("/audit-logs")

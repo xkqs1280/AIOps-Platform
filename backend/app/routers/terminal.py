@@ -49,6 +49,16 @@ async def device_terminal_ws(
     # 必须先 accept 才能发送/关闭（Starlette 约束：未 accept 的 close 会抛错导致 403）
     await websocket.accept()
 
+    # 访问 IP 白名单拦截：同上，HTTP 中间件不作用于 WebSocket 升级请求，
+    # 不在这里补一道的话，白名单外的 IP 仍能通过本端点拿到设备 CLI。
+    from app.services.ip_whitelist import is_allowed, resolve_client_ip, whitelist_state
+    _client_ip = resolve_client_ip(websocket)
+    _wl_enabled, _wl_networks = await whitelist_state()
+    if _wl_enabled and not is_allowed(_client_ip, _wl_networks):
+        logger.warning("IP 白名单拦截 WebSocket 终端：ip=%s device_id=%s", _client_ip, device_id)
+        await websocket.close(code=4003, reason="当前来源 IP 不在平台访问白名单内")
+        return
+
     # License 锁定拦截：授权中间件（main.py HTTP 中间件）不作用于 WebSocket，
     # 若不在 accept 后立即校验，锁定态下持账号者仍可经本端点无痕操作全网设备。
     from app.services.license_service import is_locked

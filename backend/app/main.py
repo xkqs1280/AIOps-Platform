@@ -33,6 +33,7 @@ from app.routers import ai as ai_router
 from app.routers import system
 from app.routers import notify_channels, device_dependencies
 from app.routers import device_logs
+from app.routers import access_control
 
 logger = logging.getLogger(__name__)
 
@@ -191,7 +192,10 @@ async def lifespan(app: FastAPI):
     # 启动内置 syslog UDP 接收器（设备日志中心 P0）：
     # 平台此前"接收类"能力都是 HTTP 端点 + 外部转发组件，而部署包里并无转发组件，
     # 导致 Trap/syslog 在生产上没有真实入口。此处直接监听 UDP，做到开箱即用。
-    from app.services.syslog_receiver import syslog_udp_loop
+    from app.services.syslog_receiver import load_persisted_enabled, syslog_udp_loop
+    # 先恢复页面上的接收开关（持久化在 device_log_settings）：运维关掉后重启必须保持关闭，
+    # 否则"关了又自己开"会让审计留存出现无法解释的断档。
+    await load_persisted_enabled()
     syslog_task = start_supervised("syslog-udp", syslog_udp_loop)
     logger.info(
         "Syslog UDP receiver starting (bind %s:%s)",
@@ -260,10 +264,100 @@ app.add_middleware(
 )
 
 
+# ---- 访问 IP 白名单（整站拦截，默认关闭）----
+# 豁免名单里的端点：来源是网络设备 / 采集器 / 监控探针，不是人。
+# 一旦被白名单拦掉，设备日志与 SNMP Trap 会**静默中断**（设备侧看不出任何异常），
+# 这比「少几个人能访问平台」严重得多，因此这三条必须永久豁免。
+_IP_WHITELIST_EXEMPT_PATHS = {
+    "/health",
+    f"{settings.API_PREFIX}/traps",
+    f"{settings.API_PREFIX}/syslog",
+    f"{settings.API_PREFIX}/device-logs/ingest",
+}
+
+
+def _access_denied_page(client_ip: str) -> str:
+    """白名单拒绝页。
+
+    必须是**完全内嵌**的极简 HTML：此时此刻前端静态资源同样被拦，
+    页面不能依赖任何外部 css/js/字体，否则非白名单用户只会看到一片空白。
+    """
+    import html as _html
+
+    safe_ip = _html.escape(client_ip or "未知")
+    return f"""<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1"/>
+<title>访问受限</title>
+<style>
+  :root {{ color-scheme: light dark; }}
+  body {{ margin:0; min-height:100vh; display:flex; align-items:center; justify-content:center;
+         background:#f8fafc; color:#0f172a;
+         font-family:-apple-system,"Segoe UI","Microsoft YaHei",sans-serif; }}
+  .card {{ max-width:560px; margin:24px; padding:32px; border-radius:14px;
+           border:1px solid #e2e8f0; background:#fff; box-shadow:0 10px 30px rgba(15,23,42,.06); }}
+  h1 {{ margin:0 0 14px; font-size:20px; }}
+  p {{ margin:0 0 10px; line-height:1.75; font-size:14px; color:#475569; }}
+  code {{ padding:2px 6px; border-radius:4px; background:#f1f5f9; color:#0f172a;
+          font-family:Consolas,monospace; }}
+  .hint {{ margin-top:18px; padding-top:14px; border-top:1px dashed #e2e8f0;
+           font-size:13px; color:#64748b; }}
+  @media (prefers-color-scheme: dark) {{
+    body {{ background:#0b1220; color:#e2e8f0; }}
+    .card {{ background:#111a2b; border-color:#1e293b; box-shadow:none; }}
+    p {{ color:#94a3b8; }}
+    code {{ background:#1e293b; color:#e2e8f0; }}
+    .hint {{ border-color:#1e293b; color:#64748b; }}
+  }}
+</style>
+</head>
+<body>
+  <div class="card">
+    <h1>访问受限</h1>
+    <p>本平台已开启访问 IP 白名单，当前来源 IP <code>{safe_ip}</code> 不在允许范围内。</p>
+    <p>如需访问，请联系管理员将该 IP 加入白名单。</p>
+    <p class="hint">管理员提示：可在部署本平台的服务器上，用本机地址打开平台进行配置
+      （本机回环地址始终允许访问）。</p>
+  </div>
+</body>
+</html>"""
+
+
+async def _check_ip_whitelist(request: Request):
+    """白名单拦截判定：命中则返回 403 响应，否则返回 None。
+
+    白名单默认关闭，此处通常只是一次内存判断（TTL 缓存的启用位为 False 即刻返回），
+    因此挂在每个请求上（含静态资源）也不会带来可感知开销。
+    """
+    from app.services.ip_whitelist import is_allowed, resolve_client_ip, whitelist_state
+
+    client_ip = resolve_client_ip(request)
+    enabled, networks = await whitelist_state()
+    if not enabled or is_allowed(client_ip, networks):
+        return None
+    logger.warning(
+        "IP 白名单拦截：ip=%s path=%s method=%s", client_ip, request.url.path, request.method
+    )
+    if request.url.path.startswith("/api/"):
+        return JSONResponse(
+            {"detail": f"您的 IP（{client_ip}）不在平台访问白名单内，请联系管理员"}, status_code=403
+        )
+    return HTMLResponse(_access_denied_page(client_ip), status_code=403)
+
+
 @app.middleware("http")
 async def add_security_headers(request: Request, call_next):
     path = request.url.path
     api_prefix = settings.API_PREFIX
+    # ---- 访问 IP 白名单：整站最外层拦截（默认关闭）----
+    # 位置刻意放在鉴权之前：白名单管「能不能到达平台」，鉴权管「以什么身份使用平台」；
+    # 顺序反过来会让未授权 IP 有机会触发登录限流计数、甚至做用户名枚举。
+    if path not in _IP_WHITELIST_EXEMPT_PATHS:
+        denied = await _check_ip_whitelist(request)
+        if denied is not None:
+            return denied
     # CORS 预检请求（OPTIONS）不携带凭据，直接放行，由 CORSMiddleware 处理响应头
     if request.method == "OPTIONS":
         response = await call_next(request)
@@ -347,6 +441,7 @@ app.include_router(system.router, prefix=settings.API_PREFIX)
 app.include_router(notify_channels.router, prefix=settings.API_PREFIX)
 app.include_router(device_dependencies.router, prefix=settings.API_PREFIX)
 app.include_router(device_logs.router, prefix=settings.API_PREFIX)
+app.include_router(access_control.router, prefix=settings.API_PREFIX)
 
 
 @app.get("/health")

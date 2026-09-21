@@ -27,7 +27,7 @@ from sqlalchemy.orm import joinedload
 from app.config import settings
 from app.database import get_db
 from app.models.device import Device
-from app.models.device_log import DeviceLog, DeviceLogHostConfig
+from app.models.device_log import DeviceLog, DeviceLogHostConfig, DeviceLogSetting
 from app.routers.auth import admin_only, current_user
 from app.services.audit_service import get_client_ip, record_audit
 from app.services.device_log_service import (
@@ -370,6 +370,56 @@ async def receiver_status(_user: dict = Depends(current_user)):
     return syslog_receiver.receiver_status()
 
 
+class ReceiverToggleRequest(BaseModel):
+    enabled: bool = Field(..., description="true=开始接收；false=停止接收并立即释放 UDP 端口")
+
+
+@router.put("/receiver")
+async def set_receiver_enabled(
+    body: ReceiverToggleRequest,
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+    user: dict = Depends(admin_only),
+):
+    """开启 / 关闭设备日志接收开关（管理员）。
+
+    - **关闭**：立即解绑 UDP 端口、停止一切写入（含 HTTP 接入通道），
+      最常见用途是临时把 514 让给第三方程序，或阶段性停收；
+    - **开启**：重新绑定端口开始接收；
+    - 关闭**不删除**已留存日志 —— 历史查询 / 导出 / 统计完全不受影响
+      （等保要求网络日志留存 ≥ 6 个月，不能因关开关而断档）；
+    - 设置**持久化**，重启平台后保持，不会"关了又自己开"。
+
+    管理员操作并写审计：停掉审计日志的入口本身就是需要留痕的运维动作。
+    """
+    if not settings.SYSLOG_UDP_ENABLED:
+        raise HTTPException(
+            status_code=409,
+            detail="该功能已被部署配置禁用（.env 的 SYSLOG_UDP_ENABLED=false），"
+                   "请在配置文件开启后重启平台",
+        )
+    enabled = syslog_receiver.set_receiver_enabled(body.enabled)
+
+    row = (await db.execute(
+        select(DeviceLogSetting).order_by(DeviceLogSetting.id).limit(1)
+    )).scalar_one_or_none()
+    if row is None:
+        row = DeviceLogSetting(receiver_enabled=enabled, operator=user.get("sub"))
+        db.add(row)
+    else:
+        row.receiver_enabled = enabled
+        row.operator = user.get("sub")
+    await db.commit()
+
+    await record_audit(
+        db, user, "device_logs", "receiver_toggle",
+        f"{'开启' if enabled else '关闭'}设备日志接收"
+        + ("" if enabled else "（已释放 UDP 端口，存量日志保留）"),
+        ip=get_client_ip(request),
+    )
+    return syslog_receiver.receiver_status()
+
+
 @router.get("/export")
 async def export_device_logs(
     device_id: int | None = Query(None),
@@ -467,6 +517,13 @@ async def ingest_device_log(
     """
     if not body.raw_log.strip():
         raise HTTPException(status_code=400, detail="raw_log 不能为空")
+    # 接收开关关闭时一并挡住 HTTP 接入通道：开关的语义是"停止接收设备日志"，
+    # 若只关 UDP 而放行 ingest，设备日志仍会经转发组件源源不断进来，名不副实。
+    if not syslog_receiver.receiver_enabled():
+        raise HTTPException(
+            status_code=503,
+            detail="设备日志接收已关闭（可在「设备日志中心」页面重新开启）",
+        )
     queued = syslog_receiver.handle_datagram(
         body.raw_log.encode("utf-8", errors="replace"),
         body.source_ip or "unknown",

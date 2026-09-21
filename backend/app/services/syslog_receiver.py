@@ -82,6 +82,7 @@ def _now() -> datetime:
 def reset_state() -> None:
     """把接收器恢复到初始状态（测试用）。"""
     global _queue, _flush_running, _last_flush, _device_cache_at
+    global _runtime_enabled, _loaded_from_db, _enabled_event
     # **重建队列**而不是只清空：用例可能为模拟溢出把它换成小容量队列，
     # 只清空不复位容量会让后续用例默默按小容量丢弃日志（曾导致连锁失败）。
     _queue = asyncio.Queue(maxsize=settings.SYSLOG_QUEUE_MAX)
@@ -100,6 +101,93 @@ def reset_state() -> None:
     _device_cache_at = 0.0
     _last_flush = monotonic()
     _flush_running = False
+    # 运行时开关同样复位（用例改过开关后会污染后续用例）；
+    # 事件整体丢弃重建：它可能绑定在已关闭的旧事件循环上。
+    _runtime_enabled = settings.SYSLOG_UDP_ENABLED
+    _loaded_from_db = False
+    _enabled_event = None
+
+
+# ---------------------------------------------------------------------------
+# 运行时开关（页面可控；与 .env 总闸取「与」）
+# ---------------------------------------------------------------------------
+
+# 页面上的"接收开关"。默认跟随 .env；进程启动后由 load_persisted_enabled()
+# 用数据库里的持久化值覆盖 —— 运维在页面上关掉后，重启平台仍保持关闭。
+_runtime_enabled: bool = settings.SYSLOG_UDP_ENABLED
+# 用于唤醒/挂起接收循环。惰性创建：模块导入时还没有运行中的事件循环，
+# 此时直接 asyncio.Event() 会让事件绑定不到正确的循环。
+_enabled_event: asyncio.Event | None = None
+_loaded_from_db = False
+
+
+def _event() -> asyncio.Event:
+    """取事件对象（首次调用时按当前开关状态设定 set/clear）。
+
+    事件的 set 状态**恒等于** ``receiver_enabled()``：这样 ``await ev.wait()``
+    在关闭态下必然阻塞、在开启态下立即返回，不会出现"关闭却空转"的活锁。
+    """
+    global _enabled_event
+    if _enabled_event is None:
+        _enabled_event = asyncio.Event()
+        if receiver_enabled():
+            _enabled_event.set()
+    return _enabled_event
+
+
+def receiver_enabled() -> bool:
+    """当前是否应接收设备日志（.env 总闸 **且** 页面开关）。"""
+    return bool(settings.SYSLOG_UDP_ENABLED and _runtime_enabled)
+
+
+def set_receiver_enabled(value: bool) -> bool:
+    """切换页面开关，并唤醒/挂起接收循环（不重启进程）。
+
+    Returns:
+        切换后 ``receiver_enabled()`` 的实际值 —— 总闸关闭时即使传入 True 也仍为 False。
+    """
+    global _runtime_enabled
+    _runtime_enabled = bool(value)
+    ev = _event()
+    if receiver_enabled():
+        ev.set()
+    else:
+        ev.clear()
+        # 关闭后立即清掉失败态：否则页面会一边显示「已关闭」、
+        # 一边还挂着上次的「绑定失败」，看不出到底关没关。
+        _stats["bind_error"] = None
+        _stats["bind_occupier"] = None
+        _stats["bind_hints"] = None
+    return receiver_enabled()
+
+
+async def load_persisted_enabled() -> bool | None:
+    """启动时从 ``device_log_settings`` 恢复开关；返回 None 表示无记录（沿用 .env）。"""
+    global _runtime_enabled
+    from sqlalchemy import select
+
+    from app.database import async_session
+    from app.models.device_log import DeviceLogSetting
+
+    try:
+        async with async_session() as db:
+            row = (await db.execute(
+                select(DeviceLogSetting).order_by(DeviceLogSetting.id).limit(1)
+            )).scalar_one_or_none()
+    except Exception as e:  # 读不到不该阻断启动，退回 .env 默认值
+        logger.warning("读取设备日志接收开关失败，沿用 .env 默认值：%s", e)
+        return None
+
+    if row is None:
+        return None
+    _runtime_enabled = bool(row.receiver_enabled)
+    ev = _event()
+    if receiver_enabled():
+        ev.set()
+    else:
+        ev.clear()
+    logger.info("设备日志接收开关已从数据库恢复：%s", "开启" if receiver_enabled() else "关闭")
+    return receiver_enabled()
 
 
 def receiver_status() -> dict:
@@ -108,8 +196,14 @@ def receiver_status() -> dict:
 
     beat = heartbeats().get("syslog-udp")
     return {
-        "enabled": settings.SYSLOG_UDP_ENABLED,
+        # 页面开关的当前值（运行时可切）。
+        "enabled": receiver_enabled(),
+        # .env 的部署级总闸：为 False 时页面开关不可用（前端据此置灰）。
+        "configured": settings.SYSLOG_UDP_ENABLED,
         "running": beat is not None and (monotonic() - beat) < 30,
+        # 是否真的绑上了端口。enabled=True 但 bound=False 说明还在启动中或绑定失败，
+        # 与"已关闭"是两回事 —— 前端据此区分「未启动」与「已关闭」。
+        "bound": _stats["bound_port"] is not None,
         "host": settings.SYSLOG_UDP_HOST,
         "port": settings.SYSLOG_UDP_PORT,
         "bound_port": _stats["bound_port"],
@@ -424,8 +518,12 @@ async def flush_pending() -> int:
 
 
 async def _flush_loop() -> None:
-    """周期性落盘：队列达到批量阈值立即刷，否则最多等 ``SYSLOG_FLUSH_INTERVAL`` 秒。"""
-    while True:
+    """周期性落盘：队列达到批量阈值立即刷，否则最多等 ``SYSLOG_FLUSH_INTERVAL`` 秒。
+
+    开关被关闭（``receiver_enabled()`` 变假）即退出，交回外层解绑端口 ——
+    ``_flush_loop`` 是唯一会长时间占住接收循环的地方，它不退，关开关就不会生效。
+    """
+    while receiver_enabled():
         await asyncio.sleep(0.25)
         if _queue.empty():
             continue
@@ -589,56 +687,71 @@ def _bind_hints(
 # ---------------------------------------------------------------------------
 
 async def syslog_udp_loop() -> None:
-    """受监督的 UDP 接收循环：建 socket → 周期落盘。
+    """受监督的 UDP 接收循环：按开关绑定/解绑，绑定期间周期落盘。
+
+    开关语义（页面上可切，不重启进程）：
+      - 关闭 → 解绑端口（立刻不再收包、立刻释放 514 让其它程序可用），并挂起等待；
+      - 开启 → 事件唤醒、重新绑定。
+    关闭**不动存量数据**，历史日志照常查询/导出（等保要求留存 6 个月，不能断档）。
 
     绑定失败会向上抛（由监督器记录并 15 秒后重启），并把原因写入 ``bind_error``
     供前端展示 —— 避免"设备在发、平台静默收不到"的隐形故障。
     """
     global _last_flush
-    loop = asyncio.get_running_loop()
-    _stats["bind_error"] = None
+    ev = _event()
+    while True:
+        if not receiver_enabled():
+            _stats["bound_port"] = None
+            logger.info("syslog UDP 接收器处于关闭状态，等待开启")
+            # 等待期间不持有端口，也不消耗 CPU；开启时由 set_receiver_enabled 唤醒。
+            await ev.wait()
+            continue
 
-    if not settings.SYSLOG_UDP_ENABLED:
-        logger.info("syslog UDP 接收器已通过 SYSLOG_UDP_ENABLED=false 关闭")
-        # 保持协程存活，避免监督器反复重启
-        while True:
-            await asyncio.sleep(3600)
+        loop = asyncio.get_running_loop()
+        _stats["bind_error"] = None
 
-    try:
-        transport, _protocol = await loop.create_datagram_endpoint(
-            SyslogUDPProtocol,
-            local_addr=(settings.SYSLOG_UDP_HOST, settings.SYSLOG_UDP_PORT),
+        try:
+            transport, _protocol = await loop.create_datagram_endpoint(
+                SyslogUDPProtocol,
+                local_addr=(settings.SYSLOG_UDP_HOST, settings.SYSLOG_UDP_PORT),
+            )
+        except Exception as e:
+            _stats["bind_error"] = f"{type(e).__name__}: {e}"
+            # 绑定失败时顺手把"谁占着端口"查出来（仅 Windows 有实现），
+            # 并把排查建议写进状态供前端展示——避免只报一句"绑定失败"让人无从下手。
+            occupiers = await asyncio.to_thread(udp_port_occupiers, settings.SYSLOG_UDP_PORT)
+            hints = _bind_hints(e, occupiers)
+            _stats["bind_occupier"] = occupiers or None
+            _stats["bind_hints"] = hints
+            logger.error(
+                "syslog UDP 接收器绑定 %s:%s 失败：%s。排查：%s",
+                settings.SYSLOG_UDP_HOST,
+                settings.SYSLOG_UDP_PORT,
+                e,
+                " ".join(f"({i}) {h}" for i, h in enumerate(hints, 1)),
+            )
+            raise
+
+        _stats["bound_port"] = settings.SYSLOG_UDP_PORT
+        _stats["started_at"] = _now().isoformat()
+        _stats["bind_error"] = None
+        _last_flush = monotonic()
+        logger.info(
+            "syslog UDP 接收器已启动：%s:%s（设备侧需配置 loghost 指向本机该地址）",
+            settings.SYSLOG_UDP_HOST, settings.SYSLOG_UDP_PORT,
         )
-    except Exception as e:
-        _stats["bind_error"] = f"{type(e).__name__}: {e}"
-        # 绑定失败时顺手把"谁占着端口"查出来（仅 Windows 有实现），
-        # 并把排查建议写进状态供前端展示——避免只报一句"绑定失败"让人无从下手。
-        occupiers = await asyncio.to_thread(udp_port_occupiers, settings.SYSLOG_UDP_PORT)
-        hints = _bind_hints(e, occupiers)
-        _stats["bind_occupier"] = occupiers or None
-        _stats["bind_hints"] = hints
-        logger.error(
-            "syslog UDP 接收器绑定 %s:%s 失败：%s。排查：%s",
-            settings.SYSLOG_UDP_HOST,
-            settings.SYSLOG_UDP_PORT,
-            e,
-            " ".join(f"({i}) {h}" for i, h in enumerate(hints, 1)),
-        )
-        raise
 
-    _stats["bound_port"] = settings.SYSLOG_UDP_PORT
-    _stats["started_at"] = _now().isoformat()
-    _stats["bind_error"] = None
-    _last_flush = monotonic()
-    logger.info(
-        "syslog UDP 接收器已启动：%s:%s（设备侧需配置 loghost 指向本机该地址）",
-        settings.SYSLOG_UDP_HOST, settings.SYSLOG_UDP_PORT,
-    )
-
-    await _refresh_device_cache()
-    try:
-        await _flush_loop()
-    finally:
-        transport.close()
-        _stats["bound_port"] = None
-        logger.info("syslog UDP 接收器已停止")
+        await _refresh_device_cache()
+        try:
+            await _flush_loop()
+        finally:
+            transport.close()
+            _stats["bound_port"] = None
+            # 关开关/停机前把队列里已收到的日志落盘：审计数据不能因为
+            # 关一下开关就丢在内存里。落盘失败只记日志、不向上抛
+            # （抛出去会被监督器当成崩溃并重启循环，反而绕开开关）。
+            try:
+                await flush_pending()
+            except Exception as e:
+                logger.warning("接收器停止前落盘失败：%s", e)
+            logger.info("syslog UDP 接收器已停止")

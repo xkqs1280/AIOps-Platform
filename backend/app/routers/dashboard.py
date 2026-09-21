@@ -14,9 +14,11 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/dashboard", tags=["监控大屏"])
 
-# ---- 带宽利用率 TOP10 缓存（stale-while-revalidate）----
+# ---- 接口流量 TOP10 缓存（stale-while-revalidate）----
 # 实时 SNMP 双采样较慢（约 10-30s），不能每次请求都现场采集：
 # 首次采集入缓存，60s 内直接返回；过期后返回旧数据并后台刷新，请求永不阻塞。
+# 缓存存的是**全平台所有接口**（已在 _collect_bandwidth 内按总流量降序），
+# 接口层只取前 10 条返回。
 _BW_CACHE: dict = {"data": [], "ts": 0.0}
 _BW_TASK: asyncio.Task | None = None
 _BW_TTL = 60  # 缓存有效期（秒）
@@ -109,7 +111,13 @@ async def memory_ranking(db: AsyncSession = Depends(get_db)):
 
 @router.get("/bandwidth-ranking")
 async def bandwidth_ranking():
-    """带宽利用率 TOP10：真实 SNMP 接口流量（每台设备取最大利用率接口）。
+    """接口流量 TOP10：真实 SNMP 接口流量，**按接口收发总流量排名**。
+
+    排名口径（2026-09-21 调整）：按 ``in_rate + out_rate``（bps）降序取前 10 条，
+    不再按利用率百分比。原因是利用率是「接口自身带宽的占用比」——1G 口跑 800M
+    显示 80%，10G 口跑 3G 只显示 30%，按百分比排会让真正的大流量链路落榜。
+    维度为**接口**：全平台所有 up 状态的物理接口一起排名，同一台设备可以有
+    多个接口同时上榜（LACP 聚合成员口仍被剔除，其计数器累计聚合层流量会虚高）。
 
     带缓存（stale-while-revalidate）：首次现场采集（约 10-30s），之后 60s 内
     直接命中缓存秒回；过期后立即返回旧数据并触发后台刷新，前端轮询不再被
@@ -149,7 +157,12 @@ async def _bg_collect_bandwidth():
 
 
 async def _collect_bandwidth(db: AsyncSession | None = None):
-    """采集全部设备接口流量并写入 _BW_CACHE。"""
+    """采集全部设备的物理接口流量并写入 _BW_CACHE。
+
+    一条记录 = 一个接口（设备名 + 接口名 + 收发速率 + 最大利用率），
+    按 ``total_rate``（in_rate + out_rate）降序排列。零流量接口不丢弃：
+    全部接口都无流量时前端据此显示「链路空闲」而不是「暂无数据」。
+    """
     import time as _time
     from app.services.interface_traffic_service import collect_interface_traffic
 
@@ -162,7 +175,7 @@ async def _collect_bandwidth(db: AsyncSession | None = None):
 
     sem = asyncio.Semaphore(12)  # 控制并发 snmpwalk 子进程数
 
-    async def _collect(d: Device) -> dict | None:
+    async def _collect(d: Device) -> list[dict]:
         async with sem:
             try:
                 ifaces = await collect_interface_traffic(
@@ -171,28 +184,35 @@ async def _collect_bandwidth(db: AsyncSession | None = None):
                 )
             except Exception as e:
                 logger.debug(f"bandwidth collect failed {d.name}({d.ip}): {type(e).__name__}")
-                return None
-        if not ifaces:
-            return None
-        top = max(ifaces, key=lambda x: x["max_util"])
-        # 若该设备的最大利用率接口是 LACP 聚合成员口（正常情况已被服务层剔除，
-        # 此处兜底），跳过该设备，避免聚合成员以聚合层流量虚高上榜。
-        if top.get("lacp_member"):
-            return None
-        return {
-            "name": d.name,
-            "ip": d.ip,
-            "vendor": d.vendor,
-            "bandwidth_usage": top["max_util"],
-            "interface": top["name"],
-            "in_util": top["in_util"],
-            "out_util": top["out_util"],
-            "in_rate": top["in_rate"],
-            "out_rate": top["out_rate"],
-        }
+                return []
+        rows = []
+        for it in ifaces:
+            # LACP 聚合成员口在服务层已被排除出候选（此处兜底）：其 ifInOctets 累计
+            # 聚合层流量，会让该成员口的速率虚高数倍，上榜即失真。
+            if it.get("lacp_member"):
+                continue
+            in_rate = int(it.get("in_rate") or 0)
+            out_rate = int(it.get("out_rate") or 0)
+            rows.append({
+                "name": d.name,
+                "ip": d.ip,
+                "vendor": d.vendor,
+                "interface": it["name"],
+                "speed": it.get("speed") or 0,
+                # 排名依据：接口收发总流量（bps）
+                "total_rate": in_rate + out_rate,
+                "in_rate": in_rate,
+                "out_rate": out_rate,
+                # 接口收发方向的最大利用率（仅用于 tooltip 参考展示，不参与排名）
+                "bandwidth_usage": it.get("max_util") or 0.0,
+                "in_util": it.get("in_util") or 0.0,
+                "out_util": it.get("out_util") or 0.0,
+            })
+        return rows
 
-    results = [r for r in await asyncio.gather(*(_collect(d) for d in devices), return_exceptions=True) if isinstance(r, dict)]
-    results.sort(key=lambda x: x["bandwidth_usage"], reverse=True)
+    nested = await asyncio.gather(*(_collect(d) for d in devices), return_exceptions=True)
+    results = [row for r in nested if isinstance(r, list) for row in r]
+    results.sort(key=lambda x: x["total_rate"], reverse=True)
     _BW_CACHE["data"] = results
     _BW_CACHE["ts"] = _time.time()
 

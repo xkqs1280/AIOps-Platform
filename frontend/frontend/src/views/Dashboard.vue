@@ -14,7 +14,7 @@
     <div class="flex items-center justify-between px-2">
       <div class="flex items-center gap-3">
         <div class="w-2 h-8 grad-brand rounded-full"></div>
-        <h1 class="text-2xl font-bold tracking-wide grad-text">AIOps 网络监控平台</h1>
+        <h1 class="text-2xl font-bold tracking-wide grad-text">{{ siteName }}</h1>
       </div>
       <div class="flex items-center gap-4 text-sm text-ink-muted">
         <span class="flex items-center gap-2">
@@ -113,9 +113,9 @@
 
     <!-- Row 3: h-52 -->
     <div class="grid grid-cols-12 gap-4 h-52">
-      <!-- Bandwidth Utilization TOP10 -->
+      <!-- Interface Traffic TOP10（按接口收发总流量排名） -->
       <div class="col-span-6 card card-lift p-4 flex flex-col relative">
-        <PanelTitle title="带宽利用率 TOP10" accent="green" />
+        <PanelTitle title="接口流量 TOP10" accent="green" />
         <div ref="bandwidthChartRef" class="flex-1 w-full"></div>
         <div
           v-if="bwPlaceholder"
@@ -202,7 +202,8 @@ import {
   getRecentAlerts,
   getAlertStats,
   getTopology,
-  getLicenseStatus
+  getLicenseStatus,
+  getPlatformSetting
 } from '../api/index.js'
 import { buildTopologyNodes, buildTopologyEdges, statusColors } from '../utils/topologyConfig.js'
 
@@ -219,6 +220,10 @@ const topologyData = ref({ nodes: [], edges: [] })
 const currentTime = ref('')
 const displayAlerts = ref([])
 const licenseWarning = ref('')
+// 大屏标题：可在「系统设置 → 显示设置」改为「某某单位网络监控平台」；
+// 未自定义（后端返回空串）时回退到内置默认文案
+const DEFAULT_SITE_NAME = 'AIOps 网络监控平台'
+const siteName = ref(DEFAULT_SITE_NAME)
 
 // --- Chart Refs ---
 const typeChartRef = ref(null)
@@ -240,6 +245,7 @@ let topologyChart = null
 
 // --- Timers ---
 let refreshTimer = null
+let siteNameTimer = null
 let scrollTimer = null
 let timeTimer = null
 let scrollOffset = 0
@@ -373,10 +379,11 @@ async function fetchBandwidth() {
 }
 
 // 空态/全 0 占位提示：区分「采集中」「无数据」「链路空闲」
+// 注：排名口径已改为接口收发总流量（total_rate），这里同步用 total_rate 判定
 const bwPlaceholder = computed(() => {
   const d = bandwidthRanking.value
   if (!d.length) return bwFetching ? '正在采集设备接口流量…' : '暂无数据（设备离线或 SNMP 不通）'
-  if (d.every((x) => !x.bandwidth_usage)) return '链路空闲：当前各接口利用率接近 0%'
+  if (d.every((x) => !x.total_rate)) return '链路空闲：当前各接口收发流量接近 0'
   return ''
 })
 
@@ -537,6 +544,7 @@ function renderBandwidthChart() {
     bandwidthChart = echarts.init(bandwidthChartRef.value)
   }
   const data = bandwidthRanking.value.slice(0, 10)
+  // 速率自适应可读单位。排名值 = 接口收发总流量（in_rate + out_rate，bps）
   const fmtRate = (bps) => {
     if (!bps) return '0bps'
     if (bps >= 1e9) return (bps / 1e9).toFixed(2) + 'Gbps'
@@ -544,6 +552,10 @@ function renderBandwidthChart() {
     if (bps >= 1e3) return (bps / 1e3).toFixed(2) + 'Kbps'
     return bps + 'bps'
   }
+  const fmtPct = (v) => (v == null ? '—' : `${v}%`)
+  // y 轴标签带接口名：本次是**接口**维度排名，同一台设备可能多个接口同时上榜，
+  // 只显示设备名会出现多条同名条目、无法区分。
+  const axisLabelOf = (item) => (item.interface ? `${item.name} ${item.interface}` : item.name)
   bandwidthChart.setOption({
     tooltip: {
       trigger: 'axis',
@@ -555,49 +567,47 @@ function renderBandwidthChart() {
         const p = params[0]
         const item = data[data.length - 1 - p.dataIndex] || {}
         // 设备名/接口名为 SNMP 同步或用户录入的可控字段，拼 HTML 前必须转义（同拓扑 tooltip）
-        const devName = escHtml(p.name)
+        const devName = escHtml(item.name || p.name)
         const ifName = escHtml(item.interface)
-        let html = `${devName}<br/>带宽利用率: <b style="color:${p.color}">${p.value}%</b>`
-        if (item.interface) html += `<br/>接口: ${ifName}`
-        if (item.in_rate != null) {
-          html += `<br/>下行 ${fmtRate(item.in_rate)} / 上行 ${fmtRate(item.out_rate)}`
-        }
+        let html = `<b>${devName}</b>`
+        if (ifName) html += `<br/>接口: ${ifName}`
+        html += `<br/>总流量（收+发）: <b style="color:#22d3ee">${fmtRate(item.total_rate)}</b>`
+        html += `<br/>下行 ${fmtRate(item.in_rate)} / 上行 ${fmtRate(item.out_rate)}`
+        html += `<br/>接口利用率: ${fmtPct(item.bandwidth_usage)}（收 ${fmtPct(item.in_util)} / 发 ${fmtPct(item.out_util)}）`
         return html
       }
     },
-    grid: { left: '3%', right: '8%', top: '5%', bottom: '3%', containLabel: true },
+    grid: { left: '3%', right: '18%', top: '5%', bottom: '3%', containLabel: true },
     xAxis: {
       type: 'value',
-      max: 100,
-      axisLabel: { color: cc.sub, fontSize: 10, formatter: '{value}%' },
+      axisLabel: { color: cc.sub, fontSize: 10, formatter: (v) => fmtRate(v) },
       splitLine: { lineStyle: { color: cc.split } }
     },
     yAxis: {
       type: 'category',
-      data: data.map(d => d.name).reverse(),
-      axisLabel: { color: cc.sub, fontSize: 10, width: 120, overflow: 'truncate' },
+      data: data.map(axisLabelOf).reverse(),
+      axisLabel: { color: cc.sub, fontSize: 10, width: 150, overflow: 'truncate' },
       axisLine: { lineStyle: { color: cc.tooltipBorder } }
     },
     series: [{
       type: 'bar',
-      data: data.map(d => d.bandwidth_usage).reverse(),
+      data: data.map(d => d.total_rate || 0).reverse(),
       barWidth: '50%',
       itemStyle: {
         borderRadius: [0, 4, 4, 0],
-        color: function (params) {
-          const val = params.value
-          if (val >= 90) return '#ef4444'
-          if (val >= 70) return '#f59e0b'
-          if (val >= 50) return '#eab308'
-          return '#10b981'
-        }
+        // 统一青绿渐变：原先按利用率 90/70/50 阈值着色，现在排名依据是流量绝对值，
+        // 阈值着色不再对应任何含义，反而误导。
+        color: new echarts.graphic.LinearGradient(0, 0, 1, 0, [
+          { offset: 0, color: '#0f766e' },
+          { offset: 1, color: '#22d3ee' }
+        ])
       },
       label: {
         show: true,
         position: 'right',
         color: cc.sub,
         fontSize: 10,
-        formatter: '{c}%'
+        formatter: (p) => fmtRate(p.value)
       }
     }]
   })
@@ -745,10 +755,24 @@ async function loadLicenseWarning() {
   }
 }
 
+// 大屏标题（平台名称）：在「系统设置 → 显示设置」可自定义为「某某单位网络监控平台」。
+// 读失败或未自定义时回退默认文案 —— 标题拿不到绝不能影响大屏其它数据渲染，
+// 因此这里单独 try/catch，不并进 fetchAllData。
+async function loadSiteName() {
+  try {
+    const s = await getPlatformSetting()
+    const name = String(s?.site_name ?? '').trim()
+    siteName.value = name || DEFAULT_SITE_NAME
+  } catch (err) {
+    siteName.value = DEFAULT_SITE_NAME
+  }
+}
+
 onMounted(async () => {
   updateClock()
   timeTimer = setInterval(updateClock, 1000)
 
+  loadSiteName()  // 独立异步，不阻塞大屏主数据
   await fetchAllData()
   fetchBandwidth()  // 真实带宽采集较慢，独立异步加载，不阻塞主数据
   loadLicenseWarning()
@@ -758,12 +782,15 @@ onMounted(async () => {
 
   refreshTimer = setInterval(fetchAllData, 10000)
   bandwidthTimer = setInterval(fetchBandwidth, 15000)
+  // 管理员改完平台名称后，已开着的大屏最迟 60s 自动跟随（大屏常年不关，不能要求手动刷新）
+  siteNameTimer = setInterval(loadSiteName, 60000)
   window.addEventListener('resize', handleResize)
 })
 
 onUnmounted(() => {
   if (refreshTimer) clearInterval(refreshTimer)
   if (bandwidthTimer) clearInterval(bandwidthTimer)
+  if (siteNameTimer) clearInterval(siteNameTimer)
   if (scrollTimer) clearInterval(scrollTimer)
   if (timeTimer) clearInterval(timeTimer)
   window.removeEventListener('resize', handleResize)
