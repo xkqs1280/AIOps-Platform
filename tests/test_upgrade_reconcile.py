@@ -53,6 +53,18 @@ def test_reconcile_skips_when_target_version_not_active(state_root):
     assert _state(state_root)["state"] == "backup"
 
 
+def test_reconcile_skips_while_upgrade_script_still_running(state_root, monkeypatch):
+    """脚本仍在收尾时不得抢写终态（典型：服务以 root 运行、已成功脱离 cgroup）。
+
+    抢先写 done 会在脚本随后判定健康检查失败并回滚时，造成 done -> failed 抖动；
+    因此 main.py 是延迟调用本函数，配合这条存活检查一起生效。
+    """
+    monkeypatch.setattr(us, "_upgrade_script_running", lambda: True)
+    _write(state_root, state="verifying", progress=90, to_version=us.APP_VERSION)
+    assert us.reconcile_interrupted_upgrade() is None
+    assert _state(state_root)["state"] == "verifying"
+
+
 def test_reconcile_skips_terminal_state(state_root):
     _write(state_root, state="done", progress=100, to_version=us.APP_VERSION)
     us.reconcile_interrupted_upgrade()

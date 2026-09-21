@@ -445,6 +445,32 @@ def _is_zombie_state(s: dict) -> bool:
         return True
 
 
+def _upgrade_script_running() -> bool:
+    """升级脚本进程是否仍在运行（按 cmdline 匹配脚本名）。
+
+    Windows 直接返回 False：那边升级走 ps1，且没有 systemd 的 cgroup 连坐问题，
+    "立即判定"本身就是正确行为。
+    """
+    if sys.platform == "win32":
+        return False
+    try:
+        pids = os.listdir("/proc")
+    except OSError:
+        return False
+    me = str(os.getpid())
+    for pid in pids:
+        if not pid.isdigit() or pid == me:
+            continue
+        try:
+            with open(f"/proc/{pid}/cmdline", "rb") as fh:
+                cmdline = fh.read()
+        except OSError:
+            continue
+        if b"upgrade_apply" in cmdline:
+            return True
+    return False
+
+
 def reconcile_interrupted_upgrade() -> dict | None:
     """后端启动自愈：升级脚本被 systemd cgroup 连坐杀掉时，补写终态。
 
@@ -472,6 +498,12 @@ def reconcile_interrupted_upgrade() -> dict | None:
     to_version = str(s.get("to_version") or "").strip()
     if not to_version or APP_VERSION != to_version:
         # 新代码尚未生效（或本就没记录目标版本）→ 不是"已完成但没收尾"，不插手
+        return None
+    if _upgrade_script_running():
+        # 脚本还活着（典型是服务以 root 运行、已成功脱离 cgroup 的场景）→ 让它自己
+        # 写终态。抢先写会在它随后判定失败并回滚时造成 done→failed 抖动。
+        # 因此本函数必须由 main.py **延迟调用**（等它的存活上限过去），否则脚本
+        # 刚被杀、pid 还在的瞬间会误判为"仍在运行"而错过补写。
         return None
     try:
         rollback_available = (get_upgrade_root() / "backup").exists()

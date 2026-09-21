@@ -34,10 +34,16 @@ done
 # 检查的本脚本一起杀掉。没人写 done，状态便永久停在 verifying/90%，
 # 页面表现为"升级卡住"（实测 .108 上 4.5.6→4.5.7 即如此）。
 #
-# 解法：用 systemd-run 把自身搬进一个独立 scope。unit 以 root 运行时用系统级
-# scope；以普通用户运行时用该用户的 systemd --user 实例（无需 sudo 授权）。
-# 环境不具备时不阻断升级 —— 原地继续，由后端启动自愈
-# （upgrade_service.reconcile_interrupted_upgrade）补写终态兜底。
+# 解法有两条，按"能否做到"退让：
+#   ① 用 systemd-run 把自身搬进独立 scope —— 只在**服务以 root 运行**时可行
+#      （系统级 scope）。若服务以普通用户运行，它借不到权限：systemd 的 cgroup
+#      迁移要求**源与目标都在该 user manager 的管辖内**，而本脚本的 cgroup 是
+#      /system.slice/aiops-backend.service（系统 slice），用户级 manager 跨 slice
+#      迁移会被拒 —— 实测 .108 上该分支必失败（曾误判为"已脱困"，因为当时的
+#      验证是从 SSH 会话里跑的，源 cgroup 恰在 user slice，与真实链路不同）。
+#   ② 因此普通用户场景**不做无谓尝试**，原地继续，由后端启动自愈
+#      （upgrade_service.reconcile_interrupted_upgrade）补写终态兜底。
+#      自愈已由 .108 真实整包升级验证有效（4.5.6→4.5.7，done/100）。
 # ===============================================================
 SELF="$(cd "$(dirname "$0")" 2>/dev/null && pwd)/$(basename "$0")"
 
@@ -63,8 +69,17 @@ detach_from_cgroup() {
       --setenv=AIOPS_UPGRADE_DETACHED=1 -- "$SELF" "$@" </dev/null &
     child=$!
   else
-    # 普通用户：走自己的 systemd --user 实例。注意 systemd 系统级 unit
-    # 不带 PAM 会话环境，XDG_RUNTIME_DIR / DBUS 地址需要显式补上。
+    # 普通用户：只有本进程已处于 user slice 时，systemd --user 才能把它接管到
+    # 自己的 scope（同属 user manager 管辖）。从 system slice 的服务里启动时
+    # 跨 slice 迁移会被拒 —— 直接跳过，别做注定失败的尝试（详见文件头注释）。
+    case "$(cat /proc/self/cgroup 2>/dev/null)" in
+      *"/user.slice/"*|*"/user.slice"*) : ;;
+      *)
+        echo "[i] 服务由 system slice 托管，普通用户无法脱离该 cgroup；改由后端启动自愈补写终态"
+        return 1
+        ;;
+    esac
+    # 注意 systemd 系统级 unit 不带 PAM 会话环境，XDG_RUNTIME_DIR / DBUS 地址需要显式补上。
     : "${XDG_RUNTIME_DIR:=/run/user/$(id -u)}"
     export XDG_RUNTIME_DIR
     # 让 user manager 常驻：否则它会随管理员最后一个 SSH 会话退出而停止，

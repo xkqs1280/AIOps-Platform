@@ -121,16 +121,29 @@ async def _bootstrap_database():
         logger.error("Seed default data failed: %s", e)
 
 
+# 升级收尾自愈的延迟秒数。systemd 的 TimeoutStopSec(=20s) 是升级脚本的存活上限，
+# 但实测它更早就被"服务重启的 cgroup 清理"杀掉；取 15 秒既不会抢在仍存活的脚本
+# 前面写终态，也不会让"脚本已被杀"的场景久等。
+UPGRADE_RECONCILE_DELAY_SECONDS = 15
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     # ── 升级收尾自愈：升级脚本被 systemd cgroup 连坐杀掉时补写终态 ──
-    # 判据是"服务能起来 + 运行版本 == 升级目标版本"，纯文件操作、幂等；
-    # 放在最前面且异常吞掉，确保它永远不会影响服务启动。
-    try:
-        from app.services.upgrade_service import reconcile_interrupted_upgrade
-        reconcile_interrupted_upgrade()
-    except Exception as e:
-        logger.error(f"Upgrade state reconcile failed: {e}")
+    # 判据是"服务能起来 + 运行版本 == 升级目标版本"，纯文件操作、幂等。
+    # **必须延迟调用**：脚本通常正是在做健康检查时被 systemd 重启的 cgroup 清理
+    # 杀掉的，若在启动瞬间就判定，会抢在"仍在收尾的脚本"前面写 done（实测发生过）；
+    # 且要晚于它 pid 消失，否则会被"脚本仍在运行"的判据挡住而漏补。
+    async def _reconcile_upgrade_state_later() -> None:
+        await asyncio.sleep(UPGRADE_RECONCILE_DELAY_SECONDS)
+        try:
+            from app.services.upgrade_service import reconcile_interrupted_upgrade
+            reconcile_interrupted_upgrade()
+        except Exception as e:
+            logger.error(f"Upgrade state reconcile failed: {e}")
+
+    # 任务需保活引用，避免未完成即被垃圾回收（asyncio 的已知陷阱）
+    app.state.upgrade_reconcile_task = asyncio.create_task(_reconcile_upgrade_state_later())
     await _bootstrap_database()
     # 存量明文设备凭据一次性加密（启用加密密钥后的迁移，幂等）
     try:
