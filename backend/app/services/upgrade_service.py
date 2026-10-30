@@ -306,22 +306,33 @@ def _spawn_detached(cmd: list[str], cwd: Path) -> None:
     (0x200) + CREATE_NO_WINDOW(0x08000000)：已验证脚本正常执行，且父进程被
     taskkill 强杀后子进程仍独立存活。
 
+    另加 CREATE_BREAKAWAY_FROM_JOB(0x01000000)：若后端本身跑在某个带
+    JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE 的 Job 里（Windows 服务宿主、任务计划、
+    部分会话管理器都会建），父进程一死 Job 关闭会连带收走脚本，升级就会在
+    「停服之后、收尾之前」无声中断。breakaway 让脚本脱离该 Job 继续跑完。
+    该标志在父进程不在 Job 中时会被系统拒绝，因此失败后回退到不带它的写法。
+
     脚本 stdout/stderr 重定向到 upgrade/apply.log，便于排查脚本启动失败原因。
     """
-    creationflags = 0
-    if sys.platform == "win32":
-        creationflags = subprocess.CREATE_NEW_PROCESS_GROUP | subprocess.CREATE_NO_WINDOW
     log_path = get_upgrade_root() / "apply.log"
     log_handle = open(log_path, "ab", buffering=0)
-    subprocess.Popen(
-        cmd,
-        cwd=str(cwd),
-        stdout=log_handle,
-        stderr=log_handle,
-        stdin=subprocess.DEVNULL,
-        close_fds=True,
-        creationflags=creationflags,
-    )
+    kwargs: dict = {
+        "cwd": str(cwd),
+        "stdout": log_handle,
+        "stderr": log_handle,
+        "stdin": subprocess.DEVNULL,
+        "close_fds": True,
+    }
+    if sys.platform != "win32":
+        subprocess.Popen(cmd, **kwargs)
+        return
+    base_flags = subprocess.CREATE_NEW_PROCESS_GROUP | subprocess.CREATE_NO_WINDOW
+    breakaway = getattr(subprocess, "CREATE_BREAKAWAY_FROM_JOB", 0x01000000)
+    try:
+        subprocess.Popen(cmd, **kwargs, creationflags=base_flags | breakaway)
+    except OSError:
+        # 父进程不在 Job 中时 breakaway 会被拒 → 退回普通 detached 方式
+        subprocess.Popen(cmd, **kwargs, creationflags=base_flags)
 
 
 def start_upgrade(zip_path: Path) -> dict:
@@ -334,6 +345,10 @@ def start_upgrade(zip_path: Path) -> dict:
         state=STATE_UPLOADING,
         progress=10,
         message="升级包校验通过，准备升级",
+        # 必须显式写入当前运行版本：save_state 对未传的字段是「继承旧 state」语义，
+        # 不传就会沿用上一次升级留下的 from_version（2026-10-30 现场实测：运行 4.6.1、
+        # 页面却显示 4.5.8 → 4.6.2，与同一页面日志里的「4.6.1 → 4.6.2」自相矛盾）。
+        from_version=APP_VERSION,
         to_version=to_version,
         started_at=time.strftime("%Y-%m-%d %H:%M:%S"),
         finished_at=None,
@@ -356,8 +371,11 @@ def start_upgrade(zip_path: Path) -> dict:
         "ToVersion": to_version,
         "StateFile": str(_state_file()),
         "SkipDbDump": "1" if os.environ.get("AIOPS_UPGRADE_SKIP_DB") else "0",
-        # Windows 源码部署时用它重启 python 后端（生产 exe 部署忽略）
-        "PythonPath": sys.executable,
+        # Windows 源码部署时用它重启 python 后端。
+        # 注意：frozen（exe）部署下 sys.executable 就是 AIOpsServer.exe 本身，
+        # 直接传给脚本会被当成 python 解释器（旧 $IsSource 判据下会"拿 exe 跑 .py"），
+        # 因此 exe 部署一律传空串，让脚本走 venv / 默认 python 的兜底。
+        "PythonPath": "" if getattr(sys, "frozen", False) else sys.executable,
     }
     cmd = list(prefix) + [str(script)]
     for k, v in apply_args.items():
@@ -375,8 +393,20 @@ def start_upgrade(zip_path: Path) -> dict:
 
 _ACTIVE_STATES = (STATE_UPLOADING, STATE_VALIDATING, STATE_BACKUP, STATE_APPLYING,
                   STATE_REPLACING, STATE_RESTARTING, STATE_VERIFYING)
-# 升级中间态超过该秒数仍未完成，视为"僵尸状态"（进程已死/中断），自动重置解锁
-_ZOMBIE_TIMEOUT_SECONDS = 300
+# 僵尸态判定（升级脚本早已退出、状态被遗留）分三层：
+#   ① 宽限期：刚发起升级的一段时间内绝不算僵尸（脚本可能才刚被 spawn）；
+#   ② 绝对上限：正常升级（含最长健康检查窗口）不会超过它，超过即认定为僵尸；
+#   ③ 中间地带：宽限期外、上限内，用「脚本进程是否还在跑」判定 —— 升级脚本在做
+#      健康检查时会长时间停在 verifying/90%（生产实测：onefile 冷启动 + 大库迁移
+#      远超 5 分钟），那是正常等待而非卡死，不能被误判成僵尸并解锁重入。
+_ZOMBIE_GRACE_SECONDS = 90
+_ZOMBIE_HARD_TIMEOUT_SECONDS = 3600
+# 后端兜底判失败的时间窗口：中间态停留超过它、且脚本已不在运行，才允许补写失败态，
+# 以免与"仍在收尾的脚本"抢写。取值大于脚本正常的备份 + 替换 + 首轮健康检查耗时。
+_RECONCILE_FAIL_WINDOW_SECONDS = 900
+# apply.log 在最近这么多秒内被写过 → 认为脚本仍在运行（脚本每几秒写一条探测日志）。
+# 这条快路径让「脚本是否还活着」的判定几乎零开销。
+_SCRIPT_LOG_ACTIVE_SECONDS = 30
 # 升级完成态（done/rolled_back）保留时长：超过 30 分钟自动清除，回到 idle，
 # 避免"升级完成"提示与旧日志在页面上无限期残留
 _DONE_STATE_TTL_SECONDS = 30 * 60
@@ -430,29 +460,103 @@ def _maybe_expire_done_state() -> None:
     )
 
 
-def _is_zombie_state(s: dict) -> bool:
-    """判断当前中间态是否为僵尸（升级脚本早已退出，状态被遗留）。"""
-    if s["state"] not in _ACTIVE_STATES:
-        return False
+def _state_age_seconds(s: dict) -> float | None:
+    """中间态已停留的秒数（无法解析 started_at 时返回 None）。"""
     started = s.get("started_at")
     if not started:
-        return True
+        return None
     try:
         from datetime import datetime
         started_dt = datetime.strptime(str(started)[:19], "%Y-%m-%d %H:%M:%S")
-        return (datetime.now() - started_dt).total_seconds() > _ZOMBIE_TIMEOUT_SECONDS
+        return (datetime.now() - started_dt).total_seconds()
     except Exception:
+        return None
+
+
+def _is_zombie_state(s: dict) -> bool:
+    """判断当前中间态是否为僵尸（升级脚本早已退出，状态被遗留）。
+
+    见 _ZOMBIE_GRACE_SECONDS / _ZOMBIE_HARD_TIMEOUT_SECONDS 上的说明：中间地带
+    必须用「脚本进程是否还在跑」判定，不能只看时长 —— 健康检查阶段的长时间等待
+    是正常的（生产实测卡在 verifying/90% 十几分钟后其实是升级成功）。
+    """
+    if s["state"] not in _ACTIVE_STATES:
+        return False
+    age = _state_age_seconds(s)
+    if age is None:
         return True
+    if age <= _ZOMBIE_GRACE_SECONDS:
+        return False
+    if age > _ZOMBIE_HARD_TIMEOUT_SECONDS:
+        return True
+    return not _upgrade_script_running()
+
+
+def _win_script_probe_raw() -> bool:
+    """Windows：查命令行含 upgrade_apply 的 powershell/pwsh 进程。
+
+    不用 wmic（Win11 24H2+ 已移除）。探测**失败**时返回 False（即"未能证明脚本仍在
+    运行"）：脚本真正在跑时 apply.log 的 mtime 快路径（见 _upgrade_script_running）
+    早已返回 True，探测只服务于"脚本是否已结束"这一判定 —— 此时若因探测失败而谎报
+    「还在跑」，自愈就永远不会补写终态，页面会一直卡在中间态（这正是 2026-10-08
+    生产事故的形态）。宁可偶发抢写，也不要永久卡住。
+
+    注意：匹配串必须**拆开拼接**（'*upgrade_' + 'apply*'），否则 -Command 自身进程的
+    命令行里就含有连续的 "upgrade_apply"，会把自己匹配进来，永远返回「有脚本在跑」。
+    """
+    query = (
+        "Get-CimInstance Win32_Process "
+        "| Where-Object { ($_.Name -eq 'powershell.exe' -or $_.Name -eq 'pwsh.exe') "
+        "-and $_.CommandLine -like ('*upgrade_' + 'apply*') } "
+        "| Measure-Object | Select-Object -ExpandProperty Count"
+    )
+    try:
+        out = subprocess.run(
+            ["powershell.exe", "-NoProfile", "-NonInteractive", "-Command", query],
+            capture_output=True, text=True, timeout=20,
+        )
+        txt = (out.stdout or "").strip()
+        if txt.isdigit():
+            return int(txt) > 0
+    except (OSError, subprocess.SubprocessError):
+        pass
+    return False
+
+
+def _win_script_probe_cached() -> bool:
+    """带 TTL 缓存的 Windows 脚本存活探测（_is_zombie_state 在页面每次轮询时都会被
+    调用，不能每次都起一个 powershell）。"""
+    global _WIN_SCRIPT_PROBE_CACHE
+    now = time.monotonic()
+    if _WIN_SCRIPT_PROBE_CACHE is not None:
+        ts, val = _WIN_SCRIPT_PROBE_CACHE
+        if now - ts < _WIN_SCRIPT_PROBE_TTL_SECONDS:
+            return val
+    val = _win_script_probe_raw()
+    _WIN_SCRIPT_PROBE_CACHE = (now, val)
+    return val
+
+
+_WIN_SCRIPT_PROBE_TTL_SECONDS = 15
+_WIN_SCRIPT_PROBE_CACHE: tuple[float, bool] | None = None
 
 
 def _upgrade_script_running() -> bool:
-    """升级脚本进程是否仍在运行（按 cmdline 匹配脚本名）。
+    """升级脚本进程是否仍在运行。
 
-    Windows 直接返回 False：那边升级走 ps1，且没有 systemd 的 cgroup 连坐问题，
-    "立即判定"本身就是正确行为。
+    快路径：apply.log 的 mtime。脚本在跑时每几秒就 Write-Host 一条探测日志
+    （spawn 时 stdout 重定向到该文件），mtime 持续刷新，零开销即可判定。
+    慢路径：Windows 用 Get-CimInstance 查进程（带 15s 缓存）；Linux 扫 /proc。
     """
+    try:
+        log_mtime = (get_upgrade_root() / "apply.log").stat().st_mtime
+        if time.time() - log_mtime < _SCRIPT_LOG_ACTIVE_SECONDS:
+            return True
+    except OSError:
+        pass
+
     if sys.platform == "win32":
-        return False
+        return _win_script_probe_cached()
     try:
         pids = os.listdir("/proc")
     except OSError:
@@ -469,6 +573,17 @@ def _upgrade_script_running() -> bool:
         if b"upgrade_apply" in cmdline:
             return True
     return False
+
+
+def _state_stuck_past_reconcile_window(s: dict) -> bool:
+    """中间态是否已停留超过后端兜底窗口（用于决定是否允许补写失败态）。
+
+    started_at 缺失时返回 False：无从判断卡了多久，不贸然判失败，交给僵尸态解锁。
+    """
+    age = _state_age_seconds(s)
+    if age is None:
+        return False
+    return age > _RECONCILE_FAIL_WINDOW_SECONDS
 
 
 def reconcile_interrupted_upgrade() -> dict | None:
@@ -489,15 +604,37 @@ def reconcile_interrupted_upgrade() -> dict | None:
 
     时，可以断定升级实际成功，直接补写 done。
 
-    保守起见只做"补成功"，不主动判失败：未生效的中间态仍交给既有的僵尸态超时
-    （_ZOMBIE_TIMEOUT_SECONDS）解锁，避免与服务端脚本并发写状态互相覆盖。
+    首要是"补成功"（新代码确实已生效 = 铁证）。此外 Windows 上补一层"补失败"：
+    脚本若在写终态之前被中断，状态会永久停在中间态，页面看起来"卡在 90%"，此时
+    （脚本已不在运行 + 已过 _RECONCILE_FAIL_WINDOW_SECONDS）补写失败态并给出可操作
+    提示，比静默等僵尸超时重置更清楚。两种补写都以「脚本不在运行」为前提，避免与
+    仍在收尾的脚本抢写状态。
     """
     s = load_state()
     if s.get("state") not in _ACTIVE_STATES:
         return None
     to_version = str(s.get("to_version") or "").strip()
     if not to_version or APP_VERSION != to_version:
-        # 新代码尚未生效（或本就没记录目标版本）→ 不是"已完成但没收尾"，不插手
+        # 新代码尚未生效（或本就没记录目标版本）→ 不是"已完成但没收尾"。
+        # Windows 兜底（2026-10-08 生产实锤）：脚本在写完终态前被中断，状态会永久
+        # 停在中间态，页面看起来"卡在 90%"。若脚本已不在运行且已过兜底窗口，补写
+        # 失败态并给出可操作提示。
+        if (sys.platform == "win32"
+                and _state_stuck_past_reconcile_window(s)
+                and not _upgrade_script_running()):
+            try:
+                state = save_state(
+                    state=STATE_FAILED,
+                    message="升级未正常收尾，请确认平台版本后再决定是否重新升级",
+                    error="upgrade script exited without writing a terminal state",
+                    finished_at=time.strftime("%Y-%m-%d %H:%M:%S"),
+                )
+                log_state("检测到升级脚本已退出但未写终态，自动标记为失败（可重新上传升级包）")
+                logger.warning("Reconciled stuck upgrade state -> failed (to_version=%s)", to_version)
+                return state
+            except Exception as e:
+                logger.error("Reconcile stuck upgrade state failed: %s", e)
+                return None
         return None
     if _upgrade_script_running():
         # 脚本还活着（典型是服务以 root 运行、已成功脱离 cgroup 的场景）→ 让它自己
@@ -555,7 +692,7 @@ def request_rollback() -> dict:
     cmd = list(prefix) + [str(script), "-Rollback", "1",
                           "-AppRoot", str(get_app_root()),
                           "-StateFile", str(_state_file()),
-                          "-PythonPath", sys.executable]
+                          "-PythonPath", "" if getattr(sys, "frozen", False) else sys.executable]
     try:
         _spawn_detached(cmd, get_app_root())
     except Exception as e:

@@ -65,10 +65,24 @@ DEFAULT_ALERT_RULES = [
      "CPU 利用率显著偏离同时段历史基线（动态基线模式；数值为绝对下限 30%，需先积累基线数据再启用）"),
     ("内存偏离同时段基线", "memory_usage", "gt", 40, 600, "warning",
      "内存利用率显著偏离同时段历史基线（动态基线模式；数值为绝对下限 40%，需先积累基线数据再启用）"),
+    # ---- 平台时钟偏差（clock_offset）----
+    # ⚠️ 语义特殊：该指标是**平台自身**与上游时间源的偏差，不是设备指标。
+    # 挂在设备规则体系下是为了复用告警收敛/抑制/通知链路，代价是**会在每台在线
+    # 设备上各产生一条告警**（内容除设备名外完全相同）。故默认 **不启用** ——
+    # 由运维在需要时（如发现日志时间轴错乱）临时开启做巡检，用完关掉。
+    # 阈值 60 秒是华哥定的上限（设计要求"阈值不超过 60 秒"）。
+    ("平台时钟偏差过大", "clock_offset", "gt", 60, 120, "major",
+     "平台时钟与上游时间源的偏差超过 60 秒（反映平台自身时钟问题，非设备问题；"
+     "启用后会在每台在线设备上各产生一条告警，建议仅在排查时钟问题时临时开启）"),
 ]
 
 # 上述种子里以「动态基线」模式落库、且默认不启用的规则名
 BASELINE_SEED_RULES = {"CPU 偏离同时段基线", "内存偏离同时段基线"}
+
+# 落库时默认 **不启用** 的规则（除基线模式外）。
+# 时钟偏差规则属于此类：它会在每台在线设备上各产生一条告警（见 DEFAULT_ALERT_RULES
+# 末尾的注释），默认开启会瞬间刷屏并把真正重要的告警挤出视野。
+DISABLED_SEED_RULES = {"平台时钟偏差过大"}
 
 
 async def create_schema():
@@ -120,8 +134,9 @@ async def seed_default_data():
                     name=name, metric=metric, condition=condition,
                     threshold=threshold, duration=duration,
                     severity=severity, description=desc,
-                    # 动态基线规则需要先积累采样数据，默认关闭由用户确认后启用
-                    enabled=not is_baseline,
+                    # 动态基线规则需先积累采样数据；时钟偏差规则会在每台设备上
+                    # 各产生一条告警 —— 两者都默认关闭，由用户确认后启用。
+                    enabled=not (is_baseline or name in DISABLED_SEED_RULES),
                     mode="baseline" if is_baseline else "threshold",
                 ))
         await session.commit()

@@ -97,7 +97,7 @@ def main():
                 file_map[f"frontend/dist/{p.relative_to(frontend).as_posix()}"] = p
     # 升级执行脚本（Windows ps1 / Linux sh），随版本演进，升级时优先使用 staging 内脚本
     deploy_dir = source / "deploy"
-    for deploy_name in ("upgrade_apply.ps1", "upgrade_apply.sh", "autostart.bat"):
+    for deploy_name in ("upgrade_apply.ps1", "upgrade_apply.sh", "autostart.bat", "win_startup_diag.ps1"):
         deploy_file = deploy_dir / deploy_name
         if deploy_file.is_file():
             file_map[f"deploy/{deploy_name}"] = deploy_file

@@ -17,16 +17,20 @@ import asyncio
 import json
 import logging
 import os
+from urllib.parse import quote
 
-from fastapi import APIRouter, Depends, WebSocket, WebSocketDisconnect
+from fastapi import APIRouter, Depends, HTTPException, WebSocket, WebSocketDisconnect
+from fastapi.responses import FileResponse
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.config import settings
 from app.database import get_db
 from app.models.device import Device
-from app.routers.auth import current_user
+from app.routers.auth import current_user, operator_or_admin
 from app.services.audit_service import record_audit
 from app.services.credential_service import reveal_secret
+from app.services.terminal_log_service import get_terminal_log_store
 from app.services.terminal_service import DeviceTerminal
 
 logger = logging.getLogger(__name__)
@@ -126,20 +130,42 @@ async def device_terminal_ws(
         await websocket.close(code=4003, reason="设备未配置管理账号或密码")
         return
 
+    proto = device.mgmt_protocol or "ssh"
+    # 使用设备配置的管理端口（mgmt_port），未配置时按协议默认 ssh=22 / telnet=23
+    dev_port = device.mgmt_port or (23 if proto == "telnet" else 22)
+
     terminal = DeviceTerminal(
         ip=device.ip,
         username=username,
         password=password,
-        protocol=device.mgmt_protocol or "ssh",
-        # 使用设备配置的管理端口（mgmt_port），未配置时按协议默认 ssh=22 / telnet=23
-        port=device.mgmt_port or (23 if (device.mgmt_protocol or "ssh") == "telnet" else 22),
+        protocol=proto,
+        port=dev_port,
         cols=120,
         rows=32,
     )
 
+    # ---- 会话日志：每次连接默认开启（华哥 2026-10-21 需求）----
+    # 文件命名 <sysname>-<设备IP>-<YYYYMMDD-HHMM>.log，实时落盘，供「本次会话日志下载」。
+    # 创建失败绝不能影响终端本身 —— 日志是辅助能力，不是终端的前置条件。
+    session_log = None
+    if settings.TERMINAL_LOG_ENABLED:
+        try:
+            session_log = get_terminal_log_store().create(
+                device_name=device.name,
+                ip=device.ip,
+                operator=username_key,
+                target=f"{proto}:{dev_port}",
+            )
+        except Exception as e:
+            logger.warning("终端会话日志创建失败 %s: %s", device.ip, e)
+            session_log = None
+
     output_queue: asyncio.Queue = asyncio.Queue()
 
     async def push_output(data: str) -> None:
+        # 先落盘再推送：即使 WebSocket 随即断开，设备已吐出的内容也不会丢
+        if session_log is not None:
+            session_log.write(data)
         await output_queue.put(json.dumps({"type": "output", "data": data}, ensure_ascii=False))
 
     async def on_closed(reason: str) -> None:
@@ -153,14 +179,31 @@ async def device_terminal_ws(
         await terminal.connect(timeout=25)
     except asyncio.TimeoutError:
         _release_session()
+        if session_log is not None:
+            session_log.unlink_if_trivial()
         await websocket.send_text(json.dumps({"type": "error", "message": "连接设备超时"}, ensure_ascii=False))
         await websocket.close()
         return
     except Exception as e:
         _release_session()
+        if session_log is not None:
+            session_log.unlink_if_trivial()
         await websocket.send_text(json.dumps({"type": "error", "message": f"连接失败: {e}"}, ensure_ascii=False))
         await websocket.close()
         return
+
+    # 告知前端本次会话的日志文件名（「本次会话日志下载」按钮据此启用）。
+    # ⚠️ 必须在 pump() 启动前发 —— 一旦 pump 跑起来，它和这里会同时往同一个
+    # WebSocket 写，Starlette 下并发 send 会抛异常。
+    if session_log is not None:
+        try:
+            await websocket.send_text(json.dumps({
+                "type": "log",
+                "enabled": True,
+                "filename": session_log.filename,
+            }, ensure_ascii=False))
+        except Exception:
+            pass
 
     # 审计：终端会话开始
     try:
@@ -206,6 +249,9 @@ async def device_terminal_ws(
         logger.warning(f"terminal ws error {device.ip}: {e}")
     finally:
         await terminal.close()
+        # 收尾会话日志：补最后一行 + 写页脚（含时长/大小/结束原因）
+        if session_log is not None:
+            session_log.close("会话结束")
         read_task.cancel()
         pump_task.cancel()
         try:
@@ -223,3 +269,63 @@ async def device_terminal_ws(
             await db.commit()
         except Exception:
             pass
+
+
+# ---------------------------------------------------------------------------
+# 会话日志查询 / 下载（HTTP）
+# ---------------------------------------------------------------------------
+# 权限口径与 WebSocket 终端一致：viewer 不能开终端，自然也看不到 CLI 输出。
+
+
+@router.get("/{device_id}/terminal/logs")
+async def list_terminal_logs(
+    device_id: int,
+    limit: int = 20,
+    db: AsyncSession = Depends(get_db),
+    _: dict = Depends(operator_or_admin),
+):
+    """列出某台设备的历史 CLI 会话日志（新 → 旧）。"""
+    result = await db.execute(select(Device).where(Device.id == device_id))
+    device = result.scalar_one_or_none()
+    if not device:
+        raise HTTPException(status_code=404, detail="设备不存在")
+    if not settings.TERMINAL_LOG_ENABLED:
+        return {"enabled": False, "items": []}
+
+    safe_limit = max(1, min(int(limit or 20), 200))
+    items = get_terminal_log_store().list_for(device.name, device.ip, limit=safe_limit)
+    return {"enabled": True, "items": items}
+
+
+@router.get("/{device_id}/terminal/logs/{filename}")
+async def download_terminal_log(
+    device_id: int,
+    filename: str,
+    db: AsyncSession = Depends(get_db),
+    _: dict = Depends(operator_or_admin),
+):
+    """下载某次会话的日志文件。
+
+    文件名在服务端做三重校验（纯文件名 / 必须属于本设备 / 必须落在日志目录内），
+    不信任前端传来的任何路径片段。
+    """
+    result = await db.execute(select(Device).where(Device.id == device_id))
+    device = result.scalar_one_or_none()
+    if not device:
+        raise HTTPException(status_code=404, detail="设备不存在")
+    if not settings.TERMINAL_LOG_ENABLED:
+        raise HTTPException(status_code=404, detail="会话日志功能已关闭")
+
+    path = get_terminal_log_store().resolve(device.name, device.ip, filename)
+    if path is None:
+        raise HTTPException(status_code=404, detail="日志文件不存在或不属于该设备")
+
+    return FileResponse(
+        path,
+        media_type="text/plain; charset=utf-8",
+        headers={
+            "Content-Disposition": f"attachment; filename*=UTF-8''{quote(path.name)}",
+            # 日志在会话进行中仍会被追加，禁止缓存半截内容
+            "Cache-Control": "no-store",
+        },
+    )

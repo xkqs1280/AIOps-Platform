@@ -23,6 +23,9 @@
 
     <!-- 升级进度（升级中/完成后显示） -->
     <div v-if="status.state && status.state !== 'idle'" class="bg-surface border border-line rounded-xl p-6 mb-6">
+      <div v-if="connWarning" class="mb-4 px-3 py-2 rounded-lg bg-amber-500/10 border border-amber-500/30 text-amber-300 text-sm">
+        {{ connWarning }}
+      </div>
       <div class="flex items-center justify-between mb-3">
         <div>
           <span class="text-ink-strong font-semibold">{{ stateText }}</span>
@@ -57,8 +60,15 @@
           class="px-4 py-2 text-sm rounded-lg bg-cyan-600 hover:bg-cyan-500 text-white transition-colors"
         >刷新页面</button>
       </div>
+      <div v-if="status.state === 'failed'" class="mt-4">
+        <p class="text-sm text-amber-300 mb-2">
+          升级未正常收尾。请先核对上方「当前版本」是否已变为目标版本 ——
+          若已经变了，说明升级其实已经成功，只是健康检查未通过，此时<b>不要回滚</b>，
+          直接刷新页面即可。
+        </p>
+      </div>
       <div v-if="status.state === 'failed' && status.rollback_available" class="mt-4">
-        <p class="text-sm text-red-400 mb-2">升级失败，可一键回滚到升级前版本。</p>
+        <p class="text-sm text-red-400 mb-2">确认版本仍未更新后，可一键回滚到升级前版本。</p>
         <button
           @click="doRollback"
           :disabled="busy"
@@ -119,6 +129,10 @@ const fileInput = ref(null)
 const busy = ref(false)
 const upgrading = ref(false)
 const errorMsg = ref('')
+// 升级期间后端会被升级脚本停掉再拉起，轮询会短暂失败。连续失败多次时给出可见提示，
+// 避免页面"假死"（用户以为卡住了，其实只是后端正在重启）。
+const connWarning = ref('')
+let pollFailStreak = 0
 let pollTimer = null
 // 升级完成态自动清除定时器：完成后 30 分钟复查一次（后端届时已复位为 idle，页面自动回到空闲）
 const DONE_CLEAR_DELAY = 30 * 60 * 1000
@@ -133,7 +147,7 @@ const stateText = computed(() => {
     applying: '停止服务',
     replacing: '替换文件',
     restarting: '启动新版本',
-    verifying: '健康检查',
+    verifying: '健康检查（等待新版本启动，最多约 30 分钟）',
     done: '升级完成',
     failed: '升级失败',
     rolled_back: '已回滚',
@@ -157,6 +171,8 @@ async function loadVersion() {
 async function pollStatus() {
   try {
     const s = await getUpgradeStatus()
+    pollFailStreak = 0
+    connWarning.value = ''
     status.value = s || { state: 'idle', progress: 0, message: '', log: [] }
     // 升级中持续轮询；完成/失败/回滚后停止
     const active = ['uploading', 'validating', 'backup', 'applying', 'replacing', 'restarting', 'verifying']
@@ -171,7 +187,13 @@ async function pollStatus() {
       }
     }
   } catch {
-    // 服务重启期间接口可能暂时不可达，继续重试
+    // 服务重启期间接口可能暂时不可达，继续重试 —— 但连续失败要给出可见提示，
+    // 否则页面看起来"假死"（后端正被升级脚本停掉再拉起）
+    pollFailStreak += 1
+    if (pollFailStreak >= 6) {
+      const waited = Math.round((pollFailStreak * 2.5) / 5) * 5
+      connWarning.value = `后端正在重启，暂时无法获取升级状态（已连续重试 ${pollFailStreak} 次，约 ${waited} 秒）。请保持页面打开，恢复后会自动继续刷新。`
+    }
   }
 }
 

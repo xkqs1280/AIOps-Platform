@@ -262,6 +262,33 @@ async function loadComponents() {
   }
 }
 
+// 判断单个字段是否「无有效信息」（空 / 占位符）
+function isBlankField(v) {
+  const s = String(v ?? '').trim()
+  return s === '' || s === '-' || s === '--' || s === 'N/A' || s.toLowerCase() === 'n/a'
+}
+
+// 过滤掉「除名称外全部字段空白」的占位条目。
+// 实体 MIB 里大量槽位只有泛化名称（Level 1/2 Container、Temperature/Voltage Sensor、
+// CPU/Memory on Board…），型号/序列号/版本全空，展示出来纯属噪声。
+// 规则是动态的：某行日后真采到型号或序列号，会自动重新出现。
+const visibleComponents = computed(() =>
+  components.value.filter((c) => {
+    const detailFields = [
+      c.model_name,
+      c.serial_number,
+      c.hardware_rev,
+      c.firmware_rev,
+      c.software_rev,
+      c.mfg_name,
+    ]
+    return detailFields.some((f) => !isBlankField(f))
+  })
+)
+
+// 被隐藏的占位条目数（页面提示用，避免误以为数据丢失）
+const hiddenComponentCount = computed(() => components.value.length - visibleComponents.value.length)
+
 function formatBw(bps) {
   if (!bps) return '-'
   if (bps >= 1e9) return (bps / 1e9).toFixed(1) + 'G'
@@ -676,7 +703,7 @@ watch(deviceId, () => {
 
           <div v-if="compLoading" class="text-sm text-ink-muted py-4">组件信息加载中...</div>
           <div v-else-if="compError" class="text-sm text-orange-400 py-4">{{ compError }}</div>
-          <div v-else-if="!components.length" class="text-sm text-ink-faint py-4">
+          <div v-else-if="!visibleComponents.length" class="text-sm text-ink-faint py-4">
             暂无组件信息。点击右上角「同步」按钮从设备采集实体 MIB（序列号/型号/版本）。
           </div>
           <div v-else class="overflow-x-auto">
@@ -695,7 +722,7 @@ watch(deviceId, () => {
               </thead>
               <tbody>
                 <tr
-                  v-for="c in components"
+                  v-for="c in visibleComponents"
                   :key="c.phys_index"
                   class="border-t border-line/60"
                   :class="c.phys_index === 2 ? 'bg-cyan-500/5' : ''"
@@ -711,6 +738,9 @@ watch(deviceId, () => {
                 </tr>
               </tbody>
             </table>
+            <p v-if="hiddenComponentCount" class="mt-3 text-xs text-ink-faint">
+              已隐藏 {{ hiddenComponentCount }} 条无型号 / 序列号 / 版本信息的占位条目（如槽位容器、传感器、CPU / 内存槽）。
+            </p>
           </div>
         </div>
 

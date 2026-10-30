@@ -190,6 +190,43 @@ class Settings(BaseSettings):
     # 造出来的演示数据会混进安全事件/审计数据，在等保场景下是硬伤。
     DEMO_DATA_ENABLED: bool = False
 
+    # ------------------------------------------------------------------
+    # NTP 授时（P1）
+    # ------------------------------------------------------------------
+    # 下面两个是**部署级总闸**，与页面上的开关取「与」关系：总闸关掉时页面开关不可用。
+    # 与设备日志一样，默认值刻意保守 —— 现场多数只当监控平台用，不该凭空占特权端口/发外网请求。
+    # 页面开关默认关闭，总闸默认打开（允许页面去开），部署方可用总闸一刀切禁用该功能。
+    NTP_SERVER_ENABLED: bool = True          # 下行授时总闸（平台作 NTP 服务器，UDP 123）
+    NTP_UPSTREAM_ENABLED: bool = True        # 上行取时总闸（平台作 NTP 客户端）
+    NTP_LISTEN_HOST: str = "0.0.0.0"
+    # 123 是 NTP 标准端口。Linux 下 <1024 需 CAP_NET_BIND_SERVICE
+    # （install.sh 生成的 systemd unit 已加 AmbientCapabilities），Windows 无需提权。
+    # ⚠️ 宿主自身的 NTP 服务（Windows W32Time / Linux chronyd 的 allow 指令）常已占用 123，
+    # 与平台授时冲突；二者只能留一个对外授时，见 ntp_service._bind_hints 的排查建议。
+    NTP_PORT: int = 123
+    # 上游时间源。默认阿里云公共 NTP（国内可达性好、无需注册）。
+    # 换源只需改这一行或在「系统设置 → 时钟同步」页面上改（后者不需重启）。
+    NTP_UPSTREAM_SERVER: str = "ntp.aliyun.com"
+    # 时钟偏差告警阈值（秒）。设计要求"不超过 60 秒"，故默认 60。
+    # 该值会被写入默认告警规则的 threshold，页面上的设置行可覆盖。
+    NTP_OFFSET_THRESHOLD_SECONDS: float = 60.0
+    # 手动同步允许校正的最大偏差（秒）。超过此值拒绝执行 —— 说明是配置错误而非漂移。
+    NTP_MANUAL_SYNC_MAX_SECONDS: float = 300.0
+    # 下发给设备的「NTP 服务器地址」（即设备要回连的平台地址）。留空时由页面显式指定。
+    NTP_ADVERTISE_ADDRESS: str = ""
+
+    # ------------------------------------------------------------------
+    # 设备 CLI 会话日志（每次连接默认开启，华哥 2026-10-21 需求）
+    # ------------------------------------------------------------------
+    # 每次打开设备 CLI 终端，服务端都会实时落盘一份 .log，供事后下载/取证。
+    # 关掉后前端不出现「记录中」指示灯，也不会有可下载的文件。
+    TERMINAL_LOG_ENABLED: bool = True
+    # 落盘目录。留空 = <backend 目录>/terminal_logs
+    # （打包成 exe 时落在 exe 同级的 terminal_logs，与 .env 同根）。
+    TERMINAL_LOG_DIR: str = ""
+    # 留存天数。超期文件在下次建立新会话时顺带清理（不额外起后台任务）。
+    TERMINAL_LOG_RETENTION_DAYS: int = 30
+
     @property
     def cors_origins(self) -> list[str]:
         if self.CORS_ORIGINS.strip() == "*":

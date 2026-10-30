@@ -198,12 +198,18 @@ start_app() {
 wait_healthy() {
   local url="http://127.0.0.1:8000/health"
   if [ -f "$AppRoot/backend/certs/server.crt" ]; then url="https://127.0.0.1:8000/health"; fi
-  # 放宽等待窗口：冷启动（PyInstaller onefile 解压 + 杀软/慢磁盘 + uvicorn 引导）
-  # 可能超过 2 分钟，原来 40 次 (约 2 分钟) 会在替换成功后误报 health check timeout。
+  # 放宽等待窗口：冷启动（解压 + 慢磁盘 + uvicorn 引导 + 大库迁移）可能超过 2 分钟，
+  # 原来 40 次（约 2 分钟）会在替换成功后误报 health check timeout。
+  # 与 Windows 侧 deploy/upgrade_apply.ps1 的 Wait-Healthy 同源（2026-10-08 生产实锤：
+  # "已替换成功但后端还在启动"被误判为升级失败）。
   for i in $(seq 1 150); do
     sleep 3
     if curl -sk -m 8 "$url" >/dev/null 2>&1; then return 0; fi
   done
+  # 超时后打一条诊断，便于事后区分"没起来"与"起来了但没监听"
+  local pids
+  pids="$(pgrep -af 'uvicorn app.main:app' 2>/dev/null | tr '\n' ';')"
+  echo "[$(date +%H:%M:%S)] wait_healthy: timed out (uvicorn: ${pids:-none})"
   return 1
 }
 
@@ -296,7 +302,7 @@ if [ "$ROLLBACK" = "1" ]; then
   if wait_healthy; then
     write_state "rolled_back" 100 "Rollback completed, service healthy"
   else
-    write_state "failed" 0 "Rollback completed but health check failed" "health check timeout"
+    write_state "failed" 70 "Rollback completed but health check did not pass - please verify the platform manually" "health check timeout"
   fi
   exit 0
 fi
@@ -381,6 +387,7 @@ if wait_healthy; then
   echo "Upgrade done."
   exit 0
 else
-  write_state "failed" 0 "Health check failed after restart" "health check timeout"
+  # 不写 progress 0：文件其实已替换完成，写 0 会让页面看起来"什么都没做"
+  write_state "failed" 90 "Health check did not pass after restart. The new version may still be starting - please verify the version before rolling back." "health check timeout"
   exit 1
 fi

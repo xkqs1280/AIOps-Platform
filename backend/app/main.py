@@ -34,6 +34,7 @@ from app.routers import system
 from app.routers import notify_channels, device_dependencies
 from app.routers import device_logs
 from app.routers import access_control
+from app.routers import ntp
 
 logger = logging.getLogger(__name__)
 
@@ -222,6 +223,20 @@ async def lifespan(app: FastAPI):
         "Syslog UDP receiver starting (bind %s:%s)",
         settings.SYSLOG_UDP_HOST, settings.SYSLOG_UDP_PORT,
     )
+    # 启动 NTP 授时（P1）：上行取时 + 下行授时应答两条独立链路，各自受监督。
+    # 两个开关都持久化在 ntp_settings 表、默认关闭；先恢复再挂循环。
+    from app.services.ntp_service import (
+        load_persisted_settings as ntp_load_settings,
+        ntp_server_loop,
+        ntp_upstream_loop,
+    )
+    await ntp_load_settings()
+    ntp_server_task = start_supervised("ntp-server", ntp_server_loop)
+    ntp_upstream_task = start_supervised("ntp-upstream", ntp_upstream_loop)
+    logger.info(
+        "NTP service starting (listen %s:%s, upstream poll every 5min)",
+        settings.NTP_LISTEN_HOST, settings.NTP_PORT,
+    )
     yield
     scheduler_task.cancel()
     health_check_task.cancel()
@@ -231,6 +246,8 @@ async def lifespan(app: FastAPI):
     cleanup_task.cancel()
     baseline_task.cancel()
     syslog_task.cancel()
+    ntp_server_task.cancel()
+    ntp_upstream_task.cancel()
     try:
         await scheduler_task
     except asyncio.CancelledError:
@@ -261,6 +278,14 @@ async def lifespan(app: FastAPI):
         pass
     try:
         await syslog_task
+    except asyncio.CancelledError:
+        pass
+    try:
+        await ntp_server_task
+    except asyncio.CancelledError:
+        pass
+    try:
+        await ntp_upstream_task
     except asyncio.CancelledError:
         pass
 
@@ -463,6 +488,7 @@ app.include_router(notify_channels.router, prefix=settings.API_PREFIX)
 app.include_router(device_dependencies.router, prefix=settings.API_PREFIX)
 app.include_router(device_logs.router, prefix=settings.API_PREFIX)
 app.include_router(access_control.router, prefix=settings.API_PREFIX)
+app.include_router(ntp.router, prefix=settings.API_PREFIX)
 
 
 @app.get("/health")

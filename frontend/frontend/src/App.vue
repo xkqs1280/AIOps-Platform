@@ -112,6 +112,7 @@ import {
   SunIcon,
   MoonIcon,
   SwatchIcon,
+  ClockIcon,
   SparklesIcon,
   PaperAirplaneIcon,
 } from '@heroicons/vue/24/outline'
@@ -145,6 +146,7 @@ const settingsNav = [
   { path: '/settings/account', label: '账号管理', icon: UserIcon },
   { path: '/settings/license', label: '授权管理', icon: KeyIcon },
   { path: '/settings/display', label: '显示设置', icon: SwatchIcon },
+  { path: '/settings/ntp', label: '时钟同步', icon: ClockIcon },
   { path: '/settings/audit-logs', label: '审计日志', icon: DocumentTextIcon },
   { path: '/settings/upgrade', label: '系统升级', icon: ArrowUpTrayIcon },
 ]

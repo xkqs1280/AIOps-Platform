@@ -128,6 +128,12 @@ const routes = [
         meta: { title: '显示设置' },
       },
       {
+        path: 'ntp',
+        name: 'NtpSettings',
+        component: () => import('../views/NtpSettings.vue'),
+        meta: { title: '时钟同步' },
+      },
+      {
         path: 'ai',
         name: 'AiSettings',
         component: () => import('../views/AiSettings.vue'),

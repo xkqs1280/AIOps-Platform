@@ -415,7 +415,8 @@ $customDeployFiles = @(
     "register_autostart.ps1",
     "fix_after_reboot.bat",
     "upgrade_apply.ps1",
-    "upgrade_apply.sh"
+    "upgrade_apply.sh",
+    "win_startup_diag.ps1"
 )
 foreach ($f in $customDeployFiles) {
     $srcF = Join-Path $PSScriptRoot $f

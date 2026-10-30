@@ -49,9 +49,13 @@ from app.services.notify_service import dispatch_alert
 logger = logging.getLogger(__name__)
 
 # ---- 本引擎支持的指标（其余如 bandwidth_usage/disk_usage 暂未采集，跳过） ----
+# clock_offset 与其他指标不同：它**不是设备自身指标**，而是「平台与上游时间源的
+# 偏差」——同一轮评估里所有设备读到的都是同一个值。之所以挂在设备规则体系下，
+# 是为了复用既有的告警产生/收敛/抑制/通知链路，避免再起一套平台级告警。
 SUPPORTED_METRICS = {
     "cpu_usage", "memory_usage", "temperature", "sys_uptime", "if_oper_status",
     "if_in_errors", "if_out_errors", "if_in_discards", "if_out_discards",
+    "clock_offset",
 }
 
 # ---- SNMP OID ----
@@ -185,13 +189,41 @@ def _device_metric_value(device: Device, metric: str) -> float | None:
     return None
 
 
-def _scalar_message(device: Device, rule: AlertRule, value: float) -> str:
-    metric_label = {
+def _metric_label(metric: str) -> str:
+    return {
         "cpu_usage": "CPU 利用率",
         "memory_usage": "内存利用率",
         "temperature": "温度",
-    }.get(rule.metric, rule.metric)
-    unit = "%" if rule.metric in ("cpu_usage", "memory_usage") else "°C" if rule.metric == "temperature" else ""
+        "clock_offset": "时钟偏差",
+    }.get(metric, metric)
+
+
+def _metric_unit(metric: str) -> str:
+    if metric in ("cpu_usage", "memory_usage"):
+        return "%"
+    if metric == "temperature":
+        return "°C"
+    if metric == "clock_offset":
+        return "s"
+    return ""
+
+
+def _scalar_message(device: Device, rule: AlertRule, value: float) -> str:
+    metric_label = _metric_label(rule.metric)
+    unit = _metric_unit(rule.metric)
+    if rule.metric == "clock_offset":
+        # 时钟偏差是**平台自身**的指标（不是这台设备的），文案必须说清楚，
+        # 否则运维会以为"是这台设备时钟漂了"而跑去查设备。
+        # ⚠️ 这里拿到的是**绝对值**（_collect_clock_offset 已取 abs），
+        # 因此无法也不应推断快/慢方向 —— 页面上有带符号的原始值与方向标注。
+        return (
+            f"平台时钟与上游时间源偏差达 {abs(value):.3f}s，"
+            f"超过阈值 {rule.threshold}s（持续 {rule.duration}s），"
+            f"触发「{rule.name}」告警。注意：该指标反映的是**平台自身**时钟偏差，"
+            f"非设备 {device.name}({device.ip}) 的问题；"
+            f"请检查平台与上游时间源的连通性，"
+            f"并在「系统设置 → 时钟同步」页查看带方向的偏差值后决定是否手动同步"
+        )
     return (
         f"设备 {device.name}({device.ip}) {metric_label} {value}{unit}，"
         f"超过阈值 {rule.threshold}{unit}（持续 {rule.duration}s），触发「{rule.name}」告警"
@@ -200,12 +232,8 @@ def _scalar_message(device: Device, rule: AlertRule, value: float) -> str:
 
 def _baseline_message(device: Device, rule: AlertRule, value: float, bl: dict, z: float | None) -> str:
     """动态基线告警文案：把「当前值 / 同时段基线 / 偏离倍数」一起给出，便于判断是否真异常。"""
-    metric_label = {
-        "cpu_usage": "CPU 利用率",
-        "memory_usage": "内存利用率",
-        "temperature": "温度",
-    }.get(rule.metric, rule.metric)
-    unit = "%" if rule.metric in ("cpu_usage", "memory_usage") else "°C" if rule.metric == "temperature" else ""
+    metric_label = _metric_label(rule.metric)
+    unit = _metric_unit(rule.metric)
     p50 = bl.get("p50")
     p50_txt = f"{p50:.1f}{unit}" if isinstance(p50, (int, float)) else "未知"
     z_txt = f"{z:+.1f}" if isinstance(z, (int, float)) else "?"
@@ -518,6 +546,101 @@ async def _resolve_alert(db: AsyncSession, device: Device, rule_name: str):
         logger.info(f"Alert resolved: {device.name}({device.ip}) {rule_name} x{resolved}")
 
 
+async def _collect_clock_offset(db: AsyncSession) -> tuple[float | None, str]:
+    """取平台与上游时间源的最新偏差（取绝对值），返回 (值, 说明)。
+
+    **这是平台自身的指标，与设备无关**，因此一个评估轮次只需查一次库
+    （由 ``_evaluate_device`` 的调用方传入缓存值，见 ``evaluate_rules``）。
+
+    几个刻意的处理：
+
+    - **取绝对值**：阈值语义是"偏差幅度"，不关心快慢方向。设备时钟比上游快 70s
+      与慢 70s 是同等严重的问题，若拿带符号的值去比 ``> 60``，慢的那一边永远不会告警。
+    - **只用 success=1 的样本**：失败样本的 offset 记 0，把它当"偏差为 0、完全正常"
+      会掩盖"上游取不到时间"这个真问题。宁可无值（本轮不评估）也不给假值。
+    - **超过 3 个采样周期未更新则视为过期**：上游长期取不到时间时，最后一个陈旧
+      样本不代表当前状态，继续用它告警会产生"早已恢复却一直告警"的僵尸告警。
+      返回 None 表示信息不足 —— 状态机侧对 None 的处理是不判定、也不撤销（见 _eval_clock）。
+    """
+    from app.models.ntp import NtpOffsetRecord
+
+    try:
+        row = (await db.execute(
+            select(NtpOffsetRecord)
+            .where(NtpOffsetRecord.success.is_(True))
+            .order_by(NtpOffsetRecord.sampled_at.desc(), NtpOffsetRecord.id.desc())
+            .limit(1)
+        )).scalar_one_or_none()
+    except Exception as e:
+        logger.error("读取 NTP 偏差样本失败：%s", e)
+        return None, "读取偏差样本失败"
+
+    if row is None:
+        return None, "尚无偏差样本（请开启上行取时）"
+
+    age = (datetime.now(timezone.utc) - row.sampled_at).total_seconds()
+    stale_after = max(300.0, 3 * 300.0)  # 3 个采样周期（采样周期 5 分钟）
+    if age > stale_after:
+        return None, f"最新样本已过期（{age / 60:.0f} 分钟前，上游可能不可达）"
+
+    return abs(float(row.offset_seconds)), f"采集于 {row.sampled_at:%H:%M:%S}"
+
+
+async def _eval_clock(
+    db: AsyncSession, device: Device, rule: AlertRule, value: float | None,
+    ctx: dict | None = None,
+):
+    """时钟偏差的状态机评估（与 ``_eval_scalar`` 同构，但语义有三处不同）。
+
+    为什么不直接复用 ``_eval_scalar``：
+
+    1. **值是平台级的、但告警挂在设备维度**。同一轮里所有设备拿到同一个值，
+       会产生 N 条内容几乎一样的告警（N = 纳管设备数）。这不是 bug 而是权衡 ——
+       平台级告警在现有架构里没有独立通道，复用设备告警链路（收敛/抑制/通知）
+       比新起一套更划算。**但因此默认不自动创建这条规则**（见 database.py 的种子
+       注释），由运维按需开启；开启时页面会提示"该规则会在每台在线设备上各产生
+       一条告警，建议只用于临时巡检"。
+
+    2. **value 为 None（无样本/样本过期）时不判定，也**不**恢复**。与 ``_eval_scalar``
+       的"条件不成立即恢复"不同：上游取不到时间不代表平台时钟恢复正常了，
+       此时撤销告警会让人误判问题已解决。保持现状最保守。
+
+    3. **文案必须点明是平台问题**（见 ``_scalar_message`` 的 clock_offset 分支）。
+    """
+    if value is None:
+        # 信息不足：既不新建告警也不撤销已有告警
+        return
+
+    key = (device.id, rule.id)
+    st = _state.get(key)
+    if st is None:
+        st = {"violating": False, "violation_start": None, "value": None}
+        _state[key] = st
+    st["value"] = value
+
+    now = datetime.now(timezone.utc)
+    # 阈值条件是「偏差绝对值 > 阈值」（rule.condition 通常为 gt）。
+    # 传入的 value 已是绝对值，故这里直接用通用条件判定即可。
+    violating = _check_condition(rule.condition, value, rule.threshold)
+
+    if violating:
+        if not st["violating"]:
+            st["violating"] = True
+            st["violation_start"] = now
+            logger.info(
+                "[平台时钟] %s 进入违规：%s (阈值 %s)", rule.name, value, rule.threshold
+            )
+        elif (now - st["violation_start"]).total_seconds() >= rule.duration:
+            await _ensure_alert(db, device, rule, _scalar_message(device, rule, value), ctx)
+    else:
+        if st["violating"]:
+            logger.info("[平台时钟] %s 恢复：%s", rule.name, value)
+            st["violating"] = False
+            st["violation_start"] = None
+        # 无条件尝试恢复：防引擎重启/升级后内存状态清空导致僵尸告警（同 _eval_scalar）
+        await _resolve_alert(db, device, rule.name)
+
+
 async def _eval_scalar(
     db: AsyncSession, device: Device, rule: AlertRule, value: float | None,
     baseline: dict | None = None, ctx: dict | None = None,
@@ -668,8 +791,13 @@ async def _eval_if_status(
 async def _evaluate_device(
     db: AsyncSession, device: Device, rules: list[AlertRule],
     baseline_map: dict | None = None, ctx: dict | None = None,
+    clock_offset: tuple[float | None, str] | None = None,
 ):
-    """评估单台设备的全部支持规则。"""
+    """评估单台设备的全部支持规则。
+
+    ``clock_offset`` 由 ``evaluate_rules`` 统一采集一次后传入 —— 它是**平台级**
+    指标，同轮所有设备共用同一个值，逐台查询纯属浪费（且会让 N 台设备各查一次库）。
+    """
     community = reveal_secret(device.snmp_community) or "aiops"
 
     # 现场采集一次 uptime / 接口状态（仅当存在对应规则时）
@@ -698,7 +826,11 @@ async def _evaluate_device(
 
     for rule in rules:
         metric = rule.metric
-        if metric == "sys_uptime":
+        if metric == "clock_offset":
+            # 平台级指标：值由调用方统一采集，不依赖设备 SNMP
+            value, _note = clock_offset if clock_offset is not None else (None, "")
+            await _eval_clock(db, device, rule, value, ctx)
+        elif metric == "sys_uptime":
             if uptime_ticks is not None:
                 await _eval_uptime(db, device, rule, uptime_ticks, ctx)
         elif metric == "if_oper_status":
@@ -758,12 +890,23 @@ async def evaluate_rules(db: AsyncSession, devices: list[Device] | None = None):
             logger.error("load baseline map failed: %s", e)
             baseline_map = {}
 
+    # 3) 平台时钟偏差：**平台级**指标，本轮采集一次供所有设备共用。
+    #    只有存在 clock_offset 规则时才查库（绝大多数部署不开这条规则）。
+    clock_offset: tuple[float | None, str] = (None, "未启用")
+    if any(r.metric == "clock_offset" for r in rules):
+        try:
+            clock_offset = await _collect_clock_offset(db)
+            logger.debug("平台时钟偏差：%s（%s）", clock_offset[0], clock_offset[1])
+        except Exception as e:
+            logger.error("采集平台时钟偏差失败：%s", e)
+            clock_offset = (None, "采集失败")
+
     sem = asyncio.Semaphore(MAX_CONCURRENT)
 
     async def _eval(d: Device):
         async with sem:
             try:
-                await _evaluate_device(db, d, rules, baseline_map, ctx)
+                await _evaluate_device(db, d, rules, baseline_map, ctx, clock_offset)
             except Exception as e:
                 logger.error(f"Rule evaluate error {d.name}({d.ip}): {e}")
 

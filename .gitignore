@@ -74,6 +74,8 @@ Thumbs.db
 .workbuddy/
 *.log
 sign_err.txt
+# 设备 CLI 会话日志（每次连接自动落盘）：含设备真实配置输出，属运行期数据，绝不入库
+backend/terminal_logs/
 
 # === 内部审计 / 分析文档（含漏洞细节，不推公开仓库） ===
 审计报告*.md
@@ -81,3 +83,12 @@ sign_err.txt
 *_audit_report*.md
 docs/*审计*.md
 docs/*audit*.md
+
+# === 软件著作权登记材料（含公司信息与源码节选，绝不入库） ===
+软著申请材料/
+
+# === 现场取证材料（升级/启动故障的原始日志与状态，含真实路径与主机信息） ===
+sctest/
+
+# === 第三方厂商手册（H3C 版权，绝不入库） ===
+docs/H3C*.pdf

@@ -46,6 +46,23 @@
         >
           ↻ 重连
         </button>
+        <!-- 本次会话日志：后端每次连接自动开启并实时记录，此按钮下载当前会话的日志文件 -->
+        <button
+          @click="downloadLog"
+          :disabled="!logFile || logDownloading"
+          :title="logFile ? `下载 ${logFile}` : '本次会话未启用会话日志'"
+          class="flex items-center gap-1.5 rounded-lg border border-line bg-surface-2 px-3 py-1.5 text-xs text-ink-muted transition-colors hover:bg-hover disabled:cursor-not-allowed disabled:opacity-40"
+        >
+          <svg class="h-3.5 w-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v2a2 2 0 002 2h12a2 2 0 002-2v-2M7 10l5 5 5-5M12 15V3" />
+          </svg>
+          <span>{{ logDownloading ? '下载中…' : '本次会话日志' }}</span>
+          <span
+            v-if="logRecording"
+            class="h-1.5 w-1.5 rounded-full bg-red-400 animate-pulse"
+            title="正在录制本次会话"
+          ></span>
+        </button>
         <button
           @click="cliOpen = !cliOpen"
           class="rounded-lg px-3 py-1.5 text-xs font-medium transition-colors bg-violet-500/10 text-violet-400 border border-violet-500/20 hover:bg-violet-500/20"
@@ -121,7 +138,7 @@ import { useRoute } from 'vue-router'
 import { Terminal } from 'xterm'
 import { FitAddon } from '@xterm/addon-fit'
 import 'xterm/css/xterm.css'
-import { getDevice } from '../api/index.js'
+import { getDevice, getTerminalLog } from '../api/index.js'
 import { aiStream } from '../api/ai.js'
 import AiMarkdown from '../components/AiMarkdown.vue'
 
@@ -157,6 +174,12 @@ const device = ref(null)
 const connState = ref('connecting') // connecting / connected / closed
 const closeMsg = ref('')
 
+// 会话日志：后端在每次连接时自动开启实时记录（无需前端开关），
+// 连上后会推一条 {type:'log', filename} 告知本次日志文件名。
+const logFile = ref('')          // 本次会话的日志文件名（下载用）
+const logRecording = ref(false)  // 是否正在录制（断开后置 false，但文件名保留以便下载）
+const logDownloading = ref(false)
+
 let terminal = null
 let fitAddon = null
 let ws = null
@@ -186,6 +209,9 @@ function connect() {
   }
   connState.value = 'connecting'
   closeMsg.value = ''
+  // 每次连接都是新会话 → 旧的日志文件名作废，等后端推新的 {type:'log'}
+  logFile.value = ''
+  logRecording.value = false
   ws = new WebSocket(wsUrl())
   ws.onopen = () => {
     connState.value = 'connected'
@@ -194,12 +220,19 @@ function connect() {
   ws.onmessage = (ev) => {
     try {
       const msg = JSON.parse(ev.data)
-      if (msg.type === 'output') {
+      if (msg.type === 'log') {
+        logFile.value = msg.filename || ''
+        logRecording.value = !!msg.filename
+        if (msg.filename) {
+          terminal?.writeln(`\x1b[2;36m[本次会话日志已开启：${msg.filename}]\x1b[0m\r\n`)
+        }
+      } else if (msg.type === 'output') {
         terminal?.write(msg.data)
       } else if (msg.type === 'error') {
         terminal?.writeln(`\r\n\x1b[1;31m[${msg.message}]\x1b[0m`)
       } else if (msg.type === 'closed') {
         connState.value = 'closed'
+        logRecording.value = false
         closeMsg.value = msg.message || '连接已断开'
         terminal?.writeln(`\r\n\x1b[1;31m[${msg.message || '连接已断开'}]\x1b[0m`)
       }
@@ -222,6 +255,33 @@ function reconnect() {
     terminal.reset()
   }
   connect()
+}
+
+/**
+ * 下载本次会话的日志。
+ *
+ * 会话进行中也能下（后端实时 flush 到磁盘），下到的是"截止到点击这一刻"的内容；
+ * 断开后再点则拿到完整日志（含结束时间/时长页脚）。
+ */
+async function downloadLog() {
+  if (!logFile.value || logDownloading.value) return
+  logDownloading.value = true
+  try {
+    const res = await getTerminalLog(deviceId, logFile.value)
+    const blob = res instanceof Blob ? res : new Blob([res], { type: 'text/plain;charset=utf-8' })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = logFile.value
+    document.body.appendChild(a)
+    a.click()
+    a.remove()
+    URL.revokeObjectURL(url)
+  } catch (e) {
+    alert('下载会话日志失败：' + (e?.message || e))
+  } finally {
+    logDownloading.value = false
+  }
 }
 
 function onResize() {

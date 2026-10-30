@@ -50,6 +50,14 @@ export const syncAllDevices = () => api.post('/devices/sync-all', null, { timeou
 export const discoverDevices = (data) => api.post('/devices/discover', data, { timeout: 60000 })
 export const batchCreateDevices = (data) => api.post('/devices/batch', data)
 
+// 设备 CLI 会话日志：每次连接由后端自动开启，文件名为 <sysname>-<设备IP>-<YYYYMMDD-HHMM>.log
+export const getTerminalLog = (id, filename) =>
+  api.get(`/devices/${id}/terminal/logs/${encodeURIComponent(filename)}`, {
+    responseType: 'blob',
+    timeout: 60000,
+  })
+export const getTerminalLogs = (id, params) => api.get(`/devices/${id}/terminal/logs`, { params })
+
 // 告警管理
 export const getAlerts = (params) => api.get('/alerts', { params })
 export const deleteAlert = (id) => api.delete(`/alerts/${id}`)
@@ -156,6 +164,36 @@ export const previewLoghost = (data) => api.post('/device-logs/loghost/preview',
 export const applyLoghost = (data) => api.post('/device-logs/loghost/apply', data, { timeout: 300000 })
 export const rollbackLoghost = (data) => api.post('/device-logs/loghost/rollback', data, { timeout: 300000 })
 export const getLoghostStatus = () => api.get('/device-logs/loghost/status')
+
+// NTP 时钟服务（上行取时 + 下行授时两条独立链路，默认全部关闭）
+// 状态：两个开关的启用/配置/运行态 + 端口绑定结果 + 收发计数 + 上游偏差摘要
+export const getNtpStatus = () => api.get('/ntp/status')
+// 开关与参数（仅管理员）：server_enabled / upstream_enabled / upstream_server /
+// listen_host / offset_threshold_seconds；部署级总闸关闭时后端返 409
+export const updateNtpSettings = (data) => api.put('/ntp/settings', data)
+// 当前偏差（无样本时 available=false）：含 direction（slow=平台慢 / fast=平台快 / synced）
+export const getNtpOffset = () => api.get('/ntp/offset')
+// 偏差历史曲线（hours 1~720）
+export const getNtpOffsetHistory = (hours = 24) => api.get('/ntp/offset/history', { params: { hours } })
+// 手动同步平台时间（仅管理员，需 confirm=true；超出 manual_sync_max_seconds 时后端返 422）
+// 手动同步做了两次取时（校正前 5 次采中位数 + 校正后复核 2 次），
+// 每次最多 5s 超时 —— 默认 60s 在公网抖动时可能不够，放宽到 120s。
+export const manualNtpSync = () => api.post('/ntp/sync', { confirm: true }, { timeout: 120000 })
+// 可作为时间源下发给设备的本机地址候选（优先 NTP_ADVERTISE_ADDRESS）
+export const getNtpCandidates = () => api.get('/ntp/devices/candidates')
+// 下发命令预览（真实改动设备配置，属高危运维操作）
+export const previewNtp = (data) => api.post('/ntp/devices/preview', data)
+// 每台设备要连 SSH 下发并前后取快照，与 loghost 同量级，前端分块提交 + 5 分钟超时
+export const applyNtp = (data) => api.post('/ntp/devices/apply', data, { timeout: 300000 })
+export const rollbackNtp = (data) => api.post('/ntp/devices/rollback', data, { timeout: 300000 })
+// 各设备最近一次下发的落库状态（applied / unverified / failed）
+export const getNtpDeviceStatus = (deviceIds) =>
+  api.get('/ntp/devices/status', { params: { device_ids: (deviceIds || []).join(',') } })
+
+// 设备下发的命令模板（厂商 × 动作 = 4 套；页面可编辑）
+export const getNtpTemplates = () => api.get('/ntp/command-templates')
+// body 留空表示恢复默认（后端会删除自定义记录）
+export const saveNtpTemplate = (data) => api.put('/ntp/command-templates', data)
 
 // 系统设置
 export const getMailSetting = () => api.get('/settings/mail')

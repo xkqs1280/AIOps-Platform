@@ -22,6 +22,12 @@ from app.models.audit import AuditLog
 from app.models.mail_setting import MailSetting
 from app.models.platform_setting import PlatformSetting
 from app.models.access_control import AccessControlSetting, IpWhitelistEntry
+from app.models.ntp import (
+    NtpCommandTemplate,
+    NtpDeviceConfig,
+    NtpOffsetRecord,
+    NtpSetting,
+)
 
 __all__ = [
     "Device", "DeviceComponent", "Alert", "AlertRule",
@@ -36,4 +42,5 @@ __all__ = [
     "AiSetting", "AiCache", "AiKbDoc", "AiKbChunk", "AiLog",
     "AuditLog", "MailSetting", "PlatformSetting",
     "AccessControlSetting", "IpWhitelistEntry",
+    "NtpSetting", "NtpDeviceConfig", "NtpOffsetRecord",
 ]
